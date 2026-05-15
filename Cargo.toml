@@ -56,6 +56,9 @@ maintenance = { status = "actively-developed" }
 [[example]]
 name = "01_write_mp4"
 
+[[example]]
+name = "02_write_av_mp4"
+
 [profile.release]
 debug = "full"
 strip = "none"

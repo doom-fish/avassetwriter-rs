@@ -6,6 +6,22 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Audio support** — `Writer::add_audio_input_pcm(sample_rate, channels, bits_per_sample)`
+  configures an audio track and `Writer::append_audio_pcm` muxes interleaved
+  little-endian signed-integer PCM bytes. AVAssetWriter transcodes to AAC at
+  128 kbps internally for `.mp4` / `.m4v` containers.
+- Smoke test `02_write_av_mp4` verifies the full pipeline:
+  IOSurface → H.264 video + 48 kHz stereo PCM sine → AAC-muxed `.mp4`.
+  ffprobe confirms two streams: H.264 High @ 640×480 / 2.0s and AAC LC stereo / 2.0s.
+
+### Changed
+
+- README quick-start example now demonstrates video + audio together.
+
+## Initial release
+
+### Added
+
 - Initial scaffold targeting `AVAssetWriter` with a single video track.
 - `Writer::create` / `add_video_input_from_sample` / `start_session` /
   `append_sample` / `finish`.

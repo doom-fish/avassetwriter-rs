@@ -21,6 +21,25 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> i32;
 
+    pub fn av_writer_add_audio_input_pcm(
+        writer: *mut c_void,
+        sample_rate: f64,
+        channels: u32,
+        bits_per_sample: u32,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
+    pub fn av_writer_append_audio_pcm(
+        writer: *mut c_void,
+        input_id: i32,
+        pcm_bytes: *const u8,
+        pcm_byte_count: usize,
+        frame_count: usize,
+        pts_value: i64,
+        pts_timescale: i32,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
     pub fn av_writer_start_session(
         writer: *mut c_void,
         source_time_value: i64,

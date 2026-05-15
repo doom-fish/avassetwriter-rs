@@ -26,8 +26,7 @@ fn sdk_root() -> PathBuf {
 }
 
 fn read_file(path: &PathBuf) -> String {
-    std::fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("can't read {}: {e}", path.display()))
+    std::fs::read_to_string(path).unwrap_or_else(|e| panic!("can't read {}: {e}", path.display()))
 }
 
 /// Extract Obj-C method "selectors" (the part before the first colon) and
@@ -67,8 +66,7 @@ fn report(
     referenced_in_bridge: &BTreeSet<String>,
     omitted: &BTreeSet<String>,
 ) -> Result<(), String> {
-    let wrapped: BTreeSet<&String> =
-        apple.intersection(referenced_in_bridge).collect();
+    let wrapped: BTreeSet<&String> = apple.intersection(referenced_in_bridge).collect();
     let missing: BTreeSet<&String> = apple
         .difference(referenced_in_bridge)
         .filter(|s| !omitted.contains(*s))
@@ -247,7 +245,8 @@ fn objc_to_swift_aliases() -> std::collections::BTreeMap<&'static str, &'static 
 #[test]
 fn av_asset_writer_coverage() {
     let sdk = sdk_root();
-    let header = sdk.join("System/Library/Frameworks/AVFoundation.framework/Headers/AVAssetWriter.h");
+    let header =
+        sdk.join("System/Library/Frameworks/AVFoundation.framework/Headers/AVAssetWriter.h");
     let apple = extract_objc_surface(&read_file(&header));
     let bridge = read_our_swift_bridge();
     let aliases = objc_to_swift_aliases();
@@ -282,7 +281,8 @@ fn av_asset_writer_coverage() {
 #[test]
 fn av_asset_writer_input_coverage() {
     let sdk = sdk_root();
-    let header = sdk.join("System/Library/Frameworks/AVFoundation.framework/Headers/AVAssetWriterInput.h");
+    let header =
+        sdk.join("System/Library/Frameworks/AVFoundation.framework/Headers/AVAssetWriterInput.h");
     let apple = extract_objc_surface(&read_file(&header));
     let bridge = read_our_swift_bridge();
     let aliases = objc_to_swift_aliases();
@@ -317,7 +317,8 @@ fn av_file_type_coverage() {
     // Verify that every AVFileType the bridge string-switches on is a real
     // AVFileType constant in AVMediaFormat.h.
     let sdk = sdk_root();
-    let header = sdk.join("System/Library/Frameworks/AVFoundation.framework/Headers/AVMediaFormat.h");
+    let header =
+        sdk.join("System/Library/Frameworks/AVFoundation.framework/Headers/AVMediaFormat.h");
     let apple = extract_by_pattern(
         r"AVF_EXPORT\s+AVFileType\s+const\s+(AVFileType[A-Za-z0-9]+)",
         &read_file(&header),
@@ -325,20 +326,24 @@ fn av_file_type_coverage() {
 
     let bridge = read_our_swift_bridge();
     // Look for `.mp4`, `.mov`, `.m4v` access on AVFileType.
-    let our_avfiletype_accesses: BTreeSet<String> = ["AVFileTypeMPEG4", "AVFileTypeQuickTimeMovie", "AVFileTypeAppleM4V"]
-        .into_iter()
-        .filter(|sym| {
-            // Map to the Swift dot-syntax used in the bridge.
-            let dotted = match *sym {
-                "AVFileTypeMPEG4" => "mp4",
-                "AVFileTypeQuickTimeMovie" => "mov",
-                "AVFileTypeAppleM4V" => "m4v",
-                _ => return false,
-            };
-            bridge.contains(&format!(".{dotted}"))
-        })
-        .map(String::from)
-        .collect();
+    let our_avfiletype_accesses: BTreeSet<String> = [
+        "AVFileTypeMPEG4",
+        "AVFileTypeQuickTimeMovie",
+        "AVFileTypeAppleM4V",
+    ]
+    .into_iter()
+    .filter(|sym| {
+        // Map to the Swift dot-syntax used in the bridge.
+        let dotted = match *sym {
+            "AVFileTypeMPEG4" => "mp4",
+            "AVFileTypeQuickTimeMovie" => "mov",
+            "AVFileTypeAppleM4V" => "m4v",
+            _ => return false,
+        };
+        bridge.contains(&format!(".{dotted}"))
+    })
+    .map(String::from)
+    .collect();
 
     let kept: BTreeSet<&str> = [
         "AVFileTypeMPEG4",

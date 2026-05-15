@@ -117,6 +117,43 @@ impl Writer {
         Ok(InputId(result))
     }
 
+    /// Add an audio input that will mux interleaved little-endian
+    /// signed-integer linear-PCM samples and transcode them to AAC
+    /// (128 kbps) on its way into the output container.
+    ///
+    /// * `sample_rate` — source PCM sample rate, e.g. 48_000 or 44_100 Hz
+    /// * `channels`    — 1 (mono) … 8
+    /// * `bits_per_sample` — must be 16 or 32
+    ///
+    /// Use the returned [`InputId`] with [`Writer::append_audio_pcm`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AVWriterError::InvalidArgument`] for out-of-range
+    /// parameters, [`AVWriterError::InvalidState`] if the writer cannot
+    /// accept additional inputs.
+    pub fn add_audio_input_pcm(
+        &self,
+        sample_rate: f64,
+        channels: u32,
+        bits_per_sample: u32,
+    ) -> Result<InputId, AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let result = unsafe {
+            ffi::av_writer_add_audio_input_pcm(
+                self.ptr,
+                sample_rate,
+                channels,
+                bits_per_sample,
+                &mut err_msg,
+            )
+        };
+        if result < 0 {
+            return Err(unsafe { from_swift(result, err_msg) });
+        }
+        Ok(InputId(result))
+    }
+
     /// Begin writing. Subsequent [`Writer::append_sample`] calls will produce
     /// output starting at `source_time` (numerator, timescale) — typically
     /// the presentation time of your first sample.
@@ -161,6 +198,50 @@ impl Writer {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_append_sample(self.ptr, input_id.0, sample_buffer_ptr, &mut err_msg)
+        };
+        match status {
+            ffi::status::OK => Ok(()),
+            ffi::status::INPUT_NOT_READY => Err(AVWriterError::InputNotReady),
+            other => Err(unsafe { from_swift(other, err_msg) }),
+        }
+    }
+
+    /// Append `frame_count` PCM frames (each frame = `channels` samples) to
+    /// an audio input previously created via [`Writer::add_audio_input_pcm`].
+    ///
+    /// `pcm_bytes` must contain `frame_count * channels * (bits_per_sample / 8)`
+    /// bytes of interleaved little-endian signed-integer PCM data, where
+    /// `channels` and `bits_per_sample` match the values passed to
+    /// `add_audio_input_pcm`.
+    ///
+    /// `pts` is `(value, timescale)` of the first frame; `timescale` typically
+    /// equals the configured `sample_rate` so each `value` increment moves
+    /// forward by one frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AVWriterError::InputNotReady`] when the input is back-
+    /// pressuring, [`AVWriterError::AppendFailed`] if the underlying
+    /// `CMSampleBuffer` construction or append fails.
+    pub fn append_audio_pcm(
+        &self,
+        input_id: InputId,
+        pcm_bytes: &[u8],
+        frame_count: usize,
+        pts: (i64, i32),
+    ) -> Result<(), AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let status = unsafe {
+            ffi::av_writer_append_audio_pcm(
+                self.ptr,
+                input_id.0,
+                pcm_bytes.as_ptr(),
+                pcm_bytes.len(),
+                frame_count,
+                pts.0,
+                pts.1,
+                &mut err_msg,
+            )
         };
         match status {
             ffi::status::OK => Ok(()),

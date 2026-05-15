@@ -39,11 +39,20 @@ private func ffiString(_ s: String) -> UnsafeMutablePointer<CChar>? {
     return s.withCString { strdup($0) }
 }
 
+private struct AudioFormat {
+    let sampleRate: Float64
+    let channels: Int
+    let bitsPerSample: Int
+}
+
 // MARK: - Writer object
 
 private final class Writer {
     let writer: AVAssetWriter
     var inputs: [AVAssetWriterInput] = []
+    /// Per-input audio format parameters (only populated for inputs added
+    /// via `av_writer_add_audio_input_pcm`). Indexed by InputId.
+    var audioFormats: [Int32: AudioFormat] = [:]
     var lastError: String? = nil
 
     init(writer: AVAssetWriter) {
@@ -131,6 +140,185 @@ public func av_writer_add_video_input_from_sample(
     let id = Int32(wrapper.inputs.count)
     wrapper.inputs.append(input)
     return id
+}
+
+/// Add an audio input that will mux raw little-endian signed-integer linear
+/// PCM samples into the output file. The writer will transcode to AAC
+/// internally (matches what AVAssetWriter does when the output container is
+/// `.mp4` / `.m4v`).
+///
+/// `bitsPerSample` must be 16 or 32.
+/// `channels` is typically 1 (mono) or 2 (stereo).
+/// `sampleRate` is the source sample rate in Hz (typically 44100 or 48000).
+///
+/// Returns a non-negative input id on success.
+@_cdecl("av_writer_add_audio_input_pcm")
+public func av_writer_add_audio_input_pcm(
+    _ writerPtr: UnsafeMutableRawPointer,
+    _ sampleRate: Float64,
+    _ channels: UInt32,
+    _ bitsPerSample: UInt32,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+
+    guard channels >= 1, channels <= 8 else {
+        outErrorMessage?.pointee = ffiString("channels must be in 1...8 (got \(channels))")
+        return AVW_INVALID_ARGUMENT
+    }
+    guard bitsPerSample == 16 || bitsPerSample == 32 else {
+        outErrorMessage?.pointee = ffiString("bitsPerSample must be 16 or 32 (got \(bitsPerSample))")
+        return AVW_INVALID_ARGUMENT
+    }
+
+    // outputSettings tells AVAssetWriter the *destination* encoding. For
+    // .mp4 / .m4v containers we ask it to transcode to AAC at 128 kbps,
+    // which matches the QuickTime defaults and gives the user a portable
+    // result without having to think about codec selection.
+    let outputSettings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatMPEG4AAC,
+        AVSampleRateKey: sampleRate,
+        AVNumberOfChannelsKey: Int(channels),
+        AVEncoderBitRateKey: 128_000,
+    ]
+
+    let input = AVAssetWriterInput(mediaType: .audio, outputSettings: outputSettings)
+    input.expectsMediaDataInRealTime = true
+
+    if !wrapper.writer.canAdd(input) {
+        outErrorMessage?.pointee = ffiString(
+            "writer cannot add audio input (status=\(wrapper.writer.status.rawValue))"
+        )
+        return AVW_INVALID_STATE
+    }
+    wrapper.writer.add(input)
+
+    let id = Int32(wrapper.inputs.count)
+    wrapper.inputs.append(input)
+    // Stash the source format so append_audio_pcm can rebuild a sample
+    // buffer with the same format description on every push.
+    wrapper.audioFormats[id] = AudioFormat(
+        sampleRate: sampleRate,
+        channels: Int(channels),
+        bitsPerSample: Int(bitsPerSample)
+    )
+    return id
+}
+
+/// Append `frameCount` PCM frames (each frame = `channels` samples) to the
+/// audio input identified by `inputId`. `pcmBytes` must point to
+/// `frameCount * channels * (bitsPerSample / 8)` bytes of interleaved
+/// little-endian signed-integer PCM data.
+///
+/// `pts` is the presentation time of the first frame (numerator + timescale
+/// matching the configured `sampleRate`).
+@_cdecl("av_writer_append_audio_pcm")
+public func av_writer_append_audio_pcm(
+    _ writerPtr: UnsafeMutableRawPointer,
+    _ inputId: Int32,
+    _ pcmBytes: UnsafePointer<UInt8>,
+    _ pcmByteCount: Int,
+    _ frameCount: Int,
+    _ ptsValue: Int64,
+    _ ptsTimescale: Int32,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    guard inputId >= 0 && Int(inputId) < wrapper.inputs.count else {
+        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
+        return AVW_INVALID_ARGUMENT
+    }
+    guard let fmt = wrapper.audioFormats[inputId] else {
+        outErrorMessage?.pointee = ffiString("input \(inputId) is not an audio input")
+        return AVW_INVALID_ARGUMENT
+    }
+    let input = wrapper.inputs[Int(inputId)]
+    if !input.isReadyForMoreMediaData {
+        return AVW_INPUT_NOT_READY
+    }
+
+    // Build a CMAudioFormatDescription from the cached parameters.
+    var asbd = AudioStreamBasicDescription(
+        mSampleRate: fmt.sampleRate,
+        mFormatID: kAudioFormatLinearPCM,
+        mFormatFlags: kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked,
+        mBytesPerPacket: UInt32(fmt.channels * fmt.bitsPerSample / 8),
+        mFramesPerPacket: 1,
+        mBytesPerFrame: UInt32(fmt.channels * fmt.bitsPerSample / 8),
+        mChannelsPerFrame: UInt32(fmt.channels),
+        mBitsPerChannel: UInt32(fmt.bitsPerSample),
+        mReserved: 0
+    )
+    var formatDesc: CMAudioFormatDescription?
+    var status = CMAudioFormatDescriptionCreate(
+        allocator: kCFAllocatorDefault,
+        asbd: &asbd,
+        layoutSize: 0,
+        layout: nil,
+        magicCookieSize: 0,
+        magicCookie: nil,
+        extensions: nil,
+        formatDescriptionOut: &formatDesc
+    )
+    guard status == noErr, let formatDesc = formatDesc else {
+        outErrorMessage?.pointee = ffiString("CMAudioFormatDescriptionCreate failed: \(status)")
+        return AVW_APPEND_FAILED
+    }
+
+    // Wrap the PCM bytes in a CMBlockBuffer that doesn't copy the memory.
+    var blockBuffer: CMBlockBuffer?
+    status = CMBlockBufferCreateWithMemoryBlock(
+        allocator: kCFAllocatorDefault,
+        memoryBlock: nil,
+        blockLength: pcmByteCount,
+        blockAllocator: kCFAllocatorDefault,
+        customBlockSource: nil,
+        offsetToData: 0,
+        dataLength: pcmByteCount,
+        flags: kCMBlockBufferAssureMemoryNowFlag,
+        blockBufferOut: &blockBuffer
+    )
+    guard status == noErr, let blockBuffer = blockBuffer else {
+        outErrorMessage?.pointee = ffiString("CMBlockBufferCreate failed: \(status)")
+        return AVW_APPEND_FAILED
+    }
+    status = CMBlockBufferReplaceDataBytes(
+        with: pcmBytes,
+        blockBuffer: blockBuffer,
+        offsetIntoDestination: 0,
+        dataLength: pcmByteCount
+    )
+    guard status == noErr else {
+        outErrorMessage?.pointee = ffiString("CMBlockBufferReplaceDataBytes failed: \(status)")
+        return AVW_APPEND_FAILED
+    }
+
+    // Create the CMSampleBuffer with timing info.
+    let pts = CMTime(value: ptsValue, timescale: ptsTimescale)
+    var sampleBuffer: CMSampleBuffer?
+    status = CMAudioSampleBufferCreateReadyWithPacketDescriptions(
+        allocator: kCFAllocatorDefault,
+        dataBuffer: blockBuffer,
+        formatDescription: formatDesc,
+        sampleCount: CMItemCount(frameCount),
+        presentationTimeStamp: pts,
+        packetDescriptions: nil,
+        sampleBufferOut: &sampleBuffer
+    )
+    guard status == noErr, let sampleBuffer = sampleBuffer else {
+        outErrorMessage?.pointee = ffiString(
+            "CMAudioSampleBufferCreateReadyWithPacketDescriptions failed: \(status)"
+        )
+        return AVW_APPEND_FAILED
+    }
+
+    if !input.append(sampleBuffer) {
+        let msg = wrapper.writer.error?.localizedDescription
+            ?? "audio append() returned false (status=\(wrapper.writer.status.rawValue))"
+        outErrorMessage?.pointee = ffiString(msg)
+        return AVW_APPEND_FAILED
+    }
+    return AVW_OK
 }
 
 // MARK: - Start / append / finish
