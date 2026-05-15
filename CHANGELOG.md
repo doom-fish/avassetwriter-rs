@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-05-15
+
+### Changed (BREAKING)
+
+- `Writer::add_video_input_from_sample(*mut c_void)` →
+  `add_video_input_from_sample(&apple_cf::cm::CMSampleBuffer)`. The opaque
+  pointer overload is gone; pass the safe wrapper directly.
+- `Writer::append_sample(InputId, *mut c_void)` →
+  `append_sample(InputId, &apple_cf::cm::CMSampleBuffer)`.
+
+### Added
+
+- `apple-cf` as a regular dependency (with `cm` feature).
+
 ## [Unreleased]
 
 ### Added

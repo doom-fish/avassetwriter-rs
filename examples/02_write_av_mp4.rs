@@ -44,16 +44,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let first_frame = encoder.encode(&surface, (0, video_fps))?;
 
     let writer = Writer::create(output, FileType::Mp4)?;
-    let video_input = writer.add_video_input_from_sample(first_frame.cm_sample_buffer_ptr())?;
+    let video_input = writer.add_video_input_from_sample(
+        first_frame
+            .cm_sample_buffer()
+            .expect("first frame sample buffer"),
+    )?;
     let audio_input = writer.add_audio_input_pcm(sample_rate, channels, bits_per_sample)?;
     writer.start_session((0, video_fps))?;
 
     // 1. Write the video track
-    writer.append_sample(video_input, first_frame.cm_sample_buffer_ptr())?;
+    writer.append_sample(
+        video_input,
+        first_frame
+            .cm_sample_buffer()
+            .expect("first frame sample buffer"),
+    )?;
     for i in 1..total_frames {
         fill_surface(&surface, i)?;
         let frame = encoder.encode(&surface, (i64::from(i), video_fps))?;
-        writer.append_sample(video_input, frame.cm_sample_buffer_ptr())?;
+        let sb = frame
+            .cm_sample_buffer()
+            .expect("encoded frame sample buffer");
+        writer.append_sample(video_input, sb)?;
     }
     println!("wrote {total_frames} video frames");
 

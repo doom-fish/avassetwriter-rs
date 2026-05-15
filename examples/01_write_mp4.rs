@@ -40,18 +40,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let first_encoded = encoder.encode(&surface, (0, fps))?;
 
     let writer = Writer::create(output, FileType::Mp4)?;
-    let input_id = writer.add_video_input_from_sample(first_encoded.cm_sample_buffer_ptr())?;
+    let input_id = writer.add_video_input_from_sample(
+        first_encoded
+            .cm_sample_buffer()
+            .expect("first frame must have a sample buffer"),
+    )?;
     writer.start_session((0, fps))?;
-    writer.append_sample(input_id, first_encoded.cm_sample_buffer_ptr())?;
+    writer.append_sample(
+        input_id,
+        first_encoded
+            .cm_sample_buffer()
+            .expect("first frame must have a sample buffer"),
+    )?;
     println!("wrote frame  0: {} bytes", first_encoded.data.len());
 
     for i in 1..total_frames {
         fill_surface(&surface, i)?;
         let encoded = encoder.encode(&surface, (i64::from(i), fps))?;
+        let sb = encoded
+            .cm_sample_buffer()
+            .expect("encoded frame must have a sample buffer");
         // Backoff on transient AVW_INPUT_NOT_READY — at 30 fps in real-time
         // mode this should essentially never trigger.
         loop {
-            match writer.append_sample(input_id, encoded.cm_sample_buffer_ptr()) {
+            match writer.append_sample(input_id, sb) {
                 Ok(()) => break,
                 Err(AVWriterError::InputNotReady) => {
                     std::thread::sleep(std::time::Duration::from_millis(1));

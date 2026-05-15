@@ -5,6 +5,8 @@ use core::ptr;
 use std::ffi::CString;
 use std::path::Path;
 
+use apple_cf::cm::CMSampleBuffer;
+
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
 
@@ -86,12 +88,12 @@ impl Writer {
     }
 
     /// Add a video input whose format is inferred from the supplied
-    /// `CMSampleBuffer`. The sample buffer is used **only** to read the
+    /// [`CMSampleBuffer`]. The sample buffer is used **only** to read the
     /// format description — call [`Writer::append_sample`] to actually
     /// write data.
     ///
-    /// `sample_buffer_ptr` is typically obtained from
-    /// `videotoolbox::EncodedFrame::cm_sample_buffer_ptr`.
+    /// `sample_buffer` is typically obtained from
+    /// `videotoolbox::EncodedFrame::cm_sample_buffer()`.
     ///
     /// # Errors
     ///
@@ -100,16 +102,15 @@ impl Writer {
     /// writer cannot accept any more inputs.
     pub fn add_video_input_from_sample(
         &self,
-        sample_buffer_ptr: *mut c_void,
+        sample_buffer: &CMSampleBuffer,
     ) -> Result<InputId, AVWriterError> {
-        if sample_buffer_ptr.is_null() {
-            return Err(AVWriterError::InvalidArgument(
-                "sample_buffer_ptr is null".into(),
-            ));
-        }
         let mut err_msg: *mut c_char = ptr::null_mut();
         let result = unsafe {
-            ffi::av_writer_add_video_input_from_sample(self.ptr, sample_buffer_ptr, &mut err_msg)
+            ffi::av_writer_add_video_input_from_sample(
+                self.ptr,
+                sample_buffer.as_ptr(),
+                &mut err_msg,
+            )
         };
         if result < 0 {
             return Err(unsafe { from_swift(result, err_msg) });
@@ -174,10 +175,10 @@ impl Writer {
         Ok(())
     }
 
-    /// Append a single sample buffer to the input identified by `input_id`.
+    /// Append a single [`CMSampleBuffer`] to the input identified by `input_id`.
     ///
-    /// `sample_buffer_ptr` is typically obtained from
-    /// `videotoolbox::EncodedFrame::cm_sample_buffer_ptr`. Samples must be
+    /// The sample buffer is typically obtained from
+    /// `videotoolbox::EncodedFrame::cm_sample_buffer()`. Samples must be
     /// appended in monotonically increasing presentation-time order.
     ///
     /// # Errors
@@ -188,16 +189,11 @@ impl Writer {
     pub fn append_sample(
         &self,
         input_id: InputId,
-        sample_buffer_ptr: *mut c_void,
+        sample_buffer: &CMSampleBuffer,
     ) -> Result<(), AVWriterError> {
-        if sample_buffer_ptr.is_null() {
-            return Err(AVWriterError::InvalidArgument(
-                "sample_buffer_ptr is null".into(),
-            ));
-        }
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_append_sample(self.ptr, input_id.0, sample_buffer_ptr, &mut err_msg)
+            ffi::av_writer_append_sample(self.ptr, input_id.0, sample_buffer.as_ptr(), &mut err_msg)
         };
         match status {
             ffi::status::OK => Ok(()),

@@ -1,6 +1,6 @@
 [package]
 name = "avassetwriter"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/doom-fish/avassetwriter-rs"
@@ -38,6 +38,7 @@ crate-type = ["lib"]
 default = []
 
 [dependencies]
+apple-cf = { path = "../apple-cf-rs", default-features = false, features = ["cm"] }
 
 [dev-dependencies]
 regex-lite = "0.1"

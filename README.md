@@ -25,16 +25,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Video: seed format from first encoded frame, then push every frame.
     let first = encoder.encode(&surface, (0, 30))?;
-    let video = writer.add_video_input_from_sample(first.cm_sample_buffer_ptr())?;
+    let video = writer.add_video_input_from_sample(first.cm_sample_buffer().unwrap())?;
 
     // Audio: 48 kHz stereo i16 PCM → AAC 128 kbps.
     let audio = writer.add_audio_input_pcm(48_000.0, 2, 16)?;
 
     writer.start_session((0, 30))?;
-    writer.append_sample(video, first.cm_sample_buffer_ptr())?;
+    writer.append_sample(video, first.cm_sample_buffer().unwrap())?;
     for i in 1..30 {
         let frame = encoder.encode(&surface, (i64::from(i), 30))?;
-        writer.append_sample(video, frame.cm_sample_buffer_ptr())?;
+        writer.append_sample(video, frame.cm_sample_buffer().unwrap())?;
     }
 
     let pcm: Vec<i16> = vec![0; 48_000 * 2]; // 1 second of silence, stereo
