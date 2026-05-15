@@ -361,6 +361,53 @@ fn av_file_type_coverage() {
     report("AVFileType", &apple, &our_avfiletype_accesses, &omitted).unwrap();
 }
 
+#[test]
+fn av_audio_settings_keys_coverage() {
+    // The audio-input track is configured via a `[AVAudio*Key: value]`
+    // dictionary. Verify every key our bridge uses is a real, currently-
+    // valid `AVAudioSettings.h` constant — so a future SDK rename surfaces
+    // here instead of as a runtime no-op (Apple silently ignores unknown
+    // dictionary keys in `outputSettings`).
+    let sdk = sdk_root();
+    let header = sdk.join("System/Library/Frameworks/AVFAudio.framework/Headers/AVAudioSettings.h");
+    let apple = extract_by_pattern(
+        r"extern\s+NSString\s+\*\s*const\s+(AV[A-Za-z0-9]+Key)\b",
+        &read_file(&header),
+    );
+
+    let bridge = read_our_swift_bridge();
+    let our_keys: BTreeSet<String> = apple
+        .iter()
+        .filter(|name| {
+            // Swift translates `AVFormatIDKey` into the keypath form
+            // `AVFormatIDKey:` inside dictionary literals — match the bare
+            // identifier.
+            let needle = format!(r"\b{}\b", regex_lite::escape(name));
+            regex_lite::Regex::new(&needle).unwrap().is_match(&bridge)
+        })
+        .cloned()
+        .collect();
+
+    // We use AVFormatIDKey + AVSampleRateKey + AVNumberOfChannelsKey +
+    // AVEncoderBitRateKey for our AAC audio track. Every other key is
+    // intentionally omitted in v0.2.
+    let kept: BTreeSet<&str> = [
+        "AVFormatIDKey",
+        "AVSampleRateKey",
+        "AVNumberOfChannelsKey",
+        "AVEncoderBitRateKey",
+    ]
+    .into_iter()
+    .collect();
+    let omitted: BTreeSet<String> = apple
+        .iter()
+        .filter(|s| !kept.contains(s.as_str()))
+        .cloned()
+        .collect();
+
+    report("AVAudioSettings keys", &apple, &our_keys, &omitted).unwrap();
+}
+
 fn extract_by_pattern(pattern: &str, source: &str) -> BTreeSet<String> {
     let re = regex_lite::Regex::new(pattern).unwrap();
     re.captures_iter(source).map(|c| c[1].to_string()).collect()
