@@ -1,0 +1,60 @@
+[package]
+name = "avassetwriter"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/doom-fish/avassetwriter-rs"
+repository = "https://github.com/doom-fish/avassetwriter-rs"
+description = "Safe Rust bindings for Apple's AVAssetWriter — mux encoded video/audio into .mp4 / .mov files on macOS"
+authors = ["Per Johansson <per@doom.fish>"]
+keywords = ["avassetwriter", "mp4", "macos", "video", "muxer"]
+categories = ["multimedia::video", "api-bindings", "os::macos-apis"]
+rust-version = "1.70"
+readme = "README.md"
+build = "build.rs"
+include = [
+    "src/**/*",
+    "swift-bridge/Package.swift",
+    "swift-bridge/Sources/**/*",
+    "build.rs",
+    "Cargo.toml",
+    "README.md",
+    "LICENSE-*",
+    "CHANGELOG.md",
+]
+
+[lints.rust]
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+
+[lib]
+name = "avassetwriter"
+crate-type = ["lib"]
+
+[features]
+default = []
+
+[dependencies]
+
+[dev-dependencies]
+videotoolbox = { path = "../videotoolbox-rs" }
+apple-cf = { path = "../apple-cf-rs" }
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "aarch64-apple-darwin"
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[[example]]
+name = "01_write_mp4"
+
+[profile.release]
+debug = "full"
+strip = "none"

@@ -1,0 +1,3 @@
+#ifndef AV_ASSET_WRITER_BRIDGE_H
+#define AV_ASSET_WRITER_BRIDGE_H
+#endif
