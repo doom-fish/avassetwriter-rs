@@ -1,6 +1,6 @@
 //! API-surface coverage harness for `avassetwriter`.
 //!
-//! AVAssetWriter is an Obj-C class — there's no `extern "C"` surface to
+//! `AVAssetWriter` is an Obj-C class — there's no `extern "C"` surface to
 //! diff. Instead we extract the public method/property names from
 //! `AVAssetWriter.h` and `AVAssetWriterInput.h`, then check which of those
 //! the Swift bridge in `swift-bridge/Sources/AVAssetWriterBridge/` actually
@@ -11,6 +11,8 @@
 //! as "wrapped". False positives from e.g. variable names that match a
 //! method name are filtered out by the `intentionally_omitted()` allowlist
 //! when they cause noise.
+
+#![allow(clippy::cast_precision_loss, clippy::iter_on_single_items)]
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;

@@ -1,4 +1,4 @@
-//! Errors produced by the AVAssetWriter bridge.
+//! Errors produced by the `AVAssetWriter` bridge.
 
 use core::fmt;
 

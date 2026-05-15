@@ -14,7 +14,7 @@ use crate::ffi;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum FileType {
-    /// QuickTime `.mov`
+    /// `QuickTime` `.mov`
     Mov,
     /// MPEG-4 Part 14 `.mp4`
     Mp4,
@@ -38,7 +38,7 @@ impl FileType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InputId(i32);
 
-/// AVAssetWriter wrapper.
+/// `AVAssetWriter` wrapper.
 ///
 /// # Lifecycle
 ///
@@ -63,13 +63,19 @@ impl Writer {
     /// Create a writer that will produce a file at `path` of type `file_type`.
     ///
     /// If a file already exists at `path` it will be removed first
-    /// (AVAssetWriter refuses to overwrite).
+    /// (`AVAssetWriter` refuses to overwrite).
     ///
     /// # Errors
     ///
     /// Returns [`AVWriterError::InvalidArgument`] if `path` contains an
     /// interior NUL byte, or [`AVWriterError::WriterCreateFailed`] if
-    /// AVAssetWriter rejects the destination URL.
+    /// `AVAssetWriter` rejects the destination URL.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`FileType::as_str`] yields a string containing an
+    /// interior NUL byte — this is structurally impossible for the
+    /// hand-built constants in [`FileType`].
     pub fn create(path: impl AsRef<Path>, file_type: FileType) -> Result<Self, AVWriterError> {
         let path_str = path
             .as_ref()
@@ -122,7 +128,7 @@ impl Writer {
     /// signed-integer linear-PCM samples and transcode them to AAC
     /// (128 kbps) on its way into the output container.
     ///
-    /// * `sample_rate` — source PCM sample rate, e.g. 48_000 or 44_100 Hz
+    /// * `sample_rate` — source PCM sample rate, e.g. `48_000` or `44_100` Hz
     /// * `channels`    — 1 (mono) … 8
     /// * `bits_per_sample` — must be 16 or 32
     ///
@@ -161,7 +167,7 @@ impl Writer {
     ///
     /// # Errors
     ///
-    /// Returns [`AVWriterError::StartFailed`] if AVAssetWriter rejects the
+    /// Returns [`AVWriterError::StartFailed`] if `AVAssetWriter` rejects the
     /// session start (usually because no inputs were added or one is
     /// misconfigured).
     pub fn start_session(&self, source_time: (i64, i32)) -> Result<(), AVWriterError> {

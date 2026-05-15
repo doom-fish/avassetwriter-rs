@@ -12,19 +12,20 @@
 //! Designed to consume `CMSampleBuffer`s directly from
 //! [`videotoolbox`](https://github.com/doom-fish/videotoolbox-rs) so the
 //! recording pipeline (capture → encode → mux) stays zero-copy from
-//! IOSurface all the way to disk.
+//! `IOSurface` all the way to disk.
 //!
 //! # Quick start
 //!
 //! ```rust,no_run
 //! use avassetwriter::{FileType, Writer};
+//! use apple_cf::cm::CMSampleBuffer;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # let cm_sample_buffer_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+//! # let sample: &CMSampleBuffer = unreachable!("doctest stub");
 //! let writer = Writer::create("/tmp/out.mp4", FileType::Mp4)?;
-//! let input_id = writer.add_video_input_from_sample(cm_sample_buffer_ptr)?;
+//! let input_id = writer.add_video_input_from_sample(sample)?;
 //! writer.start_session((0, 60))?;
-//! writer.append_sample(input_id, cm_sample_buffer_ptr)?;
+//! writer.append_sample(input_id, sample)?;
 //! writer.finish()?;
 //! # Ok(())
 //! # }

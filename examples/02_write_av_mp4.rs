@@ -1,9 +1,16 @@
 //! Smoke test: write a 60-frame H.264 video + a matching 2-second 48 kHz
-//! stereo PCM sine-wave track into /tmp/avassetwriter_av_smoke.mp4.
+//! stereo PCM sine-wave track into /`tmp/avassetwriter_av_smoke.mp4`.
 //!
+
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+)]
 //! Verifies:
-//!   IOSurface --> VideoToolbox --> AVAssetWriter (video)
-//!   PCM bytes -->  AVAssetWriter (audio, transcoded to AAC internally)
+//!   `IOSurface` --> `VideoToolbox` --> `AVAssetWriter` (video)
+//!   PCM bytes -->  `AVAssetWriter` (audio, transcoded to AAC internally)
 //! ...both interleaved into a single .mp4 with two tracks.
 //!
 //! Run with: `cargo run --example 02_write_av_mp4`

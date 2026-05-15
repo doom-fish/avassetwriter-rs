@@ -1,7 +1,9 @@
 //! Smoke test: encode 60 frames with videotoolbox-rs and mux them into
-//! /tmp/avassetwriter_smoke.mp4. Verifies the full
+//! /`tmp/avassetwriter_smoke.mp4`. Verifies the full
 //!
-//!   IOSurface → VideoToolbox → AVAssetWriter → .mp4 file
+
+#![allow(clippy::similar_names)]
+//!   `IOSurface` → `VideoToolbox` → `AVAssetWriter` → .mp4 file
 //!
 //! pipeline end-to-end.
 //!
