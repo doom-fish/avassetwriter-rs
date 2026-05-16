@@ -1,6 +1,6 @@
 [package]
 name = "avassetwriter"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/doom-fish/avassetwriter-rs"
@@ -38,12 +38,12 @@ crate-type = ["lib"]
 default = []
 
 [dependencies]
-apple-cf = { path = "../apple-cf-rs", version = "0.1.1", default-features = false, features = ["cm", "cv"] }
+apple-cf = { path = "../apple-cf-rs", version = ">=0.1.1, <0.4", default-features = false, features = ["cm", "cv"] }
 
 [dev-dependencies]
 regex-lite = "0.1"
-videotoolbox = { path = "../videotoolbox-rs", version = "0.2" }
-apple-cf = { path = "../apple-cf-rs", version = "0.1" }
+videotoolbox = { path = "../videotoolbox-rs", version = ">=0.2, <0.6" }
+apple-cf = { path = "../apple-cf-rs", version = ">=0.1, <0.4" }
 
 [package.metadata.docs.rs]
 all-features = true

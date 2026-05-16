@@ -38,6 +38,27 @@ impl FileType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InputId(i32);
 
+/// One of Apple's `AVOutputSettingsPreset*` named export presets.
+/// Use with [`Writer::add_video_input_from_preset`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum VideoPreset {
+    /// 640x480 SD — H.264.
+    Sd640x480 = 0,
+    /// 960x540 — H.264.
+    Hd960x540 = 1,
+    /// 1280x720 HD — H.264.
+    Hd1280x720 = 2,
+    /// 1920x1080 Full HD — H.264.
+    FullHd1920x1080 = 3,
+    /// 3840x2160 4K UHD — H.264.
+    Uhd3840x2160 = 4,
+    /// 1920x1080 Full HD — HEVC (H.265).
+    Hevc1920x1080 = 5,
+    /// 3840x2160 4K UHD — HEVC (H.265).
+    Hevc3840x2160 = 6,
+}
+
 /// `AVAssetWriter` wrapper.
 ///
 /// # Lifecycle
@@ -117,6 +138,29 @@ impl Writer {
                 sample_buffer.as_ptr(),
                 &mut err_msg,
             )
+        };
+        if result < 0 {
+            return Err(unsafe { from_swift(result, err_msg) });
+        }
+        Ok(InputId(result))
+    }
+
+    /// Add a video input pre-configured by `AVOutputSettingsAssistant`
+    /// for one of Apple's named export presets. Each preset bakes in
+    /// the recommended codec, bitrate, frame rate, profile, and pixel
+    /// dimensions for that resolution/codec class.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AVWriterError::InvalidArgument`] for unknown presets,
+    /// [`AVWriterError::InvalidState`] if the writer rejects the input.
+    pub fn add_video_input_from_preset(
+        &self,
+        preset: VideoPreset,
+    ) -> Result<InputId, AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let result = unsafe {
+            ffi::av_writer_add_video_input_from_preset(self.ptr, preset as i32, &mut err_msg)
         };
         if result < 0 {
             return Err(unsafe { from_swift(result, err_msg) });

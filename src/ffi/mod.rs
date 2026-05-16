@@ -21,6 +21,12 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> i32;
 
+    pub fn av_writer_add_video_input_from_preset(
+        writer: *mut c_void,
+        preset_id: i32,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
     pub fn av_writer_add_audio_input_pcm(
         writer: *mut c_void,
         sample_rate: f64,

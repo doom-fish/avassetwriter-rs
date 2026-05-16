@@ -485,3 +485,51 @@ public func av_writer_append_pixel_buffer(
     outErrorMessage?.pointee = ffiString("pixel buffer adaptor append failed")
     return AVW_APPEND_FAILED
 }
+
+// MARK: - Output settings presets (v0.4)
+
+/// Map an integer preset id to Apple's AVOutputSettingsPreset string,
+/// then ask AVOutputSettingsAssistant for the recommended encoder
+/// settings, and add a video input to the writer.
+///
+/// Preset ids:
+///   0 = 640x480, 1 = 960x540, 2 = 1280x720, 3 = 1920x1080,
+///   4 = 3840x2160, 5 = HEVC 1920x1080, 6 = HEVC 3840x2160
+///
+/// Returns the new input id on success or a negative error code.
+@_cdecl("av_writer_add_video_input_from_preset")
+public func av_writer_add_video_input_from_preset(
+    _ writerPtr: UnsafeMutableRawPointer,
+    _ preset_id: Int32,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    let preset: AVOutputSettingsPreset
+    switch preset_id {
+    case 0: preset = .preset640x480
+    case 1: preset = .preset960x540
+    case 2: preset = .preset1280x720
+    case 3: preset = .preset1920x1080
+    case 4: preset = .preset3840x2160
+    case 5: preset = AVOutputSettingsPreset.hevc1920x1080
+    case 6: preset = AVOutputSettingsPreset.hevc3840x2160
+    default:
+        outErrorMessage?.pointee = ffiString("unknown preset id \(preset_id)")
+        return AVW_INVALID_ARGUMENT
+    }
+    guard let assistant = AVOutputSettingsAssistant(preset: preset),
+          let videoSettings = assistant.videoSettings else {
+        outErrorMessage?.pointee = ffiString("AVOutputSettingsAssistant returned nil for preset")
+        return AVW_INVALID_ARGUMENT
+    }
+    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let input = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+    input.expectsMediaDataInRealTime = true
+    if !wrapper.writer.canAdd(input) {
+        outErrorMessage?.pointee = ffiString("writer cannot add video input (status=\(wrapper.writer.status.rawValue))")
+        return AVW_INVALID_STATE
+    }
+    wrapper.writer.add(input)
+    let id = Int32(wrapper.inputs.count)
+    wrapper.inputs.append(input)
+    return id
+}

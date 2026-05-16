@@ -38,7 +38,7 @@ pub mod ffi;
 pub mod writer;
 
 pub use error::AVWriterError;
-pub use writer::{FileType, InputId, Writer};
+pub use writer::{FileType, InputId, VideoPreset, Writer};
 
 /// Common imports.
 pub mod prelude {
