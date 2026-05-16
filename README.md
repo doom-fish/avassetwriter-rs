@@ -1,8 +1,8 @@
 # avassetwriter
 
-Safe Rust bindings for Apple's [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter), [AVOutputSettingsAssistant](https://developer.apple.com/documentation/avfoundation/avoutputsettingsassistant), and [AVAssetExportSession](https://developer.apple.com/documentation/avfoundation/avassetexportsession) — covering writer configuration/readback, audio/video/metadata inputs, pixel-buffer/metadata/caption/tagged-buffer adaptors, output-settings recommendations, export preset discovery, compatibility checks, and file export on macOS.
+Safe Rust bindings for Apple's [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter), [AVOutputSettingsAssistant](https://developer.apple.com/documentation/avfoundation/avoutputsettingsassistant), and [AVAssetExportSession](https://developer.apple.com/documentation/avfoundation/avassetexportsession) — covering writer configuration/readback, audio/video/metadata inputs, pixel-buffer/metadata/caption/tagged-buffer adaptors, output-settings recommendations, export preset discovery, compatibility checks, export-session media-processing objects, and file export on macOS.
 
-> **Status:** `0.7.0` substantially covers the public writer / output-settings / export-session surface used when building real muxing and transcode pipelines.
+> **Status:** `0.7.1` substantially covers the public writer / output-settings / export-session surface used when building real muxing and transcode pipelines.
 
 Designed to compose with [`videotoolbox`](https://github.com/doom-fish/videotoolbox-rs): hand the `CMSampleBuffer` straight from the encoder to the muxer for video, push interleaved PCM bytes for audio, or build pixel-buffer / metadata-driven pipelines directly.
 
@@ -76,7 +76,7 @@ See [`COVERAGE.md`](COVERAGE.md) for the current Apple-SDK audit, including impl
 - Inputs: sample-buffer video/audio, PCM audio, generic inputs, metadata inputs, caption/text inputs, pixel-buffer inputs, tagged-pixel-buffer-group inputs, multi-input groups
 - Adaptors: pixel-buffer, tagged-pixel-buffer-group, metadata, caption
 - `OutputSettingsAssistant`: all current output-settings presets, recommended audio/video dictionaries, recommended file type, source format hints, and source frame-duration hints
-- `ExportSession`: preset discovery, compatibility checks, output file/type configuration, progress/status/error readback, compatible file types, time-range/file-length estimates, metadata, multipass/temp-dir controls, and synchronous export/cancel wrappers
+- `ExportSession`: preset discovery, compatibility checks, output file/type configuration, progress/status/error readback, compatible file types, time-range/file-length estimates, metadata/metadata-filter control, audio-mix/video-composition/custom-compositor interop, multipass/temp-dir controls, and synchronous export/cancel wrappers
 - Input readback/configuration: media type, metadata, language tags, transforms, volume, source hints, media-data location, multipass state, track associations
 - Segmented-output callbacks and `AVFileTypeProfile`
 - Smoke examples:

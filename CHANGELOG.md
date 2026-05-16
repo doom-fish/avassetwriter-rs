@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.1] - 2026-05-16
+
+### Added
+
+- Lightweight `MetadataItemFilter`, `AudioMix`, `VideoComposition`, and `VideoCompositor` wrappers for `AVAssetExportSession` media-processing interop.
+- `ExportSession::{metadata_item_filter,set_metadata_item_filter,audio_mix,set_audio_mix,video_composition,set_video_composition,custom_video_compositor}` plus a built-in passthrough `VideoCompositorClass` for custom-compositor round-trips.
+- Extended export-session smoke coverage and example flow to exercise metadata filters, audio mixes, video compositions, and custom video compositor inspection.
+
+### Changed
+
+- `COVERAGE.md` / `COVERAGE_AUDIT.md` now report full top-level `AVAssetExportSession.h` coverage on macOS, with only deprecated or intentionally deferred rows remaining.
+
 ## [0.7.0] - 2026-05-16
 
 ### Added

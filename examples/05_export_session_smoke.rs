@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 use apple_cf::iosurface::{IOSurface, IOSurfaceLockOptions};
 use avassetwriter::{
-    ExportPreset, ExportSession, FileType, MetadataItem, Time, TimeRange, TrackGroupOutputHandling,
-    Writer,
+    AudioMix, ExportPreset, ExportSession, FileType, MetadataItem, MetadataItemFilter, Time,
+    TimeRange, TrackGroupOutputHandling, VideoComposition, VideoCompositorClass, Writer,
 };
 use videotoolbox::prelude::*;
 
@@ -18,6 +18,7 @@ const HEIGHT: usize = 120;
 const FPS: i32 = 30;
 const TOTAL_FRAMES: i32 = 4;
 
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let artifacts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/example-artifacts");
     std::fs::create_dir_all(&artifacts)?;
@@ -48,6 +49,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let temp_dir = artifacts.join("export-session-temp");
     std::fs::create_dir_all(&temp_dir)?;
 
+    session.set_output_file_type(Some(output_type))?;
+    session.set_output_path(Some(output.as_path()))?;
+    session.set_should_optimize_for_network_use(true)?;
+    session.set_time_range(TimeRange::new(
+        Time::new(0, FPS),
+        Time::new(i64::from(TOTAL_FRAMES), FPS),
+    ))?;
+    session.set_metadata(&[MetadataItem::string(
+        "mdta/com.apple.quicktime.title",
+        "export session smoke",
+    )])?;
+    let sharing_filter = MetadataItemFilter::for_sharing()?;
+    session.set_metadata_item_filter(Some(&sharing_filter))?;
+
+    let audio_mix = AudioMix::new()?;
+    session.set_audio_mix(Some(&audio_mix))?;
+    println!(
+        "audio mix parameters: {}",
+        session
+            .audio_mix()?
+            .expect("audio mix should round-trip")
+            .input_parameter_count()?
+    );
+    session.set_audio_mix(None)?;
+
+    let video_composition = VideoComposition::from_asset(&source)?;
+    video_composition.set_custom_video_compositor_class(Some(VideoCompositorClass::Passthrough))?;
+    session.set_video_composition(Some(&video_composition))?;
+    if let Some(compositor) = session.custom_video_compositor()? {
+        println!("custom compositor: {}", compositor.class_name()?);
+    }
+    session.set_video_composition(None)?;
+
+    let session = ExportSession::new(&source, preset)?;
     session.set_output_file_type(Some(output_type))?;
     session.set_output_path(Some(output.as_path()))?;
     session.set_should_optimize_for_network_use(true)?;

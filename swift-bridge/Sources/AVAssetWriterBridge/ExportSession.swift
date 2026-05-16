@@ -346,6 +346,97 @@ public func av_export_session_set_metadata_json(
     }
 }
 
+@_cdecl("av_export_session_metadata_item_filter")
+public func av_export_session_metadata_item_filter(
+    _ sessionPtr: UnsafeMutableRawPointer
+) -> UnsafeMutableRawPointer? {
+    guard #available(macOS 10.9, *) else {
+        return nil
+    }
+    let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
+    guard let filter = session.metadataItemFilter else {
+        return nil
+    }
+    return Unmanaged.passRetained(filter).toOpaque()
+}
+
+@_cdecl("av_export_session_set_metadata_item_filter")
+public func av_export_session_set_metadata_item_filter(
+    _ sessionPtr: UnsafeMutableRawPointer,
+    _ filterPtr: UnsafeMutableRawPointer?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    guard #available(macOS 10.9, *) else {
+        outErrorMessage?.pointee = ffiString("metadata filters require macOS 10.9+")
+        return AVW_INVALID_STATE
+    }
+    let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
+    session.metadataItemFilter = filterPtr.map { Unmanaged<AVMetadataItemFilter>.fromOpaque($0).takeUnretainedValue() }
+    return AVW_OK
+}
+
+@_cdecl("av_export_session_audio_mix")
+public func av_export_session_audio_mix(
+    _ sessionPtr: UnsafeMutableRawPointer
+) -> UnsafeMutableRawPointer? {
+    let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
+    guard let audioMix = session.audioMix else {
+        return nil
+    }
+    return Unmanaged.passRetained(audioMix).toOpaque()
+}
+
+@_cdecl("av_export_session_set_audio_mix")
+public func av_export_session_set_audio_mix(
+    _ sessionPtr: UnsafeMutableRawPointer,
+    _ audioMixPtr: UnsafeMutableRawPointer?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
+    session.audioMix = audioMixPtr.map { Unmanaged<AVAudioMix>.fromOpaque($0).takeUnretainedValue() }
+    _ = outErrorMessage
+    return AVW_OK
+}
+
+@_cdecl("av_export_session_video_composition")
+public func av_export_session_video_composition(
+    _ sessionPtr: UnsafeMutableRawPointer
+) -> UnsafeMutableRawPointer? {
+    let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
+    guard let composition = session.videoComposition else {
+        return nil
+    }
+    return Unmanaged.passRetained(composition).toOpaque()
+}
+
+@_cdecl("av_export_session_set_video_composition")
+public func av_export_session_set_video_composition(
+    _ sessionPtr: UnsafeMutableRawPointer,
+    _ compositionPtr: UnsafeMutableRawPointer?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
+    session.videoComposition = compositionPtr.map {
+        Unmanaged<AVVideoComposition>.fromOpaque($0).takeUnretainedValue()
+    }
+    _ = outErrorMessage
+    return AVW_OK
+}
+
+@_cdecl("av_export_session_custom_video_compositor")
+public func av_export_session_custom_video_compositor(
+    _ sessionPtr: UnsafeMutableRawPointer
+) -> UnsafeMutableRawPointer? {
+    guard #available(macOS 10.9, *) else {
+        return nil
+    }
+    let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
+    guard let compositor = session.customVideoCompositor as? NSObject else {
+        return nil
+    }
+    return Unmanaged.passRetained(compositor).toOpaque()
+}
+
 @_cdecl("av_export_session_set_can_perform_multiple_passes_over_source_media_data")
 public func av_export_session_set_can_perform_multiple_passes_over_source_media_data(
     _ sessionPtr: UnsafeMutableRawPointer,

@@ -117,11 +117,11 @@ Legend:
 | `estimateMaximumDurationWithCompletionHandler:` | ✅ implemented | `ExportSession::estimated_maximum_duration`. |
 | `estimateOutputFileLengthWithCompletionHandler:` | ✅ implemented | `ExportSession::estimated_output_file_length`. |
 | `metadata` | ✅ implemented | Getter + setter using `MetadataItem`. |
-| `metadataItemFilter` | ⏭️ skipped | Requires a separate `AVMetadataItemFilter` wrapper surface. |
+| `metadataItemFilter` | ✅ implemented | `MetadataItemFilter` + `ExportSession::{metadata_item_filter,set_metadata_item_filter}`. |
 | `audioTimePitchAlgorithm` | ⏭️ skipped | Requires a dedicated safe wrapper for AVFAudio processing constants/validation. |
-| `audioMix` | ⏭️ skipped | Requires `AVAudioMix` wrappers that are outside this crate's current scope. |
-| `videoComposition` | ⏭️ skipped | Requires `AVVideoComposition` wrappers that are outside this crate's current scope. |
-| `customVideoCompositor` | ⏭️ skipped | Requires `AVVideoCompositing` wrappers that are outside this crate's current scope. |
+| `audioMix` | ✅ implemented | `AudioMix` + `ExportSession::{audio_mix,set_audio_mix}`. |
+| `videoComposition` | ✅ implemented | `VideoComposition` + `ExportSession::{video_composition,set_video_composition}`. |
+| `customVideoCompositor` | ✅ implemented | `VideoCompositor`, `VideoCompositorClass`, and `ExportSession::custom_video_compositor` cover the protocol/object readback path. |
 | `audioTrackGroupHandling` | ✅ implemented | `TrackGroupOutputHandling` getter + setter. |
 | `canPerformMultiplePassesOverSourceMediaData` | ✅ implemented | Getter + setter. |
 | `directoryForTemporaryFiles` | ✅ implemented | Getter + setter. |
@@ -141,7 +141,7 @@ Legend:
 
 ## Deferred / intentionally skipped summary
 
-1. `AVAssetExportSession` media-processing object properties (`metadataItemFilter`, `audioMix`, `videoComposition`, `customVideoCompositor`) are intentionally deferred until this crate grows corresponding safe wrappers for those AVFoundation subsystems.
-2. `AVAssetExportSession.audioTimePitchAlgorithm` is deferred for the same reason: it wants a dedicated safe constant layer instead of a stringly API.
+1. `AVAssetExportSession.audioTimePitchAlgorithm` remains deferred until this crate grows a safe constant layer for AVFAudio processing algorithms instead of exposing stringly typed values.
+2. `MetadataItemFilter`, `AudioMix`, `VideoComposition`, and `VideoCompositor` are intentionally lightweight wrappers focused on export-session interop rather than full AVFoundation instruction/input-parameter editing APIs.
 3. Deprecated `AVAssetExportSession.maxDuration` / `estimatedOutputFileLength` remain skipped in favor of the modern async estimate APIs.
 4. `AVVideoSettings` constants are currently exposed as JSON dictionaries rather than as a dedicated typed Rust wrapper.

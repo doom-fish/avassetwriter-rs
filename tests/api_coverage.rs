@@ -158,12 +158,8 @@ fn av_asset_export_session_intentionally_omitted() -> BTreeSet<String> {
         // Deprecated properties replaced by async estimators.
         "maxDuration",
         "estimatedOutputFileLength",
-        // Complex AVFoundation media-processing objects not yet wrapped here.
-        "metadataItemFilter",
+        // Still deferred until this crate grows a safe constant layer.
         "audioTimePitchAlgorithm",
-        "audioMix",
-        "videoComposition",
-        "customVideoCompositor",
     ]
     .into_iter()
     .map(String::from)

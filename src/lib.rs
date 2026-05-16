@@ -45,6 +45,7 @@ pub mod caption;
 pub mod error;
 pub mod export_session;
 pub mod ffi;
+pub mod media_processing;
 pub mod metadata;
 pub mod output_settings;
 pub mod time;
@@ -53,6 +54,10 @@ pub mod writer;
 pub use caption::{Caption, CaptionGroup};
 pub use error::AVWriterError;
 pub use export_session::{ExportPreset, ExportSession, ExportStatus, TrackGroupOutputHandling};
+pub use media_processing::{
+    AudioMix, MetadataItemFilter, MetadataItemFilterKind, VideoComposition, VideoCompositor,
+    VideoCompositorClass,
+};
 pub use metadata::{MetadataItem, MetadataSpecification, MetadataValue, TimedMetadataGroup};
 pub use output_settings::OutputSettingsAssistant;
 pub use time::{Time, TimeRange};
@@ -69,6 +74,10 @@ pub mod prelude {
     pub use crate::error::AVWriterError;
     pub use crate::export_session::{
         ExportPreset, ExportSession, ExportStatus, TrackGroupOutputHandling,
+    };
+    pub use crate::media_processing::{
+        AudioMix, MetadataItemFilter, MetadataItemFilterKind, VideoComposition, VideoCompositor,
+        VideoCompositorClass,
     };
     pub use crate::metadata::{
         MetadataItem, MetadataSpecification, MetadataValue, TimedMetadataGroup,

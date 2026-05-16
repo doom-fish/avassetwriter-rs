@@ -340,3 +340,23 @@ struct ExportSessionInfoPayload: Codable {
     let audioTrackGroupHandling: UInt64
 }
 
+struct AudioMixInfoPayload: Codable {
+    let inputParameterCount: Int
+}
+
+struct VideoCompositionInfoPayload: Codable {
+    let frameDuration: TimePayload
+    let renderSize: SizePayload
+    let renderScale: Float
+    let instructionCount: Int
+    let customVideoCompositorClassName: String?
+}
+
+struct VideoCompositorInfoPayload: Codable {
+    let className: String
+    let sourcePixelBufferAttributesJson: String?
+    let requiredPixelBufferAttributesForRenderContextJson: String?
+    let supportsWideColorSourceFrames: Bool
+    let supportsHDRSourceFrames: Bool
+}
+

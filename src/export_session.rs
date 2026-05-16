@@ -11,6 +11,7 @@ use crate::bridge_support::{
 };
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
+use crate::media_processing::{AudioMix, MetadataItemFilter, VideoComposition, VideoCompositor};
 use crate::metadata::MetadataItem;
 use crate::time::{Time, TimeRange};
 use crate::writer::FileType;
@@ -497,6 +498,81 @@ impl ExportSession {
             return Err(unsafe { from_swift(status, err_msg) });
         }
         Ok(())
+    }
+
+    pub fn metadata_item_filter(&self) -> Result<Option<MetadataItemFilter>, AVWriterError> {
+        Ok(MetadataItemFilter::from_raw(unsafe {
+            ffi::av_export_session_metadata_item_filter(self.ptr)
+        }))
+    }
+
+    pub fn set_metadata_item_filter(
+        &self,
+        filter: Option<&MetadataItemFilter>,
+    ) -> Result<(), AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let status = unsafe {
+            ffi::av_export_session_set_metadata_item_filter(
+                self.ptr,
+                filter.map_or(ptr::null_mut(), MetadataItemFilter::as_ptr),
+                &mut err_msg,
+            )
+        };
+        if status != ffi::status::OK {
+            return Err(unsafe { from_swift(status, err_msg) });
+        }
+        Ok(())
+    }
+
+    pub fn audio_mix(&self) -> Result<Option<AudioMix>, AVWriterError> {
+        Ok(AudioMix::from_raw(unsafe {
+            ffi::av_export_session_audio_mix(self.ptr)
+        }))
+    }
+
+    pub fn set_audio_mix(&self, audio_mix: Option<&AudioMix>) -> Result<(), AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let status = unsafe {
+            ffi::av_export_session_set_audio_mix(
+                self.ptr,
+                audio_mix.map_or(ptr::null_mut(), AudioMix::as_ptr),
+                &mut err_msg,
+            )
+        };
+        if status != ffi::status::OK {
+            return Err(unsafe { from_swift(status, err_msg) });
+        }
+        Ok(())
+    }
+
+    pub fn video_composition(&self) -> Result<Option<VideoComposition>, AVWriterError> {
+        Ok(VideoComposition::from_raw(unsafe {
+            ffi::av_export_session_video_composition(self.ptr)
+        }))
+    }
+
+    pub fn set_video_composition(
+        &self,
+        composition: Option<&VideoComposition>,
+    ) -> Result<(), AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let status = unsafe {
+            ffi::av_export_session_set_video_composition(
+                self.ptr,
+                composition.map_or(ptr::null_mut(), VideoComposition::as_ptr),
+                &mut err_msg,
+            )
+        };
+        if status != ffi::status::OK {
+            return Err(unsafe { from_swift(status, err_msg) });
+        }
+        Ok(())
+    }
+
+    pub fn custom_video_compositor(&self) -> Result<Option<VideoCompositor>, AVWriterError> {
+        Ok(VideoCompositor::from_raw(unsafe {
+            ffi::av_export_session_custom_video_compositor(self.ptr)
+        }))
     }
 
     pub fn can_perform_multiple_passes_over_source_media_data(

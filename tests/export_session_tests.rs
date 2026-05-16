@@ -8,8 +8,9 @@ use std::path::{Path, PathBuf};
 
 use apple_cf::iosurface::{IOSurface, IOSurfaceLockOptions};
 use avassetwriter::{
-    ExportPreset, ExportSession, ExportStatus, FileType, MetadataItem, Time, TimeRange,
-    TrackGroupOutputHandling, Writer,
+    AudioMix, ExportPreset, ExportSession, ExportStatus, FileType, MetadataItem,
+    MetadataItemFilter, MetadataItemFilterKind, Time, TimeRange, TrackGroupOutputHandling,
+    VideoComposition, VideoCompositorClass, Writer,
 };
 use videotoolbox::prelude::*;
 
@@ -23,6 +24,7 @@ fn artifacts_dir() -> PathBuf {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn export_session_smoke() -> Result<(), Box<dyn std::error::Error>> {
     let artifacts = artifacts_dir();
     std::fs::create_dir_all(&artifacts)?;
@@ -75,6 +77,61 @@ fn export_session_smoke() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::remove_file(&output)?;
     }
 
+    session.set_output_file_type(Some(output_type))?;
+    session.set_output_path(Some(output.as_path()))?;
+    session.set_should_optimize_for_network_use(true)?;
+    session.set_time_range(TimeRange::new(
+        Time::new(0, FPS),
+        Time::new(i64::from(TOTAL_FRAMES), FPS),
+    ))?;
+    session.set_metadata(&[MetadataItem::string(
+        "mdta/com.apple.quicktime.title",
+        "export session smoke",
+    )])?;
+    let sharing_filter = MetadataItemFilter::for_sharing()?;
+    session.set_metadata_item_filter(Some(&sharing_filter))?;
+    let attached_filter = session
+        .metadata_item_filter()?
+        .expect("metadata filter should round-trip");
+    assert!(matches!(
+        attached_filter.kind()?,
+        MetadataItemFilterKind::Sharing
+    ));
+
+    let audio_mix = AudioMix::new()?;
+    session.set_audio_mix(Some(&audio_mix))?;
+    let attached_audio_mix = session.audio_mix()?.expect("audio mix should round-trip");
+    assert_eq!(attached_audio_mix.input_parameter_count()?, 0);
+    session.set_audio_mix(None)?;
+    assert!(session.audio_mix()?.is_none());
+
+    let video_composition = VideoComposition::from_asset(&source)?;
+    assert!(video_composition.instruction_count()? > 0);
+    let (render_width, render_height) = video_composition.render_size()?;
+    assert!(render_width > 0.0);
+    assert!(render_height > 0.0);
+    video_composition.set_custom_video_compositor_class(Some(VideoCompositorClass::Passthrough))?;
+    session.set_video_composition(Some(&video_composition))?;
+    let attached_composition = session
+        .video_composition()?
+        .expect("video composition should round-trip");
+    assert_eq!(
+        attached_composition.custom_video_compositor_class()?,
+        Some(VideoCompositorClass::Passthrough)
+    );
+    let compositor = session
+        .custom_video_compositor()?
+        .expect("custom video compositor should be created");
+    assert_eq!(compositor.kind()?, Some(VideoCompositorClass::Passthrough));
+    assert!(compositor.source_pixel_buffer_attributes()?.is_some());
+    assert!(compositor
+        .required_pixel_buffer_attributes_for_render_context()?
+        .is_some());
+    session.set_video_composition(None)?;
+    assert!(session.video_composition()?.is_none());
+    assert!(session.custom_video_compositor()?.is_none());
+
+    let session = ExportSession::new(&source, preset)?;
     session.set_output_file_type(Some(output_type))?;
     session.set_output_path(Some(output.as_path()))?;
     session.set_should_optimize_for_network_use(true)?;

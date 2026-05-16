@@ -4,9 +4,11 @@
 
 mod export_session;
 mod extended;
+mod media_processing;
 mod output_settings;
 pub use export_session::*;
 pub use extended::*;
+pub use media_processing::*;
 pub use output_settings::*;
 
 use core::ffi::{c_char, c_void};

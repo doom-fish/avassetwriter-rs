@@ -5,10 +5,10 @@ Scope: `AVAssetWriter.h`, `AVAssetWriterInput.h`, `AVAssetExportSession.h`, and 
 Methodology: per the audit instructions, counts are based on top-level public symbols (interfaces, protocols, enums, and exported constants) that are reachable from the crate's public Rust API. Objective-C member-level caveats are called out separately below but do not change the symbol counts.
 
 SDK_PUBLIC_SYMBOLS: 64
-VERIFIED: 59
-GAPS: 1
+VERIFIED: 60
+GAPS: 0
 EXEMPT: 4
-COVERAGE_PCT: 98.3%
+COVERAGE_PCT: 100.0%
 
 ## 🟢 VERIFIED
 | Symbol | Kind | Header | Wrapped by |
@@ -56,6 +56,7 @@ COVERAGE_PCT: 98.3%
 | `AVAssetExportSessionStatus` | enum | `AVAssetExportSession.h` | `ExportStatus` |
 | `AVAssetTrackGroupOutputHandling` | enum | `AVAssetExportSession.h` | `TrackGroupOutputHandling` |
 | `AVAssetExportSession` | interface | `AVAssetExportSession.h` | `ExportSession` (core export/config surface; see caveats below) |
+| `AVVideoCompositing` | protocol | `AVAssetExportSession.h` | `VideoCompositor` + `VideoCompositorClass` + `ExportSession::custom_video_compositor` |
 | `AVOutputSettingsPreset640x480` | constant | `AVOutputSettingsAssistant.h` | `VideoPreset::Sd640x480` |
 | `AVOutputSettingsPreset960x540` | constant | `AVOutputSettingsAssistant.h` | `VideoPreset::Hd960x540` |
 | `AVOutputSettingsPreset1280x720` | constant | `AVOutputSettingsAssistant.h` | `VideoPreset::Hd1280x720` |
@@ -74,9 +75,7 @@ COVERAGE_PCT: 98.3%
 | `AVOutputSettingsAssistant` | interface | `AVOutputSettingsAssistant.h` | `OutputSettingsAssistant` |
 
 ## 🔴 GAPS
-| Symbol | Kind | Header | Notes |
-| --- | --- | --- | --- |
-| `AVVideoCompositing` | protocol | `AVAssetExportSession.h` | No Rust wrapper for custom video compositor protocols; `ExportSession` does not expose `customVideoCompositor` or related composition APIs. |
+None.
 
 ## ⏭️ EXEMPT
 | Symbol | Kind | Header | Reason | SDK attribute |
@@ -88,8 +87,8 @@ COVERAGE_PCT: 98.3%
 
 ## Member-level caveats (not counted above)
 
-- `AVAssetExportSession` is only partially wrapped at the member level: `asset` is surfaced as `asset_path()` for URL-backed sessions, while `metadataItemFilter`, `audioTimePitchAlgorithm`, `audioMix`, `videoComposition`, and `customVideoCompositor` are not exposed.
-- The lone top-level gap, `AVVideoCompositing`, is a direct consequence of the missing custom-compositor / video-composition surface on `ExportSession`.
+- `AVAssetExportSession` is still partially wrapped at the member level: `asset` is surfaced as `asset_path()` for URL-backed sessions, and `audioTimePitchAlgorithm` remains intentionally deferred.
+- `MetadataItemFilter`, `AudioMix`, `VideoComposition`, and `VideoCompositor` are exposed as lightweight interop wrappers focused on round-tripping export-session state rather than full AVFoundation editing APIs.
 - `OutputSettingsAssistant` exposes `audioSettings` and `videoSettings` as `serde_json::Value` dictionaries rather than typed Rust key/value wrappers.
 - The crate models `AVAssetWriterInput` through `InputId` plus `Writer` methods rather than exposing a standalone Rust object for the Objective-C input instance.
 - `AVAssetWriterInputPixelBufferAdaptor`, `AVAssetWriterInputTaggedPixelBufferGroupAdaptor`, `AVAssetWriterInputMetadataAdaptor`, and `AVAssetWriterInputCaptionAdaptor` are all wrapped, but excluded from coverage percentage because Apple marks those Swift-imported interfaces deprecated in favor of newer receiver APIs.
