@@ -2,6 +2,9 @@
 
 #![allow(missing_docs)]
 
+mod extended;
+pub use extended::*;
+
 use core::ffi::{c_char, c_void};
 
 extern "C" {
@@ -32,10 +35,7 @@ extern "C" {
         should_optimize: bool,
     );
 
-    pub fn av_writer_set_movie_fragment_interval_seconds(
-        writer: *mut c_void,
-        seconds: f64,
-    );
+    pub fn av_writer_set_movie_fragment_interval_seconds(writer: *mut c_void, seconds: f64);
 
     pub fn av_writer_add_input_group(
         writer: *mut c_void,

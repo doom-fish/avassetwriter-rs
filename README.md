@@ -1,10 +1,10 @@
 # avassetwriter
 
-Safe Rust bindings for Apple's [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter) — mux compressed video **and PCM audio** into `.mp4` / `.mov` / `.m4v` files on macOS.
+Safe Rust bindings for Apple's [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter) — cover writer configuration/readback, audio/video/metadata inputs, pixel-buffer/metadata/caption adaptor workflows, multi-track grouping, track associations, multipass callbacks, and segmented output on macOS.
 
-> **Status:** experimental. Video + AAC-transcoded audio in v0.1; timed-metadata tracks land in v0.2.
+> **Status:** `0.6.0` substantially covers the public `AVAssetWriter` / `AVAssetWriterInput` surface plus the related adaptor and segmented-output APIs used when building real muxing pipelines.
 
-Designed to compose with [`videotoolbox`](https://github.com/doom-fish/videotoolbox-rs): hand the `CMSampleBuffer` straight from the encoder to the muxer for video, and push interleaved PCM bytes for audio (the writer transcodes to AAC internally).
+Designed to compose with [`videotoolbox`](https://github.com/doom-fish/videotoolbox-rs): hand the `CMSampleBuffer` straight from the encoder to the muxer for video, push interleaved PCM bytes for audio, or build pixel-buffer / metadata-driven pipelines directly.
 
 ## Quick start — video + audio
 
@@ -14,6 +14,11 @@ use videotoolbox::prelude::*;
 use apple_cf::iosurface::{IOSurface, IOSurfaceLockOptions};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let artifacts = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target/example-artifacts");
+    std::fs::create_dir_all(&artifacts)?;
+    let output = artifacts.join("out.mp4");
+
     let surface = IOSurface::create(640, 480, u32::from_be_bytes(*b"BGRA"), 4)
         .ok_or("alloc failed")?;
     let encoder = CompressionSession::builder(640, 480, Codec::H264)
@@ -21,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_expected_frame_rate(30.0)
         .build()?;
 
-    let writer = Writer::create("/tmp/out.mp4", FileType::Mp4)?;
+    let writer = Writer::create(&output, FileType::Mp4)?;
 
     // Video: seed format from first encoded frame, then push every frame.
     let first = encoder.encode(&surface, (0, 30))?;
@@ -62,15 +67,18 @@ screencapturekit-rs ──► IOSurface
 
 All three crates pass `CMSampleBuffer` as opaque `*mut c_void` so no shared `cm` type wrapper is required (yet).
 
-## Roadmap
+## Surface highlights
 
-- [x] Single video track from H.264/HEVC `CMSampleBuffer`
-- [x] Audio track via `add_audio_input_pcm` + `append_audio_pcm` (PCM → AAC)
-- [ ] Audio track from external `CMSampleBuffer` (zero-copy from `AVCaptureSession`)
-- [ ] Timed-metadata track
-- [ ] Per-track output settings (codec selection at writer level instead of inheriting from sample)
-- [ ] Direct ingest from raw bitstream bytes (for callers that don't have a `CMSampleBuffer` handy)
-- [ ] Async `finish()` that doesn't block the calling thread
+- `Writer::create` + `Writer::create_segmented`
+- Writer readback/configuration: status, error, output path/type, metadata, temp directory, fragment settings, duration hints, time scale, combinable fragments
+- Inputs: sample-buffer video/audio, PCM audio, generic inputs, metadata inputs, caption/text inputs, pixel-buffer inputs, multi-input groups
+- Adaptors: pixel-buffer, tagged-pixel-buffer-group surface, metadata, caption
+- Input readback/configuration: media type, metadata, language tags, transforms, volume, source hints, media-data location, multipass state, track associations
+- Segmented-output callbacks and `AVFileTypeProfile`
+- Smoke examples:
+  - `cargo run --example 01_write_mp4`
+  - `cargo run --example 02_write_av_mp4`
+  - `cargo run --example 03_smoke_surface`
 
 ## License
 

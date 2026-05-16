@@ -1,12 +1,12 @@
 //! Smoke test: write a 60-frame H.264 video + a matching 2-second 48 kHz
-//! stereo PCM sine-wave track into /`tmp/avassetwriter_av_smoke.mp4`.
+//! stereo PCM sine-wave track into `target/example-artifacts/avassetwriter_av_smoke.mp4`.
 //!
 
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    clippy::cast_possible_wrap,
+    clippy::cast_possible_wrap
 )]
 //! Verifies:
 //!   `IOSurface` --> `VideoToolbox` --> `AVAssetWriter` (video)
@@ -14,6 +14,8 @@
 //! ...both interleaved into a single .mp4 with two tracks.
 //!
 //! Run with: `cargo run --example 02_write_av_mp4`
+
+use std::path::PathBuf;
 
 use apple_cf::iosurface::{IOSurface, IOSurfaceLockOptions};
 use avassetwriter::prelude::*;
@@ -28,7 +30,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sample_rate: f64 = 48_000.0;
     let channels: u32 = 2;
     let bits_per_sample: u32 = 16;
-    let output = "/tmp/avassetwriter_av_smoke.mp4";
+    let artifacts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/example-artifacts");
+    std::fs::create_dir_all(&artifacts)?;
+    let output = artifacts.join("avassetwriter_av_smoke.mp4");
+    if output.exists() {
+        std::fs::remove_file(&output)?;
+    }
 
     let surface = IOSurface::create(
         usize::try_from(width)?,
@@ -50,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fill_surface(&surface, 0)?;
     let first_frame = encoder.encode(&surface, (0, video_fps))?;
 
-    let writer = Writer::create(output, FileType::Mp4)?;
+    let writer = Writer::create(&output, FileType::Mp4)?;
     let video_input = writer.add_video_input_from_sample(
         first_frame
             .cm_sample_buffer()
@@ -103,8 +110,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     writer.finish()?;
 
-    let metadata = std::fs::metadata(output)?;
-    println!("\nOK Wrote {output} ({} bytes)", metadata.len());
+    let metadata = std::fs::metadata(&output)?;
+    println!("\nOK Wrote {} ({} bytes)", output.display(), metadata.len());
     assert!(metadata.len() > 4096, "output file is suspiciously small");
     Ok(())
 }

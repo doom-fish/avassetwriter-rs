@@ -1,13 +1,15 @@
-//! Smoke test: encode 60 frames with videotoolbox-rs and mux them into
-//! /`tmp/avassetwriter_smoke.mp4`. Verifies the full
+//! Smoke test: encode 60 frames with `videotoolbox-rs` and mux them into
+//! `target/example-artifacts/avassetwriter_smoke.mp4`. Verifies the full
 //!
 
 #![allow(clippy::similar_names)]
-//!   `IOSurface` → `VideoToolbox` → `AVAssetWriter` → .mp4 file
+//!   `IOSurface` → `VideoToolbox` → `AVAssetWriter` → `.mp4` file
 //!
 //! pipeline end-to-end.
 //!
 //! Run with: `cargo run --example 01_write_mp4`
+
+use std::path::PathBuf;
 
 use apple_cf::iosurface::{IOSurface, IOSurfaceLockOptions};
 use avassetwriter::prelude::*;
@@ -19,7 +21,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pixel_format = u32::from_be_bytes(*b"BGRA");
     let fps = 30;
     let total_frames: i32 = 60;
-    let output = "/tmp/avassetwriter_smoke.mp4";
+    let artifacts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/example-artifacts");
+    std::fs::create_dir_all(&artifacts)?;
+    let output = artifacts.join("avassetwriter_smoke.mp4");
+    if output.exists() {
+        std::fs::remove_file(&output)?;
+    }
 
     let surface = IOSurface::create(
         usize::try_from(width)?,
@@ -41,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fill_surface(&surface, 0)?;
     let first_encoded = encoder.encode(&surface, (0, fps))?;
 
-    let writer = Writer::create(output, FileType::Mp4)?;
+    let writer = Writer::create(&output, FileType::Mp4)?;
     let input_id = writer.add_video_input_from_sample(
         first_encoded
             .cm_sample_buffer()
@@ -81,9 +88,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     writer.finish()?;
 
     // Sanity check: file should exist and be non-trivial in size.
-    let metadata = std::fs::metadata(output)?;
+    let metadata = std::fs::metadata(&output)?;
     println!(
-        "\n✓ Wrote {output} ({} bytes, {total_frames} frames @ {fps} fps)",
+        "\n✓ Wrote {} ({} bytes, {total_frames} frames @ {fps} fps)",
+        output.display(),
         metadata.len()
     );
     assert!(metadata.len() > 1024, "output file is suspiciously small");

@@ -7,6 +7,14 @@ use std::path::Path;
 
 use apple_cf::cm::CMSampleBuffer;
 
+mod extended;
+
+pub use extended::{
+    FileTypeProfile, InputGroupInfo, InputMediaDataLocation, InputPassDescription, MediaType,
+    SegmentOutput, SegmentReport, SegmentReportSampleInfo, SegmentTrackReport, SegmentType,
+    TaggedPixelBuffer, TrackAssociationType, WriterStatus,
+};
+
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
 
@@ -20,14 +28,115 @@ pub enum FileType {
     Mp4,
     /// iTunes `.m4v`
     M4v,
+    /// iTunes `.m4a`
+    M4a,
+    /// 3GPP `.3gp`
+    ThreeGpp,
+    /// 3GPP2 `.3g2`
+    ThreeGpp2,
+    /// Core Audio Format `.caf`
+    Caf,
+    /// WAVE `.wav`
+    Wav,
+    /// AIFF `.aiff`
+    Aiff,
+    /// AIFC `.aifc`
+    Aifc,
+    /// AMR `.amr`
+    Amr,
+    /// MP3 `.mp3`
+    Mp3,
+    /// Sun/NeXT AU `.au`
+    SunAu,
+    /// AC-3 `.ac3`
+    Ac3,
+    /// Enhanced AC-3 `.eac3`
+    Eac3,
+    /// JPEG `.jpg`
+    Jpeg,
+    /// DNG `.dng`
+    Dng,
+    /// HEIC `.heic`
+    Heic,
+    /// AVCI `.avci`
+    Avci,
+    /// HEIF `.heif`
+    Heif,
+    /// TIFF `.tiff`
+    Tiff,
+    /// Apple iTT `.itt`
+    AppleItt,
+    /// Scenarist SCC `.scc`
+    Scc,
+    /// Apple Haptics `.ahap`
+    Ahap,
+    /// `QuickTime` audio.
+    QuickTimeAudio,
+    /// DICOM.
+    Dicom,
 }
 
 impl FileType {
-    const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Mov => "mov",
             Self::Mp4 => "mp4",
             Self::M4v => "m4v",
+            Self::M4a => "m4a",
+            Self::ThreeGpp => "3gpp",
+            Self::ThreeGpp2 => "3gpp2",
+            Self::Caf => "caf",
+            Self::Wav => "wav",
+            Self::Aiff => "aiff",
+            Self::Aifc => "aifc",
+            Self::Amr => "amr",
+            Self::Mp3 => "mp3",
+            Self::SunAu => "au",
+            Self::Ac3 => "ac3",
+            Self::Eac3 => "eac3",
+            Self::Jpeg => "jpeg",
+            Self::Dng => "dng",
+            Self::Heic => "heic",
+            Self::Avci => "avci",
+            Self::Heif => "heif",
+            Self::Tiff => "tiff",
+            Self::AppleItt => "itt",
+            Self::Scc => "scc",
+            Self::Ahap => "ahap",
+            Self::QuickTimeAudio => "qt_audio",
+            Self::Dicom => "dicom",
+        }
+    }
+
+    pub(crate) fn from_raw(raw: &str) -> Option<Self> {
+        match raw {
+            "mov" => Some(Self::Mov),
+            "mp4" => Some(Self::Mp4),
+            "m4v" => Some(Self::M4v),
+            "m4a" => Some(Self::M4a),
+            "3gpp" => Some(Self::ThreeGpp),
+            "3gpp2" => Some(Self::ThreeGpp2),
+            "caf" => Some(Self::Caf),
+            "wav" => Some(Self::Wav),
+            "aiff" => Some(Self::Aiff),
+            "aifc" => Some(Self::Aifc),
+            "amr" => Some(Self::Amr),
+            "mp3" => Some(Self::Mp3),
+            "au" => Some(Self::SunAu),
+            "ac3" => Some(Self::Ac3),
+            "eac3" => Some(Self::Eac3),
+            "jpeg" => Some(Self::Jpeg),
+            "dng" => Some(Self::Dng),
+            "heic" => Some(Self::Heic),
+            "avci" => Some(Self::Avci),
+            "heif" => Some(Self::Heif),
+            "tiff" => Some(Self::Tiff),
+            "itt" => Some(Self::AppleItt),
+            "scc" => Some(Self::Scc),
+            "ahap" => Some(Self::Ahap),
+            "qt_audio" => Some(Self::QuickTimeAudio),
+            "dicom" => Some(Self::Dicom),
+            _ => None,
         }
     }
 }
@@ -411,13 +520,7 @@ impl Writer {
         let default = default_id.map_or(-1, |i| i.0);
         let mut err_msg: *mut c_char = ptr::null_mut();
         let ok = unsafe {
-            ffi::av_writer_add_input_group(
-                self.ptr,
-                ids.as_ptr(),
-                ids.len(),
-                default,
-                &mut err_msg,
-            )
+            ffi::av_writer_add_input_group(self.ptr, ids.as_ptr(), ids.len(), default, &mut err_msg)
         };
         if !ok {
             return Err(unsafe { from_swift(ffi::status::INVALID_ARGUMENT, err_msg) });

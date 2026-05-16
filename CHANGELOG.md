@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-05-16
+
+### Added
+
+- Broad `AVAssetWriter` / `AVAssetWriterInput` surface expansion covering writer readback, writer configuration, generic input creation, metadata-track creation, caption/text inputs, input-state readback, track associations, multipass callbacks, and segmented-output configuration.
+- Safe Rust models for `CMTime` / `CMTimeRange`, metadata payloads, caption payloads, segmented-output reports, and callback trampolines.
+- Public readback types including `WriterStatus`, `MediaType`, `FileTypeProfile`, `InputGroupInfo`, `InputPassDescription`, `SegmentReport`, `SegmentTrackReport`, and `SegmentReportSampleInfo`.
+- New smoke example `03_smoke_surface` covering multi-track, metadata, caption, and segmented-writer setup flows without requiring external media assets.
+- Much stricter API-coverage tests that scan the split Swift bridge and require 100% coverable `AVAssetWriter` / `AVAssetWriterInput` header coverage.
+
+### Changed
+
+- Expanded `FileType` coverage to include the broader set of `AVFileType` constants exposed by current Apple SDKs.
+- Quick-start docs and examples now write into `target/example-artifacts` instead of `/tmp`.
+- Development baseline now uses the local `videotoolbox` `0.10.x` path dependency range.
+
 ## [0.2.0] - 2026-05-15
 
 ### Changed (BREAKING)

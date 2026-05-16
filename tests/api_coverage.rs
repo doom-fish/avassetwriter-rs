@@ -12,7 +12,11 @@
 //! method name are filtered out by the `intentionally_omitted()` allowlist
 //! when they cause noise.
 
-#![allow(clippy::cast_precision_loss, clippy::iter_on_single_items)]
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::iter_on_single_items,
+    clippy::missing_const_for_fn
+)]
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -47,19 +51,35 @@ fn extract_objc_surface(source: &str) -> BTreeSet<String> {
     .unwrap();
     for line in source.lines() {
         if let Some(c) = method_re.captures(line) {
-            out.insert(c[1].to_string());
+            let name = &c[1];
+            if !name.starts_with("__") {
+                out.insert(name.to_string());
+            }
         }
         if let Some(c) = prop_re.captures(line) {
-            out.insert(c[1].to_string());
+            let name = &c[1];
+            if !name.starts_with("__") {
+                out.insert(name.to_string());
+            }
         }
     }
     out
 }
 
 fn read_our_swift_bridge() -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("swift-bridge/Sources/AVAssetWriterBridge/AVAssetWriter.swift");
-    read_file(&path)
+    let bridge_dir =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("swift-bridge/Sources/AVAssetWriterBridge");
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(&bridge_dir)
+        .unwrap_or_else(|e| panic!("can't read {}: {e}", bridge_dir.display()))
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "swift"))
+        .collect();
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| read_file(&path))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn report(
@@ -115,47 +135,9 @@ fn report(
 
 fn av_asset_writer_intentionally_omitted() -> BTreeSet<String> {
     [
-        // Class factory + secondary initialiser — bridge uses the URL+fileType
-        // designated init via Swift's `try AVAssetWriter(outputURL:fileType:)`
-        // sugar.
+        // Deprecated class factory; Swift code uses designated initializers.
         "assetWriterWithURL",
-        "initWithContentType",
-        // Read-only metadata accessors not exposed in v0.1 — file an issue
-        // if you need any of these.
-        "outputURL",
-        "outputFileType",
-        "availableMediaTypes",
-        "metadata",
-        "shouldOptimizeForNetworkUse",
-        "directoryForTemporaryFiles",
-        "inputs",
-        "canApplyOutputSettings",
-        "endSessionAtSourceTime",
-        "cancelWriting",
-        "movieFragmentInterval",
-        "initialMovieFragmentInterval",
-        "initialMovieFragmentSequenceNumber",
-        "producesCombinableFragments",
-        "overallDurationHint",
-        "movieTimeScale",
-        // Multi-track input groups (chapter tracks, alternate audio) — v0.2
-        "canAddInputGroup",
-        "addInputGroup",
-        "inputGroups",
-        // AVAssetWriterInputGroup — separate class. We don't use it for v0.1.
-        "assetWriterInputGroupWithInputs",
-        "initWithInputs",
-        "defaultInput",
-        // Deprecated synchronous API — Apple replaced it with the
-        // completion-handler form which we use.
-        "finishWriting",
-        // Segmented output (HLS-style fragmented MP4) — v0.2.
-        "delegate",
-        "flushSegment",
-        "initialSegmentStartTime",
-        "preferredOutputSegmentInterval",
-        "outputFileTypeProfile",
-        // Class self-reference in factory methods.
+        // Class self-reference from the deprecated factory helper.
         "assetWriter",
     ]
     .into_iter()
@@ -164,65 +146,7 @@ fn av_asset_writer_intentionally_omitted() -> BTreeSet<String> {
 }
 
 fn av_asset_writer_input_intentionally_omitted() -> BTreeSet<String> {
-    [
-        // Class factory variants — bridge uses the designated init that takes
-        // a sourceFormatHint (which we *do* call).
-        "assetWriterInputWithMediaType",
-        "initWithMediaType",
-        // Properties exposed for inspection on AVAssetWriterInput that aren't
-        // useful in the simple "just write this CMSampleBuffer" path:
-        "mediaType",
-        "outputSettings",
-        "metadata",
-        "languageCode",
-        "extendedLanguageTag",
-        "naturalSize",
-        "transform",
-        "preferredVolume",
-        "marksOutputTrackAsEnabled",
-        "mediaTimeScale",
-        // Push-style ingest — we use the simpler synchronous append form
-        // because we know we're in real-time mode driven by an external
-        // encoder loop. The push API would only matter for batch transcode.
-        "requestMediaDataWhenReadyOnQueue",
-        "respondToEachPassDescriptionOnQueue",
-        // Adapter classes (caption, metadata, pixel-buffer pool, tagged
-        // groups) — own track types we don't yet expose. v0.2.
-        "assetWriterInput",
-        "assetWriterInputCaptionAdaptorWithAssetWriterInput",
-        "assetWriterInputMetadataAdaptorWithAssetWriterInput",
-        "assetWriterInputPixelBufferAdaptorWithAssetWriterInput",
-        "assetWriterInputTaggedPixelBufferGroupAdaptorWithAssetWriterInput",
-        "initWithAssetWriterInput",
-        "appendCaption",
-        "appendCaptionGroup",
-        "appendPixelBuffer",
-        "appendTaggedPixelBufferGroup",
-        "appendTimedMetadataGroup",
-        "pixelBufferPool",
-        "sourcePixelBufferAttributes",
-        // Multi-pass encoding — only relevant for offline transcode.
-        "canPerformMultiplePasses",
-        "currentPassDescription",
-        "markCurrentPassAsFinished",
-        "performsMultiPassEncodingIfSupported",
-        // Track associations (chapter / fallback tracks) — v0.2.
-        "addTrackAssociationWithTrackOfInput",
-        "canAddTrackAssociationWithTrackOfInput",
-        // Misc references / time-range pull — not in scope for the simple
-        // CMSampleBuffer-push API.
-        "mediaDataLocation",
-        "preferredMediaChunkAlignment",
-        "preferredMediaChunkDuration",
-        "sampleReferenceBaseURL",
-        "sourceTimeRanges",
-        // sourceFormatHint is the constructor argument; we pass it but the
-        // harness can't tell because Swift uses the labelled-init form.
-        "sourceFormatHint",
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect()
+    BTreeSet::new()
 }
 
 // ---- Test cases ----
@@ -230,15 +154,93 @@ fn av_asset_writer_input_intentionally_omitted() -> BTreeSet<String> {
 /// Obj-C method-name → Swift-name overrides for cases where Swift's
 /// importer drops the leading-keyword argument noun (e.g.
 /// `appendSampleBuffer:` → `append(_:)`).
-fn objc_to_swift_aliases() -> std::collections::BTreeMap<&'static str, &'static str> {
+fn objc_to_swift_aliases() -> std::collections::BTreeMap<&'static str, Vec<&'static str>> {
     [
-        ("appendSampleBuffer", ".append("),
-        ("addInput", ".add("),
-        ("canAddInput", ".canAdd("),
-        ("startSessionAtSourceTime", "startSession(atSourceTime:"),
-        ("finishWritingWithCompletionHandler", "finishWriting {"),
-        // initWithURL:fileType:error: → Swift `AVAssetWriter(outputURL:fileType:)`
-        ("initWithURL", "AVAssetWriter(outputURL:"),
+        ("appendSampleBuffer", vec![".append(sampleBuffer)"]),
+        ("addInput", vec![".add(input)"]),
+        ("canAddInput", vec![".canAdd(input)"]),
+        ("canAddInputGroup", vec![".canAdd(group)"]),
+        ("addInputGroup", vec![".add(group)"]),
+        (
+            "startSessionAtSourceTime",
+            vec!["startSession(atSourceTime:"],
+        ),
+        ("endSessionAtSourceTime", vec!["endSession(atSourceTime:"]),
+        (
+            "finishWritingWithCompletionHandler",
+            vec!["finishWriting {"],
+        ),
+        ("canApplyOutputSettings", vec!["canApply(outputSettings:"]),
+        ("initWithURL", vec!["AVAssetWriter(outputURL:"]),
+        ("initWithContentType", vec!["AVAssetWriter(contentType:"]),
+        (
+            "assetWriterInputGroupWithInputs",
+            vec!["AVAssetWriterInputGroup(inputs:"],
+        ),
+        ("initWithInputs", vec!["AVAssetWriterInputGroup(inputs:"]),
+        (
+            "assetWriterInputWithMediaType",
+            vec!["AVAssetWriterInput(mediaType:"],
+        ),
+        ("initWithMediaType", vec!["AVAssetWriterInput(mediaType:"]),
+        (
+            "assetWriterInputPixelBufferAdaptorWithAssetWriterInput",
+            vec!["AVAssetWriterInputPixelBufferAdaptor("],
+        ),
+        (
+            "assetWriterInputTaggedPixelBufferGroupAdaptorWithAssetWriterInput",
+            vec!["AVAssetWriterInputTaggedPixelBufferGroupAdaptor("],
+        ),
+        (
+            "assetWriterInputMetadataAdaptorWithAssetWriterInput",
+            vec!["AVAssetWriterInputMetadataAdaptor(assetWriterInput:"],
+        ),
+        (
+            "assetWriterInputCaptionAdaptorWithAssetWriterInput",
+            vec!["AVAssetWriterInputCaptionAdaptor(assetWriterInput:"],
+        ),
+        (
+            "initWithAssetWriterInput",
+            vec![
+                "AVAssetWriterInputPixelBufferAdaptor(assetWriterInput:",
+                "AVAssetWriterInputTaggedPixelBufferGroupAdaptor(assetWriterInput:",
+                "AVAssetWriterInputMetadataAdaptor(assetWriterInput:",
+                "AVAssetWriterInputCaptionAdaptor(assetWriterInput:",
+            ],
+        ),
+        (
+            "appendPixelBuffer",
+            vec!["append(pixelBuffer, withPresentationTime:"],
+        ),
+        (
+            "appendTaggedPixelBufferGroup",
+            vec!["av_writer_append_tagged_pixel_buffer_group"],
+        ),
+        (
+            "appendTimedMetadataGroup",
+            vec!["av_writer_append_timed_metadata_group_json"],
+        ),
+        ("appendCaption", vec!["av_writer_append_caption_json"]),
+        (
+            "appendCaptionGroup",
+            vec!["av_writer_append_caption_group_json"],
+        ),
+        (
+            "requestMediaDataWhenReadyOnQueue",
+            vec!["requestMediaDataWhenReady(on:"],
+        ),
+        (
+            "respondToEachPassDescriptionOnQueue",
+            vec!["respondToEachPassDescription(on:"],
+        ),
+        (
+            "canAddTrackAssociationWithTrackOfInput",
+            vec!["canAddTrackAssociation(withTrackOf:"],
+        ),
+        (
+            "addTrackAssociationWithTrackOfInput",
+            vec!["addTrackAssociation(withTrackOf:"],
+        ),
     ]
     .into_iter()
     .collect()
@@ -263,8 +265,10 @@ fn av_asset_writer_coverage() {
                 return true;
             }
             // Second: Obj-C → Swift renamed alias.
-            if let Some(swift_form) = aliases.get(name.as_str()) {
-                return bridge.contains(swift_form);
+            if let Some(swift_forms) = aliases.get(name.as_str()) {
+                return swift_forms
+                    .iter()
+                    .any(|swift_form| bridge.contains(swift_form));
             }
             false
         })
@@ -296,8 +300,10 @@ fn av_asset_writer_input_coverage() {
             if regex_lite::Regex::new(&needle).unwrap().is_match(&bridge) {
                 return true;
             }
-            if let Some(swift_form) = aliases.get(name.as_str()) {
-                return bridge.contains(swift_form);
+            if let Some(swift_forms) = aliases.get(name.as_str()) {
+                return swift_forms
+                    .iter()
+                    .any(|swift_form| bridge.contains(swift_form));
             }
             false
         })
@@ -315,9 +321,6 @@ fn av_asset_writer_input_coverage() {
 
 #[test]
 fn av_file_type_coverage() {
-    // AVFileType is a string-typed enum. We support exactly mp4/mov/m4v.
-    // Verify that every AVFileType the bridge string-switches on is a real
-    // AVFileType constant in AVMediaFormat.h.
     let sdk = sdk_root();
     let header =
         sdk.join("System/Library/Frameworks/AVFoundation.framework/Headers/AVMediaFormat.h");
@@ -327,33 +330,43 @@ fn av_file_type_coverage() {
     );
 
     let bridge = read_our_swift_bridge();
-    // Look for `.mp4`, `.mov`, `.m4v` access on AVFileType.
-    let our_avfiletype_accesses: BTreeSet<String> = [
-        "AVFileTypeMPEG4",
-        "AVFileTypeQuickTimeMovie",
-        "AVFileTypeAppleM4V",
-    ]
-    .into_iter()
-    .filter(|sym| {
-        // Map to the Swift dot-syntax used in the bridge.
-        let dotted = match *sym {
-            "AVFileTypeMPEG4" => "mp4",
-            "AVFileTypeQuickTimeMovie" => "mov",
-            "AVFileTypeAppleM4V" => "m4v",
-            _ => return false,
-        };
-        bridge.contains(&format!(".{dotted}"))
-    })
-    .map(String::from)
-    .collect();
+    let supported: [(&str, &str); 25] = [
+        ("AVFileTypeQuickTimeMovie", "AVFileType.mov"),
+        ("AVFileTypeMPEG4", "AVFileType.mp4"),
+        ("AVFileTypeAppleM4V", "AVFileType.m4v"),
+        ("AVFileTypeAppleM4A", "AVFileType.m4a"),
+        ("AVFileType3GPP", "AVFileType.mobile3GPP"),
+        ("AVFileType3GPP2", "AVFileType.mobile3GPP2"),
+        ("AVFileTypeCoreAudioFormat", "AVFileType.caf"),
+        ("AVFileTypeWAVE", "AVFileType.wav"),
+        ("AVFileTypeAIFF", "AVFileType.aiff"),
+        ("AVFileTypeAIFC", "AVFileType.aifc"),
+        ("AVFileTypeAMR", "AVFileType.amr"),
+        ("AVFileTypeMP3", "AVFileType.mp3"),
+        ("AVFileTypeSunAU", "AVFileType.au"),
+        ("AVFileTypeAC3", "AVFileType.ac3"),
+        ("AVFileTypeEnhancedAC3", "AVFileType.eac3"),
+        ("AVFileTypeJPEG", "AVFileType.jpg"),
+        ("AVFileTypeDNG", "AVFileType.dng"),
+        ("AVFileTypeHEIC", "AVFileType.heic"),
+        ("AVFileTypeAVCI", "AVFileType.avci"),
+        ("AVFileTypeHEIF", "AVFileType.heif"),
+        ("AVFileTypeTIFF", "AVFileType.tif"),
+        ("AVFileTypeAppleiTT", "AVFileType.appleiTT"),
+        ("AVFileTypeSCC", "AVFileType.SCC"),
+        ("AVFileTypeAHAP", "AVFileType.AHAP"),
+        ("AVFileTypeQuickTimeAudio", "AVFileType.qta"),
+    ];
+    let mut supported = supported.into_iter().collect::<Vec<_>>();
+    supported.push(("AVFileTypeDICOM", "AVFileType.dcm"));
 
-    let kept: BTreeSet<&str> = [
-        "AVFileTypeMPEG4",
-        "AVFileTypeQuickTimeMovie",
-        "AVFileTypeAppleM4V",
-    ]
-    .into_iter()
-    .collect();
+    let our_avfiletype_accesses: BTreeSet<String> = supported
+        .iter()
+        .filter(|(_, needle)| bridge.contains(needle))
+        .map(|(symbol, _)| (*symbol).to_string())
+        .collect();
+
+    let kept: BTreeSet<&str> = supported.iter().map(|(symbol, _)| *symbol).collect();
     let omitted: BTreeSet<String> = apple
         .iter()
         .filter(|s| !kept.contains(s.as_str()))

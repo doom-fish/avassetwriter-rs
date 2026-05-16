@@ -1,6 +1,6 @@
 [package]
 name = "avassetwriter"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/doom-fish/avassetwriter-rs"
@@ -38,12 +38,14 @@ crate-type = ["lib"]
 default = []
 
 [dependencies]
-apple-cf = { path = "../apple-cf-rs", version = ">=0.1.1, <0.5", default-features = false, features = ["cm", "cv"] }
+apple-cf = { path = "../apple-cf-rs", version = ">=0.1.1, <0.6", default-features = false, features = ["cm", "cv"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [dev-dependencies]
 regex-lite = "0.1"
-videotoolbox = { path = "../videotoolbox-rs", version = ">=0.2, <0.9" }
-apple-cf = { path = "../apple-cf-rs", version = ">=0.1, <0.5" }
+videotoolbox = { path = "../videotoolbox-rs", version = ">=0.10, <0.11" }
+apple-cf = { path = "../apple-cf-rs", version = ">=0.1, <0.6" }
 
 [package.metadata.docs.rs]
 all-features = true
@@ -59,6 +61,9 @@ name = "01_write_mp4"
 
 [[example]]
 name = "02_write_av_mp4"
+
+[[example]]
+name = "03_smoke_surface"
 
 [profile.release]
 debug = "full"

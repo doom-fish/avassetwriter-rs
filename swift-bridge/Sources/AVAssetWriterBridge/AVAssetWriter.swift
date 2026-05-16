@@ -19,13 +19,13 @@ import Foundation
 
 // MARK: - Status Codes (mirrored in src/error.rs)
 
-private let AVW_OK: Int32 = 0
-private let AVW_INVALID_ARGUMENT: Int32 = -1
-private let AVW_WRITER_CREATE_FAILED: Int32 = -2
-private let AVW_INPUT_NOT_READY: Int32 = -3
-private let AVW_APPEND_FAILED: Int32 = -4
-private let AVW_FINISH_FAILED: Int32 = -5
-private let AVW_INVALID_STATE: Int32 = -6
+let AVW_OK: Int32 = 0
+let AVW_INVALID_ARGUMENT: Int32 = -1
+let AVW_WRITER_CREATE_FAILED: Int32 = -2
+let AVW_INPUT_NOT_READY: Int32 = -3
+let AVW_APPEND_FAILED: Int32 = -4
+let AVW_FINISH_FAILED: Int32 = -5
+let AVW_INVALID_STATE: Int32 = -6
 
 // MARK: - String helpers
 
@@ -35,11 +35,11 @@ public func avw_string_free(_ str: UnsafeMutablePointer<CChar>?) {
     free(str)
 }
 
-private func ffiString(_ s: String) -> UnsafeMutablePointer<CChar>? {
+func ffiString(_ s: String) -> UnsafeMutablePointer<CChar>? {
     return s.withCString { strdup($0) }
 }
 
-private struct AudioFormat {
+struct AudioFormat {
     let sampleRate: Float64
     let channels: Int
     let bitsPerSample: Int
@@ -47,7 +47,7 @@ private struct AudioFormat {
 
 // MARK: - Writer object
 
-private final class Writer {
+final class Writer {
     let writer: AVAssetWriter
     var inputs: [AVAssetWriterInput] = []
     /// Per-input audio format parameters (only populated for inputs added
@@ -56,10 +56,28 @@ private final class Writer {
     /// Per-input pixel-buffer adaptors (only populated for inputs added
     /// via `av_writer_add_video_input_pixel_buffer`).
     var pixelBufferAdaptors: [Int32: AVAssetWriterInputPixelBufferAdaptor] = [:]
+    var taggedPixelBufferGroupAdaptors: [Int32: AnyObject] = [:]
+    var metadataAdaptors: [Int32: AVAssetWriterInputMetadataAdaptor] = [:]
+    var captionAdaptors: [Int32: AVAssetWriterInputCaptionAdaptor] = [:]
+    var inputGroups: [AVAssetWriterInputGroup] = []
+    var readyCallbackBoxes: [Int32: InputCallbackBox] = [:]
+    var passDescriptionCallbackBoxes: [Int32: InputCallbackBox] = [:]
+    var segmentCallbackBox: SegmentCallbackBox? = nil
+    var segmentDelegate: AnyObject? = nil
     var lastError: String? = nil
 
     init(writer: AVAssetWriter) {
         self.writer = writer
+    }
+
+    deinit {
+        for box in readyCallbackBoxes.values {
+            box.dispose()
+        }
+        for box in passDescriptionCallbackBoxes.values {
+            box.dispose()
+        }
+        segmentCallbackBox?.dispose()
     }
 }
 
@@ -78,13 +96,8 @@ public func av_writer_create(
     let pathStr = String(cString: path)
     let typeStr = String(cString: fileType)
 
-    let avFileType: AVFileType
-    switch typeStr {
-    case "mp4": avFileType = .mp4
-    case "mov": avFileType = .mov
-    case "m4v": avFileType = .m4v
-    default:
-        outErrorMessage?.pointee = ffiString("unknown file type: \(typeStr)")
+    guard let avFileType = decodeFileType(typeStr) else {
+        outErrorMessage?.pointee = ffiString("unknown or unsupported file type: \(typeStr)")
         return nil
     }
 
@@ -589,5 +602,6 @@ public func av_writer_add_input_group(
         return false
     }
     wrapper.writer.add(group)
+    wrapper.inputGroups.append(group)
     return true
 }
