@@ -38,7 +38,7 @@ crate-type = ["lib"]
 default = []
 
 [dependencies]
-apple-cf = { path = "../apple-cf-rs", version = "0.1", default-features = false, features = ["cm"] }
+apple-cf = { path = "../apple-cf-rs", version = "0.1.1", default-features = false, features = ["cm", "cv"] }
 
 [dev-dependencies]
 regex-lite = "0.1"
