@@ -27,6 +27,24 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> i32;
 
+    pub fn av_writer_set_should_optimize_for_network_use(
+        writer: *mut c_void,
+        should_optimize: bool,
+    );
+
+    pub fn av_writer_set_movie_fragment_interval_seconds(
+        writer: *mut c_void,
+        seconds: f64,
+    );
+
+    pub fn av_writer_add_input_group(
+        writer: *mut c_void,
+        ids: *const i32,
+        count: usize,
+        default_id: i32,
+        out_error_message: *mut *mut c_char,
+    ) -> bool;
+
     pub fn av_writer_add_audio_input_pcm(
         writer: *mut c_void,
         sample_rate: f64,

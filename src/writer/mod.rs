@@ -377,6 +377,53 @@ impl Writer {
         }
         Ok(())
     }
+
+    /// Set `AVAssetWriter.shouldOptimizeForNetworkUse` — adds the
+    /// moov atom at the start of the file so HTTP players can start
+    /// playback immediately.
+    pub fn set_optimize_for_network_use(&self, enabled: bool) {
+        unsafe { ffi::av_writer_set_should_optimize_for_network_use(self.ptr, enabled) };
+    }
+
+    /// Set `AVAssetWriter.movieFragmentInterval` (seconds, or `0` to
+    /// disable). Producing fragmented files yields safer recordings
+    /// — if your process crashes mid-record the file is still
+    /// playable up to the last fragment boundary.
+    pub fn set_movie_fragment_interval_seconds(&self, seconds: f64) {
+        unsafe { ffi::av_writer_set_movie_fragment_interval_seconds(self.ptr, seconds) };
+    }
+
+    /// Group inputs as mutually exclusive — e.g. multiple audio
+    /// tracks where only one plays at a time. `inputs` are the
+    /// [`InputId`]s from prior `add_*_input*` calls. `default_id`
+    /// is the input that plays by default; pass any out-of-range
+    /// value for "no default".
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AVWriterError::InvalidArgument`] / [`AVWriterError::InvalidState`].
+    pub fn add_input_group(
+        &self,
+        inputs: &[InputId],
+        default_id: Option<InputId>,
+    ) -> Result<(), AVWriterError> {
+        let ids: Vec<i32> = inputs.iter().map(|i| i.0).collect();
+        let default = default_id.map_or(-1, |i| i.0);
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let ok = unsafe {
+            ffi::av_writer_add_input_group(
+                self.ptr,
+                ids.as_ptr(),
+                ids.len(),
+                default,
+                &mut err_msg,
+            )
+        };
+        if !ok {
+            return Err(unsafe { from_swift(ffi::status::INVALID_ARGUMENT, err_msg) });
+        }
+        Ok(())
+    }
 }
 
 impl Drop for Writer {

@@ -533,3 +533,61 @@ public func av_writer_add_video_input_from_preset(
     wrapper.inputs.append(input)
     return id
 }
+
+// MARK: - Input groups + writer options (v0.5)
+
+@_cdecl("av_writer_set_should_optimize_for_network_use")
+public func av_writer_set_should_optimize_for_network_use(
+    _ writerPtr: UnsafeMutableRawPointer,
+    _ shouldOptimize: Bool
+) {
+    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    wrapper.writer.shouldOptimizeForNetworkUse = shouldOptimize
+}
+
+@_cdecl("av_writer_set_movie_fragment_interval_seconds")
+public func av_writer_set_movie_fragment_interval_seconds(
+    _ writerPtr: UnsafeMutableRawPointer,
+    _ seconds: Double
+) {
+    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    if seconds > 0 {
+        wrapper.writer.movieFragmentInterval = CMTime(seconds: seconds, preferredTimescale: 600)
+    } else {
+        wrapper.writer.movieFragmentInterval = .invalid
+    }
+}
+
+/// Group input ids that should be mutually exclusive (e.g. multiple
+/// audio tracks where only one plays at a time). Pass an int32[]
+/// array of input ids + count. Returns true on success.
+@_cdecl("av_writer_add_input_group")
+public func av_writer_add_input_group(
+    _ writerPtr: UnsafeMutableRawPointer,
+    _ ids: UnsafePointer<Int32>,
+    _ count: Int,
+    _ defaultId: Int32,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Bool {
+    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    var inputs: [AVAssetWriterInput] = []
+    for i in 0..<count {
+        let id = ids[i]
+        guard Int(id) >= 0, Int(id) < wrapper.inputs.count else {
+            outErrorMessage?.pointee = ffiString("input id \(id) out of range")
+            return false
+        }
+        inputs.append(wrapper.inputs[Int(id)])
+    }
+    let defaultInput: AVAssetWriterInput? =
+        defaultId >= 0 && Int(defaultId) < wrapper.inputs.count
+        ? wrapper.inputs[Int(defaultId)]
+        : nil
+    let group = AVAssetWriterInputGroup(inputs: inputs, defaultInput: defaultInput)
+    if !wrapper.writer.canAdd(group) {
+        outErrorMessage?.pointee = ffiString("writer cannot add input group")
+        return false
+    }
+    wrapper.writer.add(group)
+    return true
+}
