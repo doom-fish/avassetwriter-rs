@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-05-16
+
+### Added
+
+- Safe `OutputSettingsAssistant` wrapper covering preset discovery, recommended audio/video settings dictionaries, recommended output file type, source format hints, and source frame-duration hints.
+- Safe `ExportSession` wrapper covering export preset discovery, compatibility checks, output path/type configuration, progress/status/error readback, compatible file types, time-range/file-length estimates, metadata, temp-directory control, and synchronous export/cancel helpers.
+- Tagged-pixel-buffer-group append support backed by Swift-native `CMTaggedBuffer` construction.
+- New smoke examples `04_output_settings_smoke` and `05_export_session_smoke` plus new `output_settings_tests` / `export_session_tests` coverage.
+- `COVERAGE.md` audit documenting the writer / output-settings / export-session surface against the current macOS SDK.
+
+### Changed
+
+- Expanded `VideoPreset` to cover all current `AVOutputSettingsPreset` variants visible on macOS.
+- Split the Swift bridge into logical multi-file areas with every `.swift` file kept under ~500 lines.
+- Refreshed README/docs to describe the new writer/export/output-settings surface.
+
 ## [0.6.0] - 2026-05-16
 
 ### Added

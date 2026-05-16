@@ -2,8 +2,12 @@
 
 #![allow(missing_docs)]
 
+mod export_session;
 mod extended;
+mod output_settings;
+pub use export_session::*;
 pub use extended::*;
+pub use output_settings::*;
 
 use core::ffi::{c_char, c_void};
 
@@ -26,7 +30,7 @@ extern "C" {
 
     pub fn av_writer_add_video_input_from_preset(
         writer: *mut c_void,
-        preset_id: i32,
+        preset: *const c_char,
         out_error_message: *mut *mut c_char,
     ) -> i32;
 

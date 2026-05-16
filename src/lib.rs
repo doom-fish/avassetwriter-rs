@@ -5,9 +5,10 @@
 //! # API Documentation
 //!
 //! Safe Rust bindings for Apple's
-//! [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter)
-//! — mux compressed video, audio, metadata, and related writer-input surfaces
-//! into `.mp4` / `.mov` / `.m4v` files on macOS.
+//! [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter),
+//! [`AVOutputSettingsAssistant`](https://developer.apple.com/documentation/avfoundation/avoutputsettingsassistant),
+//! and [`AVAssetExportSession`](https://developer.apple.com/documentation/avfoundation/avassetexportsession)
+//! — mux, inspect, recommend settings for, and export media files on macOS.
 //!
 //! Designed to consume `CMSampleBuffer`s directly from
 //! [`videotoolbox`](https://github.com/doom-fish/videotoolbox-rs) so the
@@ -38,17 +39,22 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+mod bridge_support;
 mod callbacks;
 pub mod caption;
 pub mod error;
+pub mod export_session;
 pub mod ffi;
 pub mod metadata;
+pub mod output_settings;
 pub mod time;
 pub mod writer;
 
 pub use caption::{Caption, CaptionGroup};
 pub use error::AVWriterError;
+pub use export_session::{ExportPreset, ExportSession, ExportStatus, TrackGroupOutputHandling};
 pub use metadata::{MetadataItem, MetadataSpecification, MetadataValue, TimedMetadataGroup};
+pub use output_settings::OutputSettingsAssistant;
 pub use time::{Time, TimeRange};
 pub use writer::{
     FileType, FileTypeProfile, InputGroupInfo, InputId, InputMediaDataLocation,
@@ -61,13 +67,17 @@ pub use writer::{
 pub mod prelude {
     pub use crate::caption::{Caption, CaptionGroup};
     pub use crate::error::AVWriterError;
+    pub use crate::export_session::{
+        ExportPreset, ExportSession, ExportStatus, TrackGroupOutputHandling,
+    };
     pub use crate::metadata::{
         MetadataItem, MetadataSpecification, MetadataValue, TimedMetadataGroup,
     };
+    pub use crate::output_settings::OutputSettingsAssistant;
     pub use crate::time::{Time, TimeRange};
     pub use crate::writer::{
         FileType, FileTypeProfile, InputGroupInfo, InputId, InputMediaDataLocation,
-        InputPassDescription, MediaType, TaggedPixelBuffer, TrackAssociationType, Writer,
-        WriterStatus,
+        InputPassDescription, MediaType, TaggedPixelBuffer, TrackAssociationType, VideoPreset,
+        Writer, WriterStatus,
     };
 }

@@ -149,8 +149,9 @@ pub struct InputId(i32);
 
 /// One of Apple's `AVOutputSettingsPreset*` named export presets.
 /// Use with [`Writer::add_video_input_from_preset`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(i32)]
+#[non_exhaustive]
 pub enum VideoPreset {
     /// 640x480 SD — H.264.
     Sd640x480 = 0,
@@ -164,8 +165,67 @@ pub enum VideoPreset {
     Uhd3840x2160 = 4,
     /// 1920x1080 Full HD — HEVC (H.265).
     Hevc1920x1080 = 5,
+    /// 1920x1080 Full HD — HEVC with alpha.
+    Hevc1920x1080WithAlpha = 6,
     /// 3840x2160 4K UHD — HEVC (H.265).
-    Hevc3840x2160 = 6,
+    Hevc3840x2160 = 7,
+    /// 3840x2160 4K UHD — HEVC with alpha.
+    Hevc3840x2160WithAlpha = 8,
+    /// 4320x2160 — HEVC.
+    Hevc4320x2160 = 9,
+    /// 7680x4320 — HEVC.
+    Hevc7680x4320 = 10,
+    /// 960x960 — multiview HEVC.
+    MvHevc960x960 = 11,
+    /// 1440x1440 — multiview HEVC.
+    MvHevc1440x1440 = 12,
+    /// 4320x4320 — multiview HEVC.
+    MvHevc4320x4320 = 13,
+    /// 7680x7680 — multiview HEVC.
+    MvHevc7680x7680 = 14,
+}
+
+impl VideoPreset {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Sd640x480 => "640x480",
+            Self::Hd960x540 => "960x540",
+            Self::Hd1280x720 => "1280x720",
+            Self::FullHd1920x1080 => "1920x1080",
+            Self::Uhd3840x2160 => "3840x2160",
+            Self::Hevc1920x1080 => "hevc_1920x1080",
+            Self::Hevc1920x1080WithAlpha => "hevc_1920x1080_with_alpha",
+            Self::Hevc3840x2160 => "hevc_3840x2160",
+            Self::Hevc3840x2160WithAlpha => "hevc_3840x2160_with_alpha",
+            Self::Hevc4320x2160 => "hevc_4320x2160",
+            Self::Hevc7680x4320 => "hevc_7680x4320",
+            Self::MvHevc960x960 => "mvhevc_960x960",
+            Self::MvHevc1440x1440 => "mvhevc_1440x1440",
+            Self::MvHevc4320x4320 => "mvhevc_4320x4320",
+            Self::MvHevc7680x7680 => "mvhevc_7680x7680",
+        }
+    }
+
+    pub(crate) fn from_raw(raw: &str) -> Option<Self> {
+        Some(match raw {
+            "640x480" => Self::Sd640x480,
+            "960x540" => Self::Hd960x540,
+            "1280x720" => Self::Hd1280x720,
+            "1920x1080" => Self::FullHd1920x1080,
+            "3840x2160" => Self::Uhd3840x2160,
+            "hevc_1920x1080" => Self::Hevc1920x1080,
+            "hevc_1920x1080_with_alpha" => Self::Hevc1920x1080WithAlpha,
+            "hevc_3840x2160" => Self::Hevc3840x2160,
+            "hevc_3840x2160_with_alpha" => Self::Hevc3840x2160WithAlpha,
+            "hevc_4320x2160" => Self::Hevc4320x2160,
+            "hevc_7680x4320" => Self::Hevc7680x4320,
+            "mvhevc_960x960" => Self::MvHevc960x960,
+            "mvhevc_1440x1440" => Self::MvHevc1440x1440,
+            "mvhevc_4320x4320" => Self::MvHevc4320x4320,
+            "mvhevc_7680x7680" => Self::MvHevc7680x7680,
+            _ => return None,
+        })
+    }
 }
 
 /// `AVAssetWriter` wrapper.
@@ -267,9 +327,12 @@ impl Writer {
         &self,
         preset: VideoPreset,
     ) -> Result<InputId, AVWriterError> {
+        let preset_c = CString::new(preset.as_str()).map_err(|e| {
+            AVWriterError::InvalidArgument(format!("preset string contained NUL byte: {e}"))
+        })?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let result = unsafe {
-            ffi::av_writer_add_video_input_from_preset(self.ptr, preset as i32, &mut err_msg)
+            ffi::av_writer_add_video_input_from_preset(self.ptr, preset_c.as_ptr(), &mut err_msg)
         };
         if result < 0 {
             return Err(unsafe { from_swift(result, err_msg) });

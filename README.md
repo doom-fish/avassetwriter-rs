@@ -1,8 +1,8 @@
 # avassetwriter
 
-Safe Rust bindings for Apple's [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter) — cover writer configuration/readback, audio/video/metadata inputs, pixel-buffer/metadata/caption adaptor workflows, multi-track grouping, track associations, multipass callbacks, and segmented output on macOS.
+Safe Rust bindings for Apple's [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter), [AVOutputSettingsAssistant](https://developer.apple.com/documentation/avfoundation/avoutputsettingsassistant), and [AVAssetExportSession](https://developer.apple.com/documentation/avfoundation/avassetexportsession) — covering writer configuration/readback, audio/video/metadata inputs, pixel-buffer/metadata/caption/tagged-buffer adaptors, output-settings recommendations, export preset discovery, compatibility checks, and file export on macOS.
 
-> **Status:** `0.6.0` substantially covers the public `AVAssetWriter` / `AVAssetWriterInput` surface plus the related adaptor and segmented-output APIs used when building real muxing pipelines.
+> **Status:** `0.7.0` substantially covers the public writer / output-settings / export-session surface used when building real muxing and transcode pipelines.
 
 Designed to compose with [`videotoolbox`](https://github.com/doom-fish/videotoolbox-rs): hand the `CMSampleBuffer` straight from the encoder to the muxer for video, push interleaved PCM bytes for audio, or build pixel-buffer / metadata-driven pipelines directly.
 
@@ -67,18 +67,24 @@ screencapturekit-rs ──► IOSurface
 
 All three crates pass `CMSampleBuffer` as opaque `*mut c_void` so no shared `cm` type wrapper is required (yet).
 
+See [`COVERAGE.md`](COVERAGE.md) for the current Apple-SDK audit, including implemented / partial / skipped rows.
+
 ## Surface highlights
 
 - `Writer::create` + `Writer::create_segmented`
 - Writer readback/configuration: status, error, output path/type, metadata, temp directory, fragment settings, duration hints, time scale, combinable fragments
-- Inputs: sample-buffer video/audio, PCM audio, generic inputs, metadata inputs, caption/text inputs, pixel-buffer inputs, multi-input groups
-- Adaptors: pixel-buffer, tagged-pixel-buffer-group surface, metadata, caption
+- Inputs: sample-buffer video/audio, PCM audio, generic inputs, metadata inputs, caption/text inputs, pixel-buffer inputs, tagged-pixel-buffer-group inputs, multi-input groups
+- Adaptors: pixel-buffer, tagged-pixel-buffer-group, metadata, caption
+- `OutputSettingsAssistant`: all current output-settings presets, recommended audio/video dictionaries, recommended file type, source format hints, and source frame-duration hints
+- `ExportSession`: preset discovery, compatibility checks, output file/type configuration, progress/status/error readback, compatible file types, time-range/file-length estimates, metadata, multipass/temp-dir controls, and synchronous export/cancel wrappers
 - Input readback/configuration: media type, metadata, language tags, transforms, volume, source hints, media-data location, multipass state, track associations
 - Segmented-output callbacks and `AVFileTypeProfile`
 - Smoke examples:
   - `cargo run --example 01_write_mp4`
   - `cargo run --example 02_write_av_mp4`
   - `cargo run --example 03_smoke_surface`
+  - `cargo run --example 04_output_settings_smoke`
+  - `cargo run --example 05_export_session_smoke`
 
 ## License
 

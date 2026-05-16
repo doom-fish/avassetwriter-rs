@@ -149,11 +149,33 @@ fn av_asset_writer_input_intentionally_omitted() -> BTreeSet<String> {
     BTreeSet::new()
 }
 
+fn av_output_settings_assistant_intentionally_omitted() -> BTreeSet<String> {
+    BTreeSet::new()
+}
+
+fn av_asset_export_session_intentionally_omitted() -> BTreeSet<String> {
+    [
+        // Deprecated properties replaced by async estimators.
+        "maxDuration",
+        "estimatedOutputFileLength",
+        // Complex AVFoundation media-processing objects not yet wrapped here.
+        "metadataItemFilter",
+        "audioTimePitchAlgorithm",
+        "audioMix",
+        "videoComposition",
+        "customVideoCompositor",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
 // ---- Test cases ----
 
 /// Obj-C method-name → Swift-name overrides for cases where Swift's
 /// importer drops the leading-keyword argument noun (e.g.
 /// `appendSampleBuffer:` → `append(_:)`).
+#[allow(clippy::too_many_lines)]
 fn objc_to_swift_aliases() -> std::collections::BTreeMap<&'static str, Vec<&'static str>> {
     [
         ("appendSampleBuffer", vec![".append(sampleBuffer)"]),
@@ -224,6 +246,48 @@ fn objc_to_swift_aliases() -> std::collections::BTreeMap<&'static str, Vec<&'sta
         (
             "appendCaptionGroup",
             vec!["av_writer_append_caption_group_json"],
+        ),
+        (
+            "outputSettingsAssistantWithPreset",
+            vec!["AVOutputSettingsAssistant(preset:"],
+        ),
+        (
+            "exportSessionWithAsset",
+            vec!["AVAssetExportSession(asset:"],
+        ),
+        ("initWithAsset", vec!["AVAssetExportSession(asset:"]),
+        (
+            "exportPresetsCompatibleWithAsset",
+            vec!["exportPresets(compatibleWith:"],
+        ),
+        (
+            "determineCompatibilityOfExportPreset",
+            vec![
+                "determineCompatibility(ofExportPreset:",
+                "AVAssetExportSession.determineCompatibility(",
+            ],
+        ),
+        (
+            "determineCompatibleFileTypesWithCompletionHandler",
+            vec!["determineCompatibleFileTypes {"],
+        ),
+        (
+            "exportAsynchronouslyWithCompletionHandler",
+            vec!["exportAsynchronously {"],
+        ),
+        (
+            "estimateMaximumDurationWithCompletionHandler",
+            vec![
+                "estimatedMaximumDuration",
+                "av_export_session_estimated_maximum_duration_json",
+            ],
+        ),
+        (
+            "estimateOutputFileLengthWithCompletionHandler",
+            vec![
+                "estimatedOutputFileLengthInBytes",
+                "av_export_session_estimated_output_file_length",
+            ],
         ),
         (
             "requestMediaDataWhenReadyOnQueue",
@@ -342,7 +406,7 @@ fn av_file_type_coverage() {
         ("AVFileTypeAIFF", "AVFileType.aiff"),
         ("AVFileTypeAIFC", "AVFileType.aifc"),
         ("AVFileTypeAMR", "AVFileType.amr"),
-        ("AVFileTypeMP3", "AVFileType.mp3"),
+        ("AVFileTypeMPEGLayer3", "AVFileType.mp3"),
         ("AVFileTypeSunAU", "AVFileType.au"),
         ("AVFileTypeAC3", "AVFileType.ac3"),
         ("AVFileTypeEnhancedAC3", "AVFileType.eac3"),
@@ -374,6 +438,148 @@ fn av_file_type_coverage() {
         .collect();
 
     report("AVFileType", &apple, &our_avfiletype_accesses, &omitted).unwrap();
+}
+
+#[test]
+fn av_output_settings_assistant_coverage() {
+    let sdk = sdk_root();
+    let header = sdk.join(
+        "System/Library/Frameworks/AVFoundation.framework/Headers/AVOutputSettingsAssistant.h",
+    );
+    let apple = extract_objc_surface(&read_file(&header));
+    let bridge = read_our_swift_bridge();
+    let aliases = objc_to_swift_aliases();
+
+    let referenced: BTreeSet<String> = apple
+        .iter()
+        .filter(|name| {
+            let needle = format!(r"\b{}", regex_lite::escape(name));
+            if regex_lite::Regex::new(&needle).unwrap().is_match(&bridge) {
+                return true;
+            }
+            if let Some(swift_forms) = aliases.get(name.as_str()) {
+                return swift_forms
+                    .iter()
+                    .any(|swift_form| bridge.contains(swift_form));
+            }
+            false
+        })
+        .cloned()
+        .collect();
+
+    report(
+        "AVOutputSettingsAssistant",
+        &apple,
+        &referenced,
+        &av_output_settings_assistant_intentionally_omitted(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn av_asset_export_session_coverage() {
+    let sdk = sdk_root();
+    let header =
+        sdk.join("System/Library/Frameworks/AVFoundation.framework/Headers/AVAssetExportSession.h");
+    let apple = extract_objc_surface(&read_file(&header));
+    let bridge = read_our_swift_bridge();
+    let aliases = objc_to_swift_aliases();
+
+    let referenced: BTreeSet<String> = apple
+        .iter()
+        .filter(|name| {
+            let needle = format!(r"\b{}", regex_lite::escape(name));
+            if regex_lite::Regex::new(&needle).unwrap().is_match(&bridge) {
+                return true;
+            }
+            if let Some(swift_forms) = aliases.get(name.as_str()) {
+                return swift_forms
+                    .iter()
+                    .any(|swift_form| bridge.contains(swift_form));
+            }
+            false
+        })
+        .cloned()
+        .collect();
+
+    report(
+        "AVAssetExportSession",
+        &apple,
+        &referenced,
+        &av_asset_export_session_intentionally_omitted(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn av_output_settings_preset_coverage() {
+    let sdk = sdk_root();
+    let header = sdk.join(
+        "System/Library/Frameworks/AVFoundation.framework/Headers/AVOutputSettingsAssistant.h",
+    );
+    let apple = extract_by_pattern(
+        r"AVF_EXPORT\s+AVOutputSettingsPreset\s+const\s+(AVOutputSettingsPreset[A-Za-z0-9]+)",
+        &read_file(&header),
+    );
+
+    let bridge = read_our_swift_bridge();
+    let supported = [
+        ("AVOutputSettingsPreset640x480", ".preset640x480"),
+        ("AVOutputSettingsPreset960x540", ".preset960x540"),
+        ("AVOutputSettingsPreset1280x720", ".preset1280x720"),
+        ("AVOutputSettingsPreset1920x1080", ".preset1920x1080"),
+        ("AVOutputSettingsPreset3840x2160", ".preset3840x2160"),
+        ("AVOutputSettingsPresetHEVC1920x1080", ".hevc1920x1080"),
+        (
+            "AVOutputSettingsPresetHEVC1920x1080WithAlpha",
+            ".hevc1920x1080WithAlpha",
+        ),
+        ("AVOutputSettingsPresetHEVC3840x2160", ".hevc3840x2160"),
+        (
+            "AVOutputSettingsPresetHEVC3840x2160WithAlpha",
+            ".hevc3840x2160WithAlpha",
+        ),
+        ("AVOutputSettingsPresetHEVC4320x2160", ".hevc4320x2160"),
+        ("AVOutputSettingsPresetHEVC7680x4320", ".hevc7680x4320"),
+        ("AVOutputSettingsPresetMVHEVC960x960", ".mvhevc960x960"),
+        ("AVOutputSettingsPresetMVHEVC1440x1440", ".mvhevc1440x1440"),
+        ("AVOutputSettingsPresetMVHEVC4320x4320", ".mvhevc4320x4320"),
+        ("AVOutputSettingsPresetMVHEVC7680x7680", ".mvhevc7680x7680"),
+    ];
+
+    let referenced: BTreeSet<String> = supported
+        .iter()
+        .filter(|(_, needle)| bridge.contains(needle))
+        .map(|(symbol, _)| (*symbol).to_string())
+        .collect();
+
+    report(
+        "AVOutputSettingsPreset",
+        &apple,
+        &referenced,
+        &BTreeSet::new(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn av_asset_export_preset_coverage() {
+    let sdk = sdk_root();
+    let header =
+        sdk.join("System/Library/Frameworks/AVFoundation.framework/Headers/AVAssetExportSession.h");
+    let apple = extract_by_pattern(
+        r"AVF_EXPORT\s+NSString\s+\*const\s+(AVAssetExportPreset[A-Za-z0-9]+)",
+        &read_file(&header),
+    );
+
+    let bridge = read_our_swift_bridge();
+    let referenced: BTreeSet<String> = apple
+        .iter()
+        .filter(|symbol| bridge.contains(symbol.as_str()))
+        .cloned()
+        .collect();
+
+    report("AVAssetExportPreset", &apple, &referenced, &BTreeSet::new()).unwrap();
 }
 
 #[test]
