@@ -55,6 +55,23 @@ extern "C" {
     ) -> i32;
 
     pub fn av_writer_finish(writer: *mut c_void, out_error_message: *mut *mut c_char) -> i32;
+
+    pub fn av_writer_add_video_input_pixel_buffer(
+        writer: *mut c_void,
+        width: i32,
+        height: i32,
+        pixel_format_type: u32,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
+    pub fn av_writer_append_pixel_buffer(
+        writer: *mut c_void,
+        input_id: i32,
+        pixel_buffer: *mut c_void,
+        pts_value: i64,
+        pts_timescale: i32,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
 }
 
 pub mod status {

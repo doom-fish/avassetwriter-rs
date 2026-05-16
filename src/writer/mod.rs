@@ -267,6 +267,72 @@ impl Writer {
         }
         Ok(())
     }
+
+    /// Add a video input backed by an `AVAssetWriterInputPixelBufferAdaptor`
+    /// for zero-copy `CVPixelBuffer` ingest. Use this when frames come
+    /// from your own renderer (Metal, Core Image, …) rather than a
+    /// pre-encoded `CMSampleBuffer`.
+    ///
+    /// `pixel_format_type` is a `kCVPixelFormatType_*` `FourCC` — typically
+    /// `0x4247_5241` for `'BGRA'`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AVWriterError::InvalidState`] if the writer rejects the
+    /// new input.
+    pub fn add_video_input_pixel_buffer(
+        &self,
+        width: i32,
+        height: i32,
+        pixel_format_type: u32,
+    ) -> Result<InputId, AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let id = unsafe {
+            ffi::av_writer_add_video_input_pixel_buffer(
+                self.ptr,
+                width,
+                height,
+                pixel_format_type,
+                &mut err_msg,
+            )
+        };
+        if id < 0 {
+            return Err(unsafe { from_swift(id, err_msg) });
+        }
+        Ok(InputId(id))
+    }
+
+    /// Append a `CVPixelBuffer` to a pixel-buffer-adaptor-backed input.
+    /// Returns [`AVWriterError::InputNotReady`] when the writer is
+    /// momentarily back-pressured — the caller should retry after a few ms.
+    ///
+    /// `pts` is the presentation time as `(value, timescale)`.
+    ///
+    /// # Errors
+    ///
+    /// See [`AVWriterError`] variants.
+    pub fn append_pixel_buffer(
+        &self,
+        input_id: InputId,
+        pixel_buffer: &apple_cf::cv::CVPixelBuffer,
+        pts: (i64, i32),
+    ) -> Result<(), AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let status = unsafe {
+            ffi::av_writer_append_pixel_buffer(
+                self.ptr,
+                input_id.0,
+                pixel_buffer.as_ptr(),
+                pts.0,
+                pts.1,
+                &mut err_msg,
+            )
+        };
+        if status != ffi::status::OK {
+            return Err(unsafe { from_swift(status, err_msg) });
+        }
+        Ok(())
+    }
 }
 
 impl Drop for Writer {
