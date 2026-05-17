@@ -250,6 +250,11 @@ unsafe impl Send for Writer {}
 unsafe impl Sync for Writer {}
 
 impl Writer {
+    /// Returns the raw Swift object pointer (for use by `async_api`).
+    pub(crate) const fn as_raw_ptr(&self) -> *mut c_void {
+        self.ptr
+    }
+
     /// Create a writer that will produce a file at `path` of type `file_type`.
     ///
     /// If a file already exists at `path` it will be removed first

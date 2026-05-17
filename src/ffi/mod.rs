@@ -2,10 +2,12 @@
 
 #![allow(missing_docs)]
 
+mod async_ffi;
 mod export_session;
 mod extended;
 mod media_processing;
 mod output_settings;
+pub use async_ffi::*;
 pub use export_session::*;
 pub use extended::*;
 pub use media_processing::*;

@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-05-20
+
+### Added
+
+- **`async_api` module** (behind the `async` Cargo feature) — Tier-1 async
+  wrappers for three `AVFoundation` completion-handler APIs using
+  `doom_fish_utils::completion::AsyncCompletion`:
+  - `AsyncWriter::finish(writer: Writer) → WriterFinishFuture` —
+    async version of `AVAssetWriter.finishWritingWithCompletionHandler:`.
+  - `AsyncExportSession::export(session: &ExportSession) → ExportFuture` —
+    async version of `AVAssetExportSession.exportAsynchronouslyWithCompletionHandler:`
+    (also covers the macOS 26.0+ `export(to:as:isolation:)` Swift concurrency
+    projection of the same API).
+  - `AsyncExportSession::compatible_file_types(session: &ExportSession) → CompatibleFileTypesFuture` —
+    async version of `AVAssetExportSession.determineCompatibleFileTypesWithCompletionHandler:`.
+- New Swift bridge file `swift-bridge/Sources/AVAssetWriterBridge/Async.swift`
+  with three `@_cdecl` callback thunks.
+- `examples/06_async_api.rs` demonstrating all three async futures with
+  `pollster::block_on`.
+- `tests/async_api_tests.rs` with four integration tests (happy path +
+  error paths) for each future type.
+- `doom-fish-utils` optional dependency (enabled by the `async` feature).
+- `pollster = "0.3"` dev-dependency for running async examples/tests
+  synchronously.
+
+### Fixed
+
+- `apple-cf` version constraint updated from `<0.7` to `<0.8` to unblock
+  builds against `apple-cf-rs` 0.7.x.
+
+### Notes
+
+- `AVAssetWriterInput.requestMediaDataWhenReady(on:using:)` is a multi-fire
+  handler (fires once per ready window) and is deferred to Tier 2 (Stream
+  pattern).
+- `AVOutputSettingsAssistant.compatibilityTest(forSourceFormat:completionHandler:)`
+  does **not** exist in the AVFoundation SDK; `AVOutputSettingsAssistant` is a
+  synchronous class with no completion-handler surface.
+
 ## [0.7.1] - 2026-05-16
 
 ### Added

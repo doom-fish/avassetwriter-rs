@@ -1,6 +1,6 @@
 [package]
 name = "avassetwriter"
-version = "0.7.1"
+version = "0.8.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/doom-fish/avassetwriter-rs"
@@ -37,16 +37,20 @@ crate-type = ["lib"]
 
 [features]
 default = []
+async = ["doom-fish-utils"]
 
 [dependencies]
-apple-cf = { path = "../apple-cf-rs", version = ">=0.1.1, <0.7", default-features = false, features = ["cm", "cv"] }
+apple-cf = { path = "../apple-cf-rs", version = ">=0.1.1, <0.8", default-features = false, features = ["cm", "cv"] }
+doom-fish-utils = { path = "../doom-fish-utils", version = "0.1", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
 regex-lite = "0.1"
 videotoolbox = { path = "../videotoolbox-rs", version = ">=0.10, <0.12" }
-apple-cf = { path = "../apple-cf-rs", version = ">=0.1, <0.7" }
+apple-cf = { path = "../apple-cf-rs", version = ">=0.1, <0.8" }
+doom-fish-utils = { path = "../doom-fish-utils", version = "0.1" }
+pollster = "0.3"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -71,6 +75,10 @@ name = "04_output_settings_smoke"
 
 [[example]]
 name = "05_export_session_smoke"
+
+[[example]]
+name = "06_async_api"
+required-features = ["async"]
 
 [profile.release]
 debug = "full"

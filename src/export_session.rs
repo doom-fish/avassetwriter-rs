@@ -210,6 +210,11 @@ pub struct ExportSession {
 }
 
 impl ExportSession {
+    /// Returns the raw Swift object pointer (for use by `async_api`).
+    pub(crate) const fn as_raw_ptr(&self) -> *mut c_void {
+        self.ptr
+    }
+
     /// Return every export preset reported by the current runtime.
     pub fn available_presets() -> Result<Vec<ExportPreset>, AVWriterError> {
         let ptr = unsafe { ffi::av_export_session_all_presets_json() };
