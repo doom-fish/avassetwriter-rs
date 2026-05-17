@@ -1,0 +1,79 @@
+# CodeQL workflow — Rust only, sibling-repo aware.
+#
+# The default auto-configured CodeQL workflow runs the Swift `autobuild`
+# step, which tries to compile the `swift-bridge/` SwiftPM package on
+# `macos-latest` (Xcode 16 / macOS 15 at the time of writing). That SDK
+# does not yet include the macOS 26 (Tahoe) APIs that the bridge code
+# targets, so autobuild fails with hundreds of "cannot find type X" /
+# "value of type Y has no member Z" errors and the run is perpetually red.
+#
+# Swift correctness is verified at `cargo build` time on a real macOS 26
+# machine before every release. This workflow analyses only the Rust
+# crate, and pre-clones the doom-fish-utils / apple-cf-rs / apple-metal-rs
+# sibling repos so the path-dep version-fallback can find them on disk.
+name: CodeQL
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "32 5 * * 0"
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    name: Analyze (rust)
+    runs-on: macos-26
+    timeout-minutes: 30
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout this crate
+        uses: actions/checkout@v4
+        with:
+          path: this-crate
+
+      - name: Checkout doom-fish-utils sibling
+        uses: actions/checkout@v4
+        with:
+          repository: doom-fish/doom-fish-utils
+          path: doom-fish-utils
+
+      - name: Checkout apple-cf-rs sibling
+        uses: actions/checkout@v4
+        with:
+          repository: doom-fish/apple-cf-rs
+          path: apple-cf-rs
+
+      - name: Checkout apple-metal-rs sibling
+        uses: actions/checkout@v4
+        with:
+          repository: doom-fish/apple-metal-rs
+          path: apple-metal-rs
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: rust
+          build-mode: manual
+          source-root: this-crate
+
+      - name: cargo build
+        working-directory: this-crate
+        run: cargo build --all-features
+        env:
+          CARGO_TERM_COLOR: always
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:rust"
