@@ -90,6 +90,11 @@ pub struct MetadataItemFilter {
     ptr: *mut c_void,
 }
 
+// SAFETY: `MetadataItemFilter` wraps an ARC-retained `AVMetadataItemFilter`
+// pointer.  ARC retain/release are atomic; moving across threads is safe.
+// Concurrent shared access (`Sync`) is not implemented.
+unsafe impl Send for MetadataItemFilter {}
+
 impl MetadataItemFilter {
     /// Return Apple's built-in metadata filter for safe sharing/export.
     pub fn for_sharing() -> Result<Self, AVWriterError> {
@@ -136,6 +141,11 @@ pub struct AudioMix {
     ptr: *mut c_void,
 }
 
+// SAFETY: `AudioMix` wraps an ARC-retained `AVAudioMix` pointer.
+// ARC retain/release are atomic; moving across threads is safe.
+// Concurrent shared access (`Sync`) is not implemented.
+unsafe impl Send for AudioMix {}
+
 impl AudioMix {
     /// Create an empty mutable audio mix.
     pub fn new() -> Result<Self, AVWriterError> {
@@ -180,6 +190,11 @@ impl core::fmt::Debug for AudioMix {
 pub struct VideoComposition {
     ptr: *mut c_void,
 }
+
+// SAFETY: `VideoComposition` wraps an ARC-retained `AVVideoComposition`
+// pointer.  ARC retain/release are atomic; moving across threads is safe.
+// Concurrent shared access (`Sync`) is not implemented.
+unsafe impl Send for VideoComposition {}
 
 impl VideoComposition {
     /// Create a mutable composition seeded from the video tracks in `path`.
@@ -282,6 +297,11 @@ impl core::fmt::Debug for VideoComposition {
 pub struct VideoCompositor {
     ptr: *mut c_void,
 }
+
+// SAFETY: `VideoCompositor` wraps an ARC-retained `AVVideoCompositing`
+// pointer.  ARC retain/release are atomic; moving across threads is safe.
+// Concurrent shared access (`Sync`) is not implemented.
+unsafe impl Send for VideoCompositor {}
 
 impl VideoCompositor {
     /// Return the Objective-C class name for this compositor instance.

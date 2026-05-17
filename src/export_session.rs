@@ -209,6 +209,13 @@ pub struct ExportSession {
     ptr: *mut c_void,
 }
 
+// SAFETY: `ExportSession` wraps an ARC-retained `AVAssetExportSession` pointer.
+// ARC retain/release operations are atomic, so the pointer is safe to move
+// across threads.  Concurrent shared access (`Sync`) is not implemented because
+// `AVAssetExportSession` is not documented as thread-safe for simultaneous
+// method calls.
+unsafe impl Send for ExportSession {}
+
 impl ExportSession {
     /// Returns the raw Swift object pointer (for use by `async_api`).
     pub(crate) const fn as_raw_ptr(&self) -> *mut c_void {

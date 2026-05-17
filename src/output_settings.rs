@@ -30,6 +30,12 @@ pub struct OutputSettingsAssistant {
     ptr: *mut c_void,
 }
 
+// SAFETY: `OutputSettingsAssistant` wraps an ARC-retained pointer.
+// ARC retain/release operations are atomic, so the pointer is safe to move
+// across threads.  Concurrent shared access (`Sync`) is not implemented because
+// `AVOutputSettingsAssistant` is not documented as thread-safe.
+unsafe impl Send for OutputSettingsAssistant {}
+
 impl OutputSettingsAssistant {
     /// Return all output-settings presets available on the current macOS SDK/runtime.
     pub fn available_presets() -> Result<Vec<VideoPreset>, AVWriterError> {

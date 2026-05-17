@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-05-21
+
+### Fixed
+
+- **Panic safety across FFI boundary**: The three `extern "C"` callback
+  trampolines in `callbacks.rs` (`ready_callback_trampoline`,
+  `pass_description_callback_trampoline`, `segment_callback_trampoline`) now
+  wrap user-closure invocations in `std::panic::catch_unwind`. Previously a
+  panic in any user-supplied callback was undefined behaviour.
+- **Panic safety in async completion callbacks**: The three `extern "C"`
+  completion callbacks in `async_api.rs` (`writer_finish_cb`, `export_cb`,
+  `compatible_file_types_cb`) are now wrapped with
+  `doom_fish_utils::panic_safe::catch_user_panic`.
+- **Missing `unsafe impl Send`**: Added explicit `unsafe impl Send` (with
+  SAFETY rationale) for `ExportSession`, `OutputSettingsAssistant`,
+  `MetadataItemFilter`, `AudioMix`, `VideoComposition`, and `VideoCompositor`.
+  All wrap ARC-retained Obj-C pointers whose retain/release operations are
+  atomic, making cross-thread moves safe; none implement `Sync` since
+  AVFoundation types are not documented as thread-safe for concurrent access.
+- **SAFETY comments**: Added `// SAFETY:` annotations to all previously
+  un-annotated unsafe blocks in `callbacks.rs` and `async_api.rs`.
+- **Broken intra-doc link**: Removed private `FileType::as_str` link in
+  `Writer::create` doc comment (`cargo doc` was emitting a warning).
+- **Cargo.toml version ranges**: Updated `apple-cf` constraint from
+  `>=0.1.1, <0.8` to `>=0.7, <0.9` and `doom-fish-utils` from `"0.1"` to
+  `">=0.1, <0.3"` per the `>=X.Y, <X.(Y+2)` policy.
+
 ## [0.8.0] - 2026-05-20
 
 ### Added

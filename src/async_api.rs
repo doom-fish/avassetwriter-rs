@@ -53,6 +53,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use doom_fish_utils::completion::{error_from_cstr, AsyncCompletion, AsyncCompletionFuture};
+use doom_fish_utils::panic_safe::catch_user_panic;
 
 use crate::error::AVWriterError;
 use crate::export_session::ExportSession;
@@ -64,14 +65,22 @@ use crate::writer::{FileType, Writer};
 // ============================================================================
 
 extern "C" fn writer_finish_cb(result: *const c_void, error: *const i8, ctx: *mut c_void) {
-    if !error.is_null() {
-        let msg = unsafe { error_from_cstr(error) };
-        unsafe { AsyncCompletion::<()>::complete_err(ctx, msg) };
-    } else if !result.is_null() {
-        unsafe { AsyncCompletion::complete_ok(ctx, ()) };
-    } else {
-        unsafe { AsyncCompletion::<()>::complete_err(ctx, "finishWriting: no result".into()) };
-    }
+    catch_user_panic("writer_finish_cb", || {
+        if !error.is_null() {
+            // SAFETY: `error` is a valid NUL-terminated C string owned by the
+            // Swift bridge for the duration of this callback.
+            let msg = unsafe { error_from_cstr(error) };
+            // SAFETY: `ctx` is a valid `AsyncCompletion` context pointer
+            // created by `AsyncCompletion::create` and consumed at most once.
+            unsafe { AsyncCompletion::<()>::complete_err(ctx, msg) };
+        } else if !result.is_null() {
+            // SAFETY: same ctx invariant as above.
+            unsafe { AsyncCompletion::complete_ok(ctx, ()) };
+        } else {
+            // SAFETY: same ctx invariant as above.
+            unsafe { AsyncCompletion::<()>::complete_err(ctx, "finishWriting: no result".into()) };
+        }
+    });
 }
 
 /// Future returned by [`AsyncWriter::finish`].
@@ -141,14 +150,22 @@ impl AsyncWriter {
 // ============================================================================
 
 extern "C" fn export_cb(result: *const c_void, error: *const i8, ctx: *mut c_void) {
-    if !error.is_null() {
-        let msg = unsafe { error_from_cstr(error) };
-        unsafe { AsyncCompletion::<()>::complete_err(ctx, msg) };
-    } else if !result.is_null() {
-        unsafe { AsyncCompletion::complete_ok(ctx, ()) };
-    } else {
-        unsafe { AsyncCompletion::<()>::complete_err(ctx, "exportAsynchronously: no result".into()) };
-    }
+    catch_user_panic("export_cb", || {
+        if !error.is_null() {
+            // SAFETY: `error` is a valid NUL-terminated C string owned by the
+            // Swift bridge for the duration of this callback.
+            let msg = unsafe { error_from_cstr(error) };
+            // SAFETY: `ctx` is a valid `AsyncCompletion` context pointer
+            // created by `AsyncCompletion::create` and consumed at most once.
+            unsafe { AsyncCompletion::<()>::complete_err(ctx, msg) };
+        } else if !result.is_null() {
+            // SAFETY: same ctx invariant as above.
+            unsafe { AsyncCompletion::complete_ok(ctx, ()) };
+        } else {
+            // SAFETY: same ctx invariant as above.
+            unsafe { AsyncCompletion::<()>::complete_err(ctx, "exportAsynchronously: no result".into()) };
+        }
+    });
 }
 
 /// Future returned by [`AsyncExportSession::export`].
@@ -181,46 +198,59 @@ extern "C" fn compatible_file_types_cb(
     error: *const i8,
     ctx: *mut c_void,
 ) {
-    if !error.is_null() {
-        let msg = unsafe { error_from_cstr(error) };
-        unsafe { AsyncCompletion::<Vec<FileType>>::complete_err(ctx, msg) };
-        return;
-    }
+    catch_user_panic("compatible_file_types_cb", || {
+        if !error.is_null() {
+            // SAFETY: `error` is a valid NUL-terminated C string owned by the
+            // Swift bridge for the duration of this callback.
+            let msg = unsafe { error_from_cstr(error) };
+            // SAFETY: `ctx` is a valid `AsyncCompletion` context pointer
+            // created by `AsyncCompletion::create` and consumed at most once.
+            unsafe { AsyncCompletion::<Vec<FileType>>::complete_err(ctx, msg) };
+            return;
+        }
 
-    if result.is_null() {
-        unsafe {
-            AsyncCompletion::<Vec<FileType>>::complete_err(
-                ctx,
-                "determineCompatibleFileTypes: no result".into(),
-            );
-        };
-        return;
-    }
+        if result.is_null() {
+            // SAFETY: same ctx invariant as above.
+            unsafe {
+                AsyncCompletion::<Vec<FileType>>::complete_err(
+                    ctx,
+                    "determineCompatibleFileTypes: no result".into(),
+                );
+            };
+            return;
+        }
 
-    // `result` is a heap-allocated *mut c_char JSON string from `ffiString`.
-    // We parse it and then free it via `avw_string_free`.
-    let json_ptr = result.cast::<core::ffi::c_char>().cast_mut();
-    let parse_result = (|| -> Result<Vec<FileType>, String> {
-        let s = unsafe { CStr::from_ptr(json_ptr) }
-            .to_str()
-            .map_err(|e| e.to_string())?;
-        let raw: Vec<String> = serde_json::from_str(s).map_err(|e| e.to_string())?;
-        Ok(raw
-            .iter()
-            .filter_map(|s| FileType::from_raw(s))
-            .collect())
-    })();
-    unsafe { ffi::avw_string_free(json_ptr) };
+        // `result` is a heap-allocated *mut c_char JSON string from `ffiString`.
+        // We parse it and then free it via `avw_string_free`.
+        let json_ptr = result.cast::<core::ffi::c_char>().cast_mut();
+        let parse_result = (|| -> Result<Vec<FileType>, String> {
+            // SAFETY: `json_ptr` is a valid NUL-terminated heap string produced
+            // by the Swift bridge's `ffiString` helper.  We free it below after
+            // copying its contents.
+            let s = unsafe { CStr::from_ptr(json_ptr) }
+                .to_str()
+                .map_err(|e| e.to_string())?;
+            let raw: Vec<String> = serde_json::from_str(s).map_err(|e| e.to_string())?;
+            Ok(raw
+                .iter()
+                .filter_map(|s| FileType::from_raw(s))
+                .collect())
+        })();
+        // SAFETY: `json_ptr` was produced by the Swift `ffiString` helper and
+        // must be freed exactly once via `avw_string_free`.
+        unsafe { ffi::avw_string_free(json_ptr) };
 
-    match parse_result {
-        Ok(types) => unsafe { AsyncCompletion::complete_ok(ctx, types) },
-        Err(e) => unsafe {
-            AsyncCompletion::<Vec<FileType>>::complete_err(
-                ctx,
-                format!("failed to decode compatible file types: {e}"),
-            );
-        },
-    }
+        match parse_result {
+            // SAFETY: same ctx invariant as above.
+            Ok(types) => unsafe { AsyncCompletion::complete_ok(ctx, types) },
+            Err(e) => unsafe {
+                AsyncCompletion::<Vec<FileType>>::complete_err(
+                    ctx,
+                    format!("failed to decode compatible file types: {e}"),
+                );
+            },
+        }
+    });
 }
 
 /// Future returned by [`AsyncExportSession::compatible_file_types`].
@@ -281,6 +311,11 @@ impl AsyncExportSession {
     pub fn export(session: &ExportSession) -> ExportFuture {
         let ptr = session.as_raw_ptr();
         let (future, ctx) = AsyncCompletion::<()>::create();
+        // SAFETY: `ptr` is a valid ARC-retained `AVAssetExportSession` pointer
+        // for the lifetime of `session`.  The Swift bridge holds a strong ARC
+        // reference to the session through its closure capture, so the object
+        // remains alive until the completion callback fires even if `session`
+        // is later dropped.
         unsafe {
             ffi::av_export_session_export_async(ptr, export_cb as AsyncCb, ctx);
         }
@@ -300,6 +335,10 @@ impl AsyncExportSession {
     pub fn compatible_file_types(session: &ExportSession) -> CompatibleFileTypesFuture {
         let ptr = session.as_raw_ptr();
         let (future, ctx) = AsyncCompletion::<Vec<FileType>>::create();
+        // SAFETY: `ptr` is a valid ARC-retained `AVAssetExportSession` pointer
+        // for the lifetime of `session`.  The Swift bridge holds a strong ARC
+        // reference through its closure capture so the object stays alive until
+        // the completion callback fires.
         unsafe {
             ffi::av_export_session_compatible_file_types_async(
                 ptr,

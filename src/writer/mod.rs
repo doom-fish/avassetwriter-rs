@@ -268,7 +268,7 @@ impl Writer {
     ///
     /// # Panics
     ///
-    /// Panics if [`FileType::as_str`] yields a string containing an
+    /// Panics if the `FileType` string representation contains an
     /// interior NUL byte — this is structurally impossible for the
     /// hand-built constants in [`FileType`].
     pub fn create(path: impl AsRef<Path>, file_type: FileType) -> Result<Self, AVWriterError> {
