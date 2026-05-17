@@ -64,14 +64,8 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: rust
-          build-mode: manual
+          build-mode: none
           source-root: this-crate
-
-      - name: cargo build
-        working-directory: this-crate
-        run: cargo build --all-features
-        env:
-          CARGO_TERM_COLOR: always
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
