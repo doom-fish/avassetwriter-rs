@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.8.4] - 2026-05-18
+
+- Widen videotoolbox version bound to `<0.16` so 0.15.x resolves.
+
 ## [0.8.3] - 2026-05-18
 
 ### Changed
