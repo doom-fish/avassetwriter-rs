@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.8.2] - 2026-05-18
+
+- Widen videotoolbox version bound so the 0.x bump dep resolves. No source changes.
+
 All notable changes to this project will be documented in this file.
 
 ## [0.8.1] - 2026-05-21
