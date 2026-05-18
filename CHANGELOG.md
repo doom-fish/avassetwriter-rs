@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.3] - 2026-05-18
+
+### Changed
+
+- Re-exported `DropCallback` from `doom-fish-utils::ffi_callbacks` and removed the duplicate local FFI typedef.
+- Widened the local `videotoolbox` dev-dependency range to `<0.15` so validation resolves against the current sibling crate version.
+
 ## [0.8.2] - 2026-05-18
 
 - Widen videotoolbox version bound so the 0.x bump dep resolves. No source changes.

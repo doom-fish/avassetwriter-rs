@@ -1,5 +1,7 @@
 use core::ffi::{c_char, c_void};
 
+pub use doom_fish_utils::ffi_callbacks::DropCallback;
+
 pub type ReadyCallback = unsafe extern "C" fn(userdata: *mut c_void);
 pub type PassDescriptionCallback =
     unsafe extern "C" fn(payload_json: *const c_char, userdata: *mut c_void);
@@ -10,8 +12,6 @@ pub type SegmentCallback = unsafe extern "C" fn(
     report_json: *const c_char,
     userdata: *mut c_void,
 );
-pub type DropCallback = unsafe extern "C" fn(userdata: *mut c_void);
-
 extern "C" {
     pub fn av_writer_create_segmented(
         file_type: *const c_char,
