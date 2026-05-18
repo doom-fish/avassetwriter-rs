@@ -1,6 +1,6 @@
 [package]
 name = "avassetwriter"
-version = "0.8.5"
+version = "0.8.6"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/doom-fish/avassetwriter-rs"
@@ -47,7 +47,7 @@ serde_json = "1"
 
 [dev-dependencies]
 regex-lite = "0.1"
-videotoolbox = { path = "../videotoolbox-rs", version = ">=0.10, <0.16" }
+videotoolbox = { path = "../videotoolbox-rs", version = ">=0.10, <0.17" }
 apple-cf = { path = "../apple-cf-rs", version = ">=0.7, <0.10" }
 doom-fish-utils = { path = "../doom-fish-utils", version = ">=0.1, <0.3" }
 pollster = "0.3"

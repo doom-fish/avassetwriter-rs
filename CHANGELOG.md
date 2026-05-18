@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.8.6] - 2026-05-18
+
+- Widen videotoolbox version bound to `<0.17` so 0.16.x resolves.
+
 ## [0.8.5] - 2026-05-18
 
 - Widen apple-cf version bound to `<0.10` so 0.9.x resolves.
