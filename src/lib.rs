@@ -47,6 +47,7 @@ mod asset;
 mod bridge_support;
 mod callbacks;
 pub mod caption;
+mod composition;
 pub mod error;
 pub mod export_session;
 pub mod ffi;
@@ -65,6 +66,13 @@ pub use caption::{
     CaptionRegionDisplayAlignment, CaptionRegionScroll, CaptionRegionWritingMode, CaptionRenderer,
     CaptionRendererScene, CaptionRuby, CaptionRubyAlignment, CaptionRubyPosition, CaptionRubySpan,
     CaptionSize, CaptionTextAlignment, CaptionUnitsType, MutableCaption, MutableCaptionRegion,
+};
+pub use composition::{
+    AssetTrackSegment, AssetTrackSegmentInfo, Composition, CompositionInfo, CompositionSize,
+    CompositionTimeMapping, CompositionTrack, CompositionTrackFormatDescriptionReplacement,
+    CompositionTrackFormatDescriptionReplacementInfo, CompositionTrackInfo,
+    CompositionTrackSegment, CompositionTrackSegmentInfo, CompositionTransform,
+    FormatDescriptionSummary,
 };
 pub use error::AVWriterError;
 pub use export_session::{ExportPreset, ExportSession, ExportStatus, TrackGroupOutputHandling};
@@ -100,6 +108,13 @@ pub mod prelude {
         CaptionRegionWritingMode, CaptionRenderer, CaptionRendererScene, CaptionRuby,
         CaptionRubyAlignment, CaptionRubyPosition, CaptionRubySpan, CaptionSize,
         CaptionTextAlignment, CaptionUnitsType, MutableCaption, MutableCaptionRegion,
+    };
+    pub use crate::composition::{
+        AssetTrackSegment, AssetTrackSegmentInfo, Composition, CompositionInfo, CompositionSize,
+        CompositionTimeMapping, CompositionTrack, CompositionTrackFormatDescriptionReplacement,
+        CompositionTrackFormatDescriptionReplacementInfo, CompositionTrackInfo,
+        CompositionTrackSegment, CompositionTrackSegmentInfo, CompositionTransform,
+        FormatDescriptionSummary,
     };
     pub use crate::error::AVWriterError;
     pub use crate::export_session::{

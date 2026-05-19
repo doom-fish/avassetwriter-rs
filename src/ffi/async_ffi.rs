@@ -10,11 +10,7 @@ use core::ffi::c_void;
 ///   error (the string is owned by Swift and valid only for the duration of
 ///   the callback).
 /// - `ctx`:    opaque context pointer forwarded verbatim from the call-site.
-pub type AsyncCb = extern "C" fn(
-    result: *const c_void,
-    error: *const i8,
-    ctx: *mut c_void,
-);
+pub type AsyncCb = extern "C" fn(result: *const c_void, error: *const i8, ctx: *mut c_void);
 
 extern "C" {
     /// Async version of `av_writer_finish`.
@@ -22,21 +18,13 @@ extern "C" {
     /// Marks all inputs as finished, starts
     /// `AVAssetWriter.finishWritingWithCompletionHandler:`, and fires `cb`
     /// exactly once when the operation completes.
-    pub fn av_writer_finish_async(
-        writer: *mut c_void,
-        cb: AsyncCb,
-        ctx: *mut c_void,
-    );
+    pub fn av_writer_finish_async(writer: *mut c_void, cb: AsyncCb, ctx: *mut c_void);
 
     /// Async version of `av_export_session_export`.
     ///
     /// Calls `AVAssetExportSession.exportAsynchronouslyWithCompletionHandler:`
     /// and fires `cb` exactly once when the operation completes.
-    pub fn av_export_session_export_async(
-        session: *mut c_void,
-        cb: AsyncCb,
-        ctx: *mut c_void,
-    );
+    pub fn av_export_session_export_async(session: *mut c_void, cb: AsyncCb, ctx: *mut c_void);
 
     /// Async version of `av_export_session_compatible_file_types_json`.
     ///

@@ -32,9 +32,7 @@ fn catch_callback_panic<F: FnOnce()>(site: &str, f: F) {
             .unwrap_or("<non-string panic payload>");
         // The eprintln! write is itself protected in case stderr is broken.
         let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            eprintln!(
-                "avassetwriter: panic in {site} caught at C ABI boundary: {msg}"
-            );
+            eprintln!("avassetwriter: panic in {site} caught at C ABI boundary: {msg}");
         }));
     }
 }
@@ -82,9 +80,7 @@ pub(crate) unsafe extern "C" fn pass_description_callback_drop(userdata: *mut c_
     if !userdata.is_null() {
         // SAFETY: `userdata` was created via `Box::into_raw`; this drop
         // trampoline is called exactly once by the Swift bridge.
-        drop(unsafe {
-            Box::from_raw(userdata.cast::<PassDescriptionCallbackState>())
-        });
+        drop(unsafe { Box::from_raw(userdata.cast::<PassDescriptionCallbackState>()) });
     }
 }
 

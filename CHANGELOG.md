@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.0] - 2026-05-19
+
+### Added
+
+- Added inspection-focused wrappers for `AVComposition`, `AVCompositionTrack`, `AVCompositionTrackFormatDescriptionReplacement`, `AVCompositionTrackSegment`, and `AVAssetTrackSegment`.
+- Added composition loading helpers from existing assets and file paths, segment enumeration, segment lookup by track time, sample-time mapping, and format-description replacement access.
+
+### Changed
+
+- Updated the coverage audit for the new composition family and bumped the crate version to `0.10.0`.
+
 ## [0.9.0] - 2026-05-19
 
 ### Added

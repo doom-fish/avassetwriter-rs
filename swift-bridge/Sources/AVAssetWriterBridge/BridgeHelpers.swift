@@ -292,6 +292,15 @@ func encodeMediaType(_ mediaType: AVMediaType) -> String {
     }
 }
 
+func decodeMediaCharacteristic(_ raw: String) -> AVMediaCharacteristic {
+    switch raw {
+    case "visual": return .visual
+    case "audible": return .audible
+    case "legible": return .legible
+    default: return AVMediaCharacteristic(rawValue: raw)
+    }
+}
+
 func decodeTrackAssociationType(_ raw: String) -> String {
     switch raw {
     case "audio_fallback": return AVAssetTrack.AssociationType.audioFallback.rawValue

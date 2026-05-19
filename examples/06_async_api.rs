@@ -50,7 +50,10 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     writer.start_session((0, 600))?;
     println!("[1] Calling AsyncWriter::finish …");
     AsyncWriter::finish(writer).await?;
-    println!("[1] AsyncWriter::finish completed — file written to {}", out_path.display());
+    println!(
+        "[1] AsyncWriter::finish completed — file written to {}",
+        out_path.display()
+    );
 
     // -----------------------------------------------------------------------
     // 2. Query compatible file types for the freshly written file.
@@ -83,10 +86,15 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     let result = tokio_free_timeout(export_fut, timeout).await;
 
     match result {
-        Some(Ok(())) => println!("[3] AsyncExportSession::export completed in {:?}", start.elapsed()),
+        Some(Ok(())) => println!(
+            "[3] AsyncExportSession::export completed in {:?}",
+            start.elapsed()
+        ),
         Some(Err(e)) => {
             // An empty writer has no tracks; export may legitimately fail.
-            println!("[3] AsyncExportSession::export returned error (expected for empty file): {e}");
+            println!(
+                "[3] AsyncExportSession::export returned error (expected for empty file): {e}"
+            );
         }
         None => println!("[3] Export timed out after {timeout:?} — skipping"),
     }
@@ -96,10 +104,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Minimal executor-agnostic timeout wrapper (avoids pulling in tokio).
-async fn tokio_free_timeout<F: Future>(
-    fut: F,
-    _timeout: Duration,
-) -> Option<F::Output> {
+async fn tokio_free_timeout<F: Future>(fut: F, _timeout: Duration) -> Option<F::Output> {
     // In a real application use tokio::time::timeout or async_std::future::timeout.
     // For this headless example we just await directly — the passthrough export
     // of a minimal file completes in well under a second.

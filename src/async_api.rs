@@ -163,7 +163,9 @@ extern "C" fn export_cb(result: *const c_void, error: *const i8, ctx: *mut c_voi
             unsafe { AsyncCompletion::complete_ok(ctx, ()) };
         } else {
             // SAFETY: same ctx invariant as above.
-            unsafe { AsyncCompletion::<()>::complete_err(ctx, "exportAsynchronously: no result".into()); };
+            unsafe {
+                AsyncCompletion::<()>::complete_err(ctx, "exportAsynchronously: no result".into());
+            };
         }
     });
 }
@@ -193,11 +195,7 @@ impl Future for ExportFuture {
 // CompatibleFileTypesFuture
 // ============================================================================
 
-extern "C" fn compatible_file_types_cb(
-    result: *const c_void,
-    error: *const i8,
-    ctx: *mut c_void,
-) {
+extern "C" fn compatible_file_types_cb(result: *const c_void, error: *const i8, ctx: *mut c_void) {
     catch_user_panic("compatible_file_types_cb", || {
         if !error.is_null() {
             // SAFETY: `error` is a valid NUL-terminated C string owned by the
@@ -231,10 +229,7 @@ extern "C" fn compatible_file_types_cb(
                 .to_str()
                 .map_err(|e| e.to_string())?;
             let raw: Vec<String> = serde_json::from_str(s).map_err(|e| e.to_string())?;
-            Ok(raw
-                .iter()
-                .filter_map(|s| FileType::from_raw(s))
-                .collect())
+            Ok(raw.iter().filter_map(|s| FileType::from_raw(s)).collect())
         })();
         // SAFETY: `json_ptr` was produced by the Swift `ffiString` helper and
         // must be freed exactly once via `avw_string_free`.
@@ -270,9 +265,7 @@ impl Future for CompatibleFileTypesFuture {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Pin::new(&mut self.inner).poll(cx).map(|r| {
-            r.map_err(|msg| {
-                AVWriterError::InvalidState(format!("compatible file types: {msg}"))
-            })
+            r.map_err(|msg| AVWriterError::InvalidState(format!("compatible file types: {msg}")))
         })
     }
 }

@@ -5,6 +5,7 @@
 mod asset;
 mod async_ffi;
 mod caption;
+mod composition;
 mod export_session;
 mod extended;
 mod media_processing;
@@ -13,6 +14,7 @@ mod output_settings;
 pub use asset::*;
 pub use async_ffi::*;
 pub use caption::*;
+pub use composition::*;
 pub use export_session::*;
 pub use extended::*;
 pub use media_processing::*;

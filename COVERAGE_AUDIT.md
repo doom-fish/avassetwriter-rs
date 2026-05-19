@@ -1,11 +1,11 @@
 # avassetwriter coverage audit (vs MacOSX26.2.sdk)
 
-Scope: `AVAssetWriter.h`, `AVAssetWriterInput.h`, `AVAssetExportSession.h`, and `AVOutputSettingsAssistant.h` from `AVFoundation.framework`.
+Scope: `AVAssetWriter.h`, `AVAssetWriterInput.h`, `AVAssetExportSession.h`, `AVOutputSettingsAssistant.h`, `AVComposition.h`, `AVCompositionTrack.h`, `AVCompositionTrackSegment.h`, and `AVAssetTrackSegment.h` from `AVFoundation.framework`.
 
 Methodology: per the audit instructions, counts are based on top-level public symbols (interfaces, protocols, enums, and exported constants) that are reachable from the crate's public Rust API. Objective-C member-level caveats are called out separately below but do not change the symbol counts.
 
-SDK_PUBLIC_SYMBOLS: 64
-VERIFIED: 60
+SDK_PUBLIC_SYMBOLS: 69
+VERIFIED: 65
 GAPS: 0
 EXEMPT: 4
 COVERAGE_PCT: 100.0%
@@ -57,6 +57,11 @@ COVERAGE_PCT: 100.0%
 | `AVAssetTrackGroupOutputHandling` | enum | `AVAssetExportSession.h` | `TrackGroupOutputHandling` |
 | `AVAssetExportSession` | interface | `AVAssetExportSession.h` | `ExportSession` (core export/config surface; see caveats below) |
 | `AVVideoCompositing` | protocol | `AVAssetExportSession.h` | `VideoCompositor` + `VideoCompositorClass` + `ExportSession::custom_video_compositor` |
+| `AVComposition` | interface | `AVComposition.h` | `Composition` |
+| `AVCompositionTrack` | interface | `AVCompositionTrack.h` | `CompositionTrack` |
+| `AVCompositionTrackFormatDescriptionReplacement` | interface | `AVCompositionTrack.h` | `CompositionTrackFormatDescriptionReplacement` |
+| `AVCompositionTrackSegment` | interface | `AVCompositionTrackSegment.h` | `CompositionTrackSegment` |
+| `AVAssetTrackSegment` | interface | `AVAssetTrackSegment.h` | `AssetTrackSegment` |
 | `AVOutputSettingsPreset640x480` | constant | `AVOutputSettingsAssistant.h` | `VideoPreset::Sd640x480` |
 | `AVOutputSettingsPreset960x540` | constant | `AVOutputSettingsAssistant.h` | `VideoPreset::Hd960x540` |
 | `AVOutputSettingsPreset1280x720` | constant | `AVOutputSettingsAssistant.h` | `VideoPreset::Hd1280x720` |
@@ -88,6 +93,8 @@ None.
 ## Member-level caveats (not counted above)
 
 - `AVAssetExportSession` is still partially wrapped at the member level: `asset` is surfaced as `asset_path()` for URL-backed sessions, and `audioTimePitchAlgorithm` remains intentionally deferred.
+- `Composition` support is inspection-focused: the crate can snapshot compositions from existing `Asset`s and build standalone `CompositionTrackSegment`s, but it does not yet expose the full `AVMutableComposition` / `AVMutableCompositionTrack` editing surface as first-class Rust types.
+- `AssetTrackSegment` is surfaced via composition-track inspection and `CompositionTrackSegment::asset_track_segment()` because `AVAssetTrack` itself is not yet wrapped.
 - `MetadataItemFilter`, `AudioMix`, `VideoComposition`, and `VideoCompositor` are exposed as lightweight interop wrappers focused on round-tripping export-session state rather than full AVFoundation editing APIs.
 - `OutputSettingsAssistant` exposes `audioSettings` and `videoSettings` as `serde_json::Value` dictionaries rather than typed Rust key/value wrappers.
 - The crate models `AVAssetWriterInput` through `InputId` plus `Writer` methods rather than exposing a standalone Rust object for the Objective-C input instance.

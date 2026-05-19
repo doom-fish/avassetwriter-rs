@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 
 use apple_cf::iosurface::{IOSurface, IOSurfaceLockOptions};
 use avassetwriter::{
-    AudioMix, ExportPreset, ExportSession, ExportStatus, FileType, MetadataItem,
-    MetadataItemFilter, MetadataItemFilterKind, Time, TimeRange, TrackGroupOutputHandling,
-    VideoComposition, VideoCompositorClass, Writer,
+    AudioMix, Composition, CompositionTrackSegment, ExportPreset, ExportSession, ExportStatus,
+    FileType, MediaType, MetadataItem, MetadataItemFilter, MetadataItemFilterKind, Time, TimeRange,
+    TrackGroupOutputHandling, VideoComposition, VideoCompositorClass, Writer,
 };
 use videotoolbox::prelude::*;
 
@@ -171,6 +171,97 @@ fn export_session_smoke() -> Result<(), Box<dyn std::error::Error>> {
 
     let metadata = std::fs::metadata(&output)?;
     assert!(metadata.len() > 0);
+    Ok(())
+}
+
+#[test]
+fn composition_smoke() -> Result<(), Box<dyn std::error::Error>> {
+    let artifacts = artifacts_dir();
+    std::fs::create_dir_all(&artifacts)?;
+
+    let source = artifacts.join("composition-source.mp4");
+    write_test_asset(&source)?;
+
+    let empty = Composition::empty()?;
+    assert_eq!(empty.track_count(), 0);
+    assert!(empty.tracks()?.is_empty());
+
+    let composition = Composition::from_file_path(&source)?;
+    let snapshot = composition.snapshot()?;
+    assert!(snapshot.is_playable);
+    assert!(snapshot.is_exportable);
+    assert!(snapshot.is_readable);
+    assert!(snapshot.is_composable);
+    assert_eq!(snapshot.track_ids.len(), composition.track_count());
+    assert!(!snapshot.track_ids.is_empty());
+    let _ = composition.unused_track_id()?;
+
+    let tracks = composition.tracks()?;
+    assert_eq!(tracks.len(), composition.track_count());
+
+    let video_tracks = composition.tracks_with_media_type(MediaType::Video)?;
+    assert!(!video_tracks.is_empty());
+    assert_eq!(
+        video_tracks.len(),
+        composition
+            .tracks_with_media_characteristic("visual")?
+            .len()
+    );
+
+    let track = video_tracks
+        .first()
+        .expect("composition should contain a video track");
+    assert!(composition
+        .track_with_track_id(track.track_id()?)?
+        .is_some());
+    assert_eq!(track.media_type()?, MediaType::Video);
+    assert!(track.is_playable()?);
+    assert!(track.is_enabled()?);
+    assert!(track.segment_count() > 0);
+    assert!(track.format_description_count() > 0);
+    assert_eq!(
+        track.format_description_count(),
+        track.format_descriptions()?.len()
+    );
+    let replacements = track.format_description_replacements()?;
+    assert_eq!(
+        track.format_description_replacement_count(),
+        replacements.len()
+    );
+
+    let segment = track
+        .segment_for_track_time(Time::new(0, FPS))?
+        .expect("composition track should vend a segment at t=0");
+    assert!(!segment.is_empty()?);
+    assert!(segment.source_url()?.is_some());
+    assert_eq!(
+        segment.time_mapping()?,
+        segment.asset_track_segment()?.time_mapping()?
+    );
+
+    let source_track_id = segment
+        .source_track_id()?
+        .expect("composition track segment should reference the source asset track");
+    let constructed_segment = CompositionTrackSegment::from_source_file_path(
+        &source,
+        source_track_id,
+        TimeRange::new(Time::new(0, FPS), Time::new(1, FPS)),
+        TimeRange::new(Time::new(0, FPS), Time::new(1, FPS)),
+    )?;
+    assert!(!constructed_segment.is_empty()?);
+    assert_eq!(
+        constructed_segment.source_track_id()?,
+        Some(source_track_id)
+    );
+
+    let empty_segment =
+        CompositionTrackSegment::empty(TimeRange::new(Time::new(1, FPS), Time::new(1, FPS)))?;
+    assert!(empty_segment.is_empty()?);
+    assert!(empty_segment.source_url()?.is_none());
+
+    let sample_time = track.sample_presentation_time_for_track_time(Time::new(0, FPS))?;
+    assert!(sample_time.as_numeric().is_some());
+
     Ok(())
 }
 
