@@ -12,7 +12,7 @@ use crate::bridge_support::{
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
 use crate::media_processing::{AudioMix, MetadataItemFilter, VideoComposition, VideoCompositor};
-use crate::metadata::MetadataItem;
+use crate::metadata::{MetadataItem, MetadataItemPayload};
 use crate::time::{Time, TimeRange};
 use crate::writer::FileType;
 
@@ -198,7 +198,7 @@ struct ExportSessionInfoPayload {
     supported_file_types: Vec<String>,
     time_range: TimeRange,
     file_length_limit: i64,
-    metadata: Vec<MetadataItem>,
+    metadata: Vec<MetadataItemPayload>,
     can_perform_multiple_passes_over_source_media_data: bool,
     directory_for_temporary_files: Option<String>,
     audio_track_group_handling: u64,
@@ -496,11 +496,21 @@ impl ExportSession {
     }
 
     pub fn metadata(&self) -> Result<Vec<MetadataItem>, AVWriterError> {
-        Ok(self.info()?.metadata)
+        Ok(self
+            .info()?
+            .metadata
+            .into_iter()
+            .map(MetadataItem::from_payload)
+            .collect())
     }
 
     pub fn set_metadata(&self, metadata: &[MetadataItem]) -> Result<(), AVWriterError> {
-        let payload = serialize_json(metadata)?;
+        let payload = serialize_json(
+            &metadata
+                .iter()
+                .map(MetadataItem::payload)
+                .collect::<Vec<_>>(),
+        )?;
         let payload_c = cstring_arg(&payload, "export metadata json")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {

@@ -25,7 +25,9 @@ use crate::callbacks::{
 use crate::caption::{Caption, CaptionGroup};
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
-use crate::metadata::{MetadataItem, MetadataSpecification, TimedMetadataGroup};
+use crate::metadata::{
+    MetadataItem, MetadataItemPayload, MetadataSpecification, TimedMetadataGroup,
+};
 use crate::time::{Time, TimeRange};
 
 /// `AVFileTypeProfile`.
@@ -289,7 +291,7 @@ struct WriterInfoPayload {
     available_media_types: Vec<String>,
     status: i32,
     error_message: Option<String>,
-    metadata: Vec<MetadataItem>,
+    metadata: Vec<MetadataItemPayload>,
     should_optimize_for_network_use: bool,
     directory_for_temporary_files: Option<String>,
     inputs: Vec<i32>,
@@ -326,7 +328,7 @@ struct TransformPayload {
 struct InputInfoPayload {
     media_type: String,
     output_settings_json: Option<String>,
-    metadata: Vec<MetadataItem>,
+    metadata: Vec<MetadataItemPayload>,
     ready_for_more_media_data: bool,
     expects_media_data_in_real_time: bool,
     language_code: Option<String>,
@@ -421,11 +423,21 @@ impl Writer {
     }
 
     pub fn metadata(&self) -> Result<Vec<MetadataItem>, AVWriterError> {
-        Ok(self.writer_info()?.metadata)
+        Ok(self
+            .writer_info()?
+            .metadata
+            .into_iter()
+            .map(MetadataItem::from_payload)
+            .collect())
     }
 
     pub fn set_metadata(&self, metadata: &[MetadataItem]) -> Result<(), AVWriterError> {
-        let payload = serialize_json(metadata)?;
+        let payload = serialize_json(
+            &metadata
+                .iter()
+                .map(MetadataItem::payload)
+                .collect::<Vec<_>>(),
+        )?;
         let payload_c = cstring_arg(&payload, "metadata json")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status =
@@ -776,7 +788,7 @@ impl Writer {
         input_id: InputId,
         group: &TimedMetadataGroup,
     ) -> Result<(), AVWriterError> {
-        let payload = serialize_json(group)?;
+        let payload = serialize_json(&group.payload())?;
         let payload_c = cstring_arg(&payload, "timed metadata group json")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
@@ -874,7 +886,12 @@ impl Writer {
     }
 
     pub fn input_metadata(&self, input_id: InputId) -> Result<Vec<MetadataItem>, AVWriterError> {
-        Ok(self.input_info(input_id)?.metadata)
+        Ok(self
+            .input_info(input_id)?
+            .metadata
+            .into_iter()
+            .map(MetadataItem::from_payload)
+            .collect())
     }
 
     pub fn set_input_metadata(
@@ -882,7 +899,12 @@ impl Writer {
         input_id: InputId,
         metadata: &[MetadataItem],
     ) -> Result<(), AVWriterError> {
-        let payload = serialize_json(metadata)?;
+        let payload = serialize_json(
+            &metadata
+                .iter()
+                .map(MetadataItem::payload)
+                .collect::<Vec<_>>(),
+        )?;
         let payload_c = cstring_arg(&payload, "input metadata json")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {

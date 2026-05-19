@@ -43,6 +43,7 @@
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 pub mod async_api;
 
+mod asset;
 mod bridge_support;
 mod callbacks;
 pub mod caption;
@@ -55,14 +56,29 @@ pub mod output_settings;
 pub mod time;
 pub mod writer;
 
-pub use caption::{Caption, CaptionGroup};
+pub use asset::Asset;
+pub use caption::{
+    Caption, CaptionAnimation, CaptionBounds, CaptionConversionAdjustment,
+    CaptionConversionSettings, CaptionConversionTimeRangeAdjustment, CaptionConversionValidator,
+    CaptionConversionValidatorStatus, CaptionConversionWarning, CaptionDimension,
+    CaptionFormatConformer, CaptionGroup, CaptionGrouper, CaptionPoint, CaptionRegion,
+    CaptionRegionDisplayAlignment, CaptionRegionScroll, CaptionRegionWritingMode, CaptionRenderer,
+    CaptionRendererScene, CaptionRuby, CaptionRubyAlignment, CaptionRubyPosition, CaptionRubySpan,
+    CaptionSize, CaptionTextAlignment, CaptionUnitsType, MutableCaption, MutableCaptionRegion,
+};
 pub use error::AVWriterError;
 pub use export_session::{ExportPreset, ExportSession, ExportStatus, TrackGroupOutputHandling};
 pub use media_processing::{
-    AudioMix, MetadataItemFilter, MetadataItemFilterKind, VideoComposition, VideoCompositor,
-    VideoCompositorClass,
+    AsynchronousCIImageFilteringRequest, AsynchronousVideoCompositionRequest, AudioMix,
+    AudioMixInputParameters, AudioVolumeRamp, ImageRect, MetadataItemFilter,
+    MetadataItemFilterKind, MutableAudioMix, MutableAudioMixInputParameters, VideoComposition,
+    VideoCompositor, VideoCompositorClass,
 };
-pub use metadata::{MetadataItem, MetadataSpecification, MetadataValue, TimedMetadataGroup};
+pub use metadata::{
+    DateRangeMetadataGroup, KeyLoadStatus, KeyValueStatus, MetadataGroup, MetadataItem,
+    MetadataItemValueRequest, MetadataSpecification, MetadataValue, MutableDateRangeMetadataGroup,
+    TimedMetadataGroup,
+};
 pub use output_settings::OutputSettingsAssistant;
 pub use time::{Time, TimeRange};
 pub use writer::{
@@ -74,17 +90,31 @@ pub use writer::{
 
 /// Common imports.
 pub mod prelude {
-    pub use crate::caption::{Caption, CaptionGroup};
+    pub use crate::asset::Asset;
+    pub use crate::caption::{
+        Caption, CaptionAnimation, CaptionBounds, CaptionConversionAdjustment,
+        CaptionConversionSettings, CaptionConversionTimeRangeAdjustment,
+        CaptionConversionValidator, CaptionConversionValidatorStatus, CaptionConversionWarning,
+        CaptionDimension, CaptionFormatConformer, CaptionGroup, CaptionGrouper, CaptionPoint,
+        CaptionRegion, CaptionRegionDisplayAlignment, CaptionRegionScroll,
+        CaptionRegionWritingMode, CaptionRenderer, CaptionRendererScene, CaptionRuby,
+        CaptionRubyAlignment, CaptionRubyPosition, CaptionRubySpan, CaptionSize,
+        CaptionTextAlignment, CaptionUnitsType, MutableCaption, MutableCaptionRegion,
+    };
     pub use crate::error::AVWriterError;
     pub use crate::export_session::{
         ExportPreset, ExportSession, ExportStatus, TrackGroupOutputHandling,
     };
     pub use crate::media_processing::{
-        AudioMix, MetadataItemFilter, MetadataItemFilterKind, VideoComposition, VideoCompositor,
-        VideoCompositorClass,
+        AsynchronousCIImageFilteringRequest, AsynchronousVideoCompositionRequest, AudioMix,
+        AudioMixInputParameters, AudioVolumeRamp, ImageRect, MetadataItemFilter,
+        MetadataItemFilterKind, MutableAudioMix, MutableAudioMixInputParameters, VideoComposition,
+        VideoCompositor, VideoCompositorClass,
     };
     pub use crate::metadata::{
-        MetadataItem, MetadataSpecification, MetadataValue, TimedMetadataGroup,
+        DateRangeMetadataGroup, KeyLoadStatus, KeyValueStatus, MetadataGroup, MetadataItem,
+        MetadataItemValueRequest, MetadataSpecification, MetadataValue,
+        MutableDateRangeMetadataGroup, TimedMetadataGroup,
     };
     pub use crate::output_settings::OutputSettingsAssistant;
     pub use crate::time::{Time, TimeRange};

@@ -461,13 +461,6 @@ func timedMetadataGroup(from payload: TimedMetadataGroupPayload) throws -> AVTim
     return AVTimedMetadataGroup(items: items, timeRange: cmTimeRange(from: payload.timeRange))
 }
 
-func caption(from payload: CaptionPayload) -> AVCaption {
-    AVCaption(payload.text, timeRange: cmTimeRange(from: payload.timeRange))
-}
-
-func captionGroup(from payload: CaptionGroupPayload) -> AVCaptionGroup {
-    AVCaptionGroup(captions: payload.captions.map(caption(from:)), timeRange: cmTimeRange(from: payload.timeRange))
-}
 
 func metadataFormatDescription(from specs: [MetadataSpecificationPayload]) throws -> CMFormatDescription {
     let dictionaries: [[CFString: Any]] = specs.map { spec in

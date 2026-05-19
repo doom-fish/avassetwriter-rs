@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.0] - 2026-05-19
+
+### Added
+
+- Added a real `Asset` wrapper for URL-backed and remote `AVAsset` loading/status/metadata inspection.
+- Expanded the caption surface with `CaptionRegion`, `MutableCaptionRegion`, `MutableCaption`, `CaptionRuby`, `CaptionGrouper`, `CaptionFormatConformer`, `CaptionRenderer`, `CaptionConversionValidator`, and related warning/settings/value types.
+- Expanded media-processing support with `MutableAudioMix`, `AudioMixInputParameters`, volume-ramp inspection, and request snapshot helpers for `AVAsynchronousVideoCompositionRequest` / `AVAsynchronousCIImageFilteringRequest`.
+- Reworked metadata wrappers around `MetadataItem`, timed/date-range groups, and `MetadataItemValueRequest` so export and writer APIs use the richer object-backed surface.
+
 ## [0.8.6] - 2026-05-18
 
 - Widen videotoolbox version bound to `<0.17` so 0.16.x resolves.

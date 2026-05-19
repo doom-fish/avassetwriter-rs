@@ -101,7 +101,7 @@ Legend:
 | `determineCompatibilityOfExportPreset:withAsset:outputFileType:completionHandler:` | ✅ implemented | `ExportSession::determine_compatibility`. |
 | `exportSessionWithAsset:presetName:` / `initWithAsset:presetName:` | ✅ implemented | `ExportSession::new` creates an internal `AVURLAsset`-backed session. |
 | `presetName` | ✅ implemented | `ExportSession::preset_name`. |
-| `asset` | 🟡 partial | Rust currently exposes `asset_path` for URL-backed sessions rather than a general-purpose `AVAsset` wrapper. |
+| `asset` | ✅ implemented | `Asset` now exposes URL-backed `AVAsset` loading, duration/metadata readback, and per-key status inspection. |
 | `outputFileType` / `outputURL` | ✅ implemented | `ExportSession::{output_file_type,set_output_file_type,output_path,set_output_path}`. |
 | `shouldOptimizeForNetworkUse` | ✅ implemented | Getter + setter. |
 | `allowsParallelizedExport` | ✅ implemented | Getter + setter (setter reports unsupported runtimes on macOS < 14). |

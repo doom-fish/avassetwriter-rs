@@ -2,15 +2,21 @@
 
 #![allow(missing_docs)]
 
+mod asset;
 mod async_ffi;
+mod caption;
 mod export_session;
 mod extended;
 mod media_processing;
+mod metadata;
 mod output_settings;
+pub use asset::*;
 pub use async_ffi::*;
+pub use caption::*;
 pub use export_session::*;
 pub use extended::*;
 pub use media_processing::*;
+pub use metadata::*;
 pub use output_settings::*;
 
 use core::ffi::{c_char, c_void};

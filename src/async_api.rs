@@ -163,7 +163,7 @@ extern "C" fn export_cb(result: *const c_void, error: *const i8, ctx: *mut c_voi
             unsafe { AsyncCompletion::complete_ok(ctx, ()) };
         } else {
             // SAFETY: same ctx invariant as above.
-            unsafe { AsyncCompletion::<()>::complete_err(ctx, "exportAsynchronously: no result".into()) };
+            unsafe { AsyncCompletion::<()>::complete_err(ctx, "exportAsynchronously: no result".into()); };
         }
     });
 }

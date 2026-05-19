@@ -295,6 +295,10 @@ struct InputInfoPayload: Codable {
 struct CaptionPayload: Codable {
     let text: String
     let timeRange: TimeRangePayload
+    let region: CaptionRegionPayload?
+    let textAlignment: CaptionTextAlignmentRaw?
+    let animation: CaptionAnimationRaw?
+    let rubySpans: [CaptionRubySpanPayload]?
 }
 
 struct CaptionGroupPayload: Codable {
