@@ -1,6 +1,6 @@
 [package]
 name = "avassetwriter"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/doom-fish/avassetwriter-rs"
@@ -9,7 +9,7 @@ description = "Safe Rust bindings for Apple's AVAssetWriter, AVOutputSettingsAss
 authors = ["Per Johansson <per@doom.fish>"]
 keywords = ["avassetwriter", "mp4", "macos", "video", "muxer"]
 categories = ["multimedia::video", "api-bindings", "os::macos-apis"]
-rust-version = "1.70"
+rust-version = "1.76"
 readme = "README.md"
 build = "build.rs"
 include = [
