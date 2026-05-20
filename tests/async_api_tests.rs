@@ -1,3 +1,5 @@
+#![cfg(feature = "async")]
+
 //! Integration tests for `async_api` module.
 //!
 //! Run with:
