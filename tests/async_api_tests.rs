@@ -8,8 +8,10 @@
 //! ```
 
 use std::path::PathBuf;
+use std::thread;
+use std::time::{Duration, Instant};
 
-use avassetwriter::async_api::{AsyncExportSession, AsyncWriter};
+use avassetwriter::async_api::{AsyncExportSession, AsyncWriter, AsyncWriterInput};
 use avassetwriter::{ExportPreset, ExportSession, FileType, Writer};
 
 fn artifacts_dir() -> PathBuf {
@@ -40,6 +42,50 @@ fn async_writer_finish_happy_path() {
         "AsyncWriter::finish failed unexpectedly: {result:?}"
     );
     assert!(path.exists(), "output file was not created");
+    let _ = std::fs::remove_file(&path);
+}
+
+// ---------------------------------------------------------------------------
+// AsyncWriterInput::request_media_data_when_ready — happy path
+// ---------------------------------------------------------------------------
+
+#[test]
+fn async_writer_input_ready_stream_happy_path() {
+    let path = artifacts_dir().join("async_writer_ready_stream.m4a");
+    let _ = std::fs::remove_file(&path);
+
+    let writer = Writer::create(&path, FileType::M4a).expect("Writer::create failed");
+    let input = writer
+        .add_audio_input_pcm(48_000.0, 1, 16)
+        .expect("add_audio_input_pcm failed");
+    writer
+        .start_session((0, 48_000))
+        .expect("start_session failed");
+
+    let stream = AsyncWriterInput::request_media_data_when_ready(&writer, input, 4)
+        .expect("request_media_data_when_ready failed");
+
+    let ready = pollster::block_on(async {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if stream.try_next().is_some() {
+                break true;
+            }
+            if Instant::now() >= deadline {
+                break false;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    });
+    assert!(ready, "ready stream did not emit within the deadline");
+
+    let silence = vec![0_u8; 48_000 * 2];
+    writer
+        .append_audio_pcm(input, &silence, 48_000, (0, 48_000))
+        .expect("append_audio_pcm failed");
+    drop(stream);
+    pollster::block_on(AsyncWriter::finish(writer)).expect("finish failed");
+
     let _ = std::fs::remove_file(&path);
 }
 

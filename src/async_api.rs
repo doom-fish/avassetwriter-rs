@@ -1,27 +1,28 @@
 //! Async API for `avassetwriter`
 //!
-//! Provides executor-agnostic [`Future`] wrappers around `AVFoundation`
-//! completion-handler APIs.  Enable with the `async` Cargo feature.
+//! Provides executor-agnostic [`Future`] and bounded-stream wrappers around
+//! `AVFoundation` completion-handler and input-readiness APIs. Enable with the
+//! `async` Cargo feature.
 //!
 //! ## Available types
 //!
 //! | Type | Apple API wrapped |
 //! |------|-------------------|
 //! | [`AsyncWriter`] / [`WriterFinishFuture`] | `AVAssetWriter.finishWritingWithCompletionHandler:` |
+//! | [`AsyncWriterInput`] / [`InputMediaDataReadyStream`] | `AVAssetWriterInput.requestMediaDataWhenReady(on:using:)` |
 //! | [`AsyncExportSession`] / [`ExportFuture`] | `AVAssetExportSession.exportAsynchronouslyWithCompletionHandler:` (also covers macOS 26+ `export(to:as:isolation:)`) |
 //! | [`AsyncExportSession`] / [`CompatibleFileTypesFuture`] | `AVAssetExportSession.determineCompatibleFileTypesWithCompletionHandler:` |
 //!
-//! ## Tier-2 deferrals
+//! `InputMediaDataReadyStream` uses `doom-fish-utils::stream::BoundedAsyncStream`.
+//! If the consumer falls behind, the oldest queued ready event is dropped so
+//! the writer input's callback queue can keep making forward progress.
 //!
-//! The following APIs are multi-fire or stream-like and belong in a Tier-2
-//! `Stream` pattern rather than a one-shot `Future`:
+//! ## Notes
 //!
-//! * `AVAssetWriterInput.requestMediaDataWhenReady(on:using:)` — fires
-//!   repeatedly whenever the input becomes ready for more data; use a
-//!   channel/stream (Tier 2).
-//!
-//! ## Not available in SDK
-//!
+//! * Like the underlying `requestMediaDataWhenReady(on:using:)` registration,
+//!   an input can only be wrapped once for the lifetime of that writer/input.
+//!   Dropping the Rust stream stops delivery into Rust, but re-registering the
+//!   same input still returns `InvalidState`.
 //! * `AVOutputSettingsAssistant.compatibilityTest(forSourceFormat:completionHandler:)` —
 //!   this method does **not** exist in the `AVFoundation` SDK.
 //!   `AVOutputSettingsAssistant` is a purely synchronous settings-recommendation
@@ -31,14 +32,18 @@
 //!
 //! ```rust,no_run
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use std::path::PathBuf;
 //! use avassetwriter::{FileType, Writer};
-//! use avassetwriter::async_api::AsyncWriter;
+//! use avassetwriter::async_api::{AsyncWriter, AsyncWriterInput};
 //!
 //! pollster::block_on(async {
-//!     let out = PathBuf::from("out.mp4");
-//!     let writer = Writer::create(&out, FileType::Mp4)?;
-//!     // … configure inputs, append samples …
+//!     let writer = Writer::create("out.m4a", FileType::M4a)?;
+//!     let input = writer.add_audio_input_pcm(48_000.0, 1, 16)?;
+//!     writer.start_session((0, 48_000))?;
+//!     let ready = AsyncWriterInput::request_media_data_when_ready(&writer, input, 4)?;
+//!     let _ = ready.next().await;
+//!     let silence = vec![0_u8; 48_000 * 2];
+//!     writer.append_audio_pcm(input, &silence, 48_000, (0, 48_000))?;
+//!     drop(ready);
 //!     AsyncWriter::finish(writer).await?;
 //!     Ok::<_, Box<dyn std::error::Error>>(())
 //! })
@@ -47,18 +52,29 @@
 //!
 //! [`Future`]: std::future::Future
 
-use core::ffi::{c_void, CStr};
+use core::ffi::{c_char, c_void, CStr};
+use core::ptr;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use doom_fish_utils::completion::{error_from_cstr, AsyncCompletion, AsyncCompletionFuture};
 use doom_fish_utils::panic_safe::catch_user_panic;
+use doom_fish_utils::stream::{AsyncStreamSender, BoundedAsyncStream, NextItem};
 
-use crate::error::AVWriterError;
+use crate::error::{from_swift, AVWriterError};
 use crate::export_session::ExportSession;
-use crate::ffi::{self, AsyncCb};
-use crate::writer::{FileType, Writer};
+use crate::ffi::{self, AsyncCb, ReadyStreamCb};
+use crate::writer::{FileType, InputId, Writer};
+
+fn drop_boxed_ptr<T>(raw: &mut *mut T) {
+    if !(*raw).is_null() {
+        // SAFETY: `*raw` was created by `Box::into_raw` during stream
+        // subscription and this path runs at most once before nulling it out.
+        unsafe { drop(Box::from_raw(*raw)) };
+        *raw = ptr::null_mut();
+    }
+}
 
 // ============================================================================
 // WriterFinishFuture — AVAssetWriter.finishWritingWithCompletionHandler:
@@ -142,6 +158,127 @@ impl AsyncWriter {
             _writer: writer,
             inner: future,
         }
+    }
+}
+
+// ============================================================================
+// InputMediaDataReadyStream — AVAssetWriterInput.requestMediaDataWhenReady
+// ============================================================================
+
+/// Event emitted whenever an input becomes ready for more media data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputMediaDataReadyEvent;
+
+/// Async stream of `AVAssetWriterInput.requestMediaDataWhenReady(on:using:)`
+/// callbacks for a single writer input.
+pub struct InputMediaDataReadyStream {
+    inner: BoundedAsyncStream<InputMediaDataReadyEvent>,
+    bridge_ptr: *mut c_void,
+    sender_raw: *mut AsyncStreamSender<InputMediaDataReadyEvent>,
+}
+
+impl core::fmt::Debug for InputMediaDataReadyStream {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("InputMediaDataReadyStream")
+            .field("buffered", &self.buffered_count())
+            .finish_non_exhaustive()
+    }
+}
+
+// SAFETY: `bridge_ptr` is an opaque Swift bridge handle. Its teardown waits
+// for the dedicated callback queue before `sender_raw` is reclaimed, and
+// `BoundedAsyncStream` is itself `Send`.
+unsafe impl Send for InputMediaDataReadyStream {}
+
+impl Drop for InputMediaDataReadyStream {
+    fn drop(&mut self) {
+        if !self.bridge_ptr.is_null() {
+            unsafe { ffi::av_writer_input_ready_stream_unsubscribe(self.bridge_ptr) };
+            self.bridge_ptr = ptr::null_mut();
+        }
+        drop_boxed_ptr(&mut self.sender_raw);
+    }
+}
+
+unsafe extern "C" fn input_media_data_ready_cb(ctx: *mut c_void) {
+    catch_user_panic("input_media_data_ready_cb", || {
+        let Some(sender) = ctx
+            .cast::<AsyncStreamSender<InputMediaDataReadyEvent>>()
+            .as_ref()
+        else {
+            return;
+        };
+        sender.push(InputMediaDataReadyEvent);
+    });
+}
+
+impl InputMediaDataReadyStream {
+    fn subscribe(
+        writer: &Writer,
+        input_id: InputId,
+        capacity: usize,
+    ) -> Result<Self, AVWriterError> {
+        let _ = writer.input_ready_for_more_media_data(input_id)?;
+        let (stream, sender) = BoundedAsyncStream::new(capacity);
+        let mut sender_raw = Box::into_raw(Box::new(sender));
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let bridge_ptr = unsafe {
+            ffi::av_writer_input_ready_stream_subscribe(
+                writer.as_raw_ptr(),
+                input_id.raw(),
+                input_media_data_ready_cb as ReadyStreamCb,
+                sender_raw.cast::<c_void>(),
+                &mut err_msg,
+            )
+        };
+        if bridge_ptr.is_null() {
+            drop_boxed_ptr(&mut sender_raw);
+            return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
+        }
+        Ok(Self {
+            inner: stream,
+            bridge_ptr,
+            sender_raw,
+        })
+    }
+
+    /// Asynchronously wait for the next ready notification.
+    #[must_use]
+    pub const fn next(&self) -> NextItem<'_, InputMediaDataReadyEvent> {
+        self.inner.next()
+    }
+
+    /// Try to read a buffered ready notification without blocking.
+    #[must_use]
+    pub fn try_next(&self) -> Option<InputMediaDataReadyEvent> {
+        self.inner.try_next()
+    }
+
+    /// Number of ready notifications currently buffered.
+    #[must_use]
+    pub fn buffered_count(&self) -> usize {
+        self.inner.buffered_count()
+    }
+}
+
+/// Async entry points for `AVAssetWriterInput`-style operations routed through
+/// [`Writer`] + [`InputId`].
+pub struct AsyncWriterInput;
+
+impl AsyncWriterInput {
+    /// Subscribe to `AVAssetWriterInput.requestMediaDataWhenReady(on:using:)`
+    /// for the specified writer input.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AVWriterError::InvalidState`] if a ready callback/stream has
+    /// already been registered for that input.
+    pub fn request_media_data_when_ready(
+        writer: &Writer,
+        input_id: InputId,
+        capacity: usize,
+    ) -> Result<InputMediaDataReadyStream, AVWriterError> {
+        InputMediaDataReadyStream::subscribe(writer, input_id, capacity)
     }
 }
 

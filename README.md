@@ -2,7 +2,7 @@
 
 Safe Rust bindings for Apple's [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter), [AVOutputSettingsAssistant](https://developer.apple.com/documentation/avfoundation/avoutputsettingsassistant), and [AVAssetExportSession](https://developer.apple.com/documentation/avfoundation/avassetexportsession) — covering writer configuration/readback, audio/video/metadata inputs, pixel-buffer/metadata/caption/tagged-buffer adaptors, output-settings recommendations, export preset discovery, compatibility checks, export-session media-processing objects, and file export on macOS.
 
-> **Status:** `0.8.0` substantially covers the public writer / output-settings / export-session surface used when building real muxing and transcode pipelines.
+> **Status:** `0.11.0` substantially covers the public writer / output-settings / export-session surface used when building real muxing and transcode pipelines.
 
 Designed to compose with [`videotoolbox`](https://github.com/doom-fish/videotoolbox-rs): hand the `CMSampleBuffer` straight from the encoder to the muxer for video, push interleaved PCM bytes for audio, or build pixel-buffer / metadata-driven pipelines directly.
 
@@ -59,27 +59,35 @@ Enable with the `async` Cargo feature:
 
 ```toml
 [dependencies]
-avassetwriter = { version = "0.8", features = ["async"] }
+avassetwriter = { version = "0.11", features = ["async"] }
 ```
 
-The `async_api` module wraps three `AVFoundation` completion-handler APIs as
-executor-agnostic [`Future`](std::future::Future) types:
+The `async_api` module wraps three completion-handler APIs as
+executor-agnostic [`Future`](std::future::Future) types and exposes
+`AVAssetWriterInput.requestMediaDataWhenReady(on:using:)` as a bounded async
+stream:
 
 | Rust type | Apple API |
 |-----------|-----------|
 | `AsyncWriter::finish(writer)` | `AVAssetWriter.finishWritingWithCompletionHandler:` |
+| `AsyncWriterInput::request_media_data_when_ready(&writer, input, capacity)` | `AVAssetWriterInput.requestMediaDataWhenReady(on:using:)` |
 | `AsyncExportSession::export(session)` | `AVAssetExportSession.exportAsynchronouslyWithCompletionHandler:` |
 | `AsyncExportSession::compatible_file_types(session)` | `AVAssetExportSession.determineCompatibleFileTypesWithCompletionHandler:` |
 
 ```rust,no_run
 use avassetwriter::{FileType, Writer};
-use avassetwriter::async_api::AsyncWriter;
+use avassetwriter::async_api::{AsyncWriter, AsyncWriterInput};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 pollster::block_on(async {
-    let writer = Writer::create("out.mp4", FileType::Mp4)?;
-    writer.start_session((0, 600))?;
-    // … append samples …
+    let writer = Writer::create("out.m4a", FileType::M4a)?;
+    let input = writer.add_audio_input_pcm(48_000.0, 1, 16)?;
+    writer.start_session((0, 48_000))?;
+    let ready = AsyncWriterInput::request_media_data_when_ready(&writer, input, 4)?;
+    let _ = ready.next().await;
+    let silence = vec![0_u8; 48_000 * 2];
+    writer.append_audio_pcm(input, &silence, 48_000, (0, 48_000))?;
+    drop(ready);
     AsyncWriter::finish(writer).await?;
     Ok::<_, Box<dyn std::error::Error>>(())
 })

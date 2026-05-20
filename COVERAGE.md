@@ -52,7 +52,7 @@ Legend:
 | `initWithMediaType:outputSettings:sourceFormatHint:` | ✅ implemented | Sample-buffer video/audio and generic input helpers. |
 | `appendSampleBuffer:` | ✅ implemented | `Writer::append_sample`. |
 | `markAsFinished` | ✅ implemented | `Writer::mark_input_as_finished` and `Writer::finish`. |
-| `requestMediaDataWhenReadyOnQueue:usingBlock:` | ✅ implemented | `Writer::request_input_media_data_when_ready`. |
+| `requestMediaDataWhenReadyOnQueue:usingBlock:` | ✅ implemented | `Writer::request_media_data_when_ready` + `async_api::AsyncWriterInput::request_media_data_when_ready`. |
 | `mediaType` / `outputSettings` / `sourceFormatHint` | ✅ implemented | `Writer::{input_media_type,input_output_settings,input_source_format_hint}`. |
 | `metadata` | ✅ implemented | `Writer::{input_metadata,set_input_metadata}`. |
 | `isReadyForMoreMediaData` / `expectsMediaDataInRealTime` | ✅ implemented | Input-state readback + setter. |

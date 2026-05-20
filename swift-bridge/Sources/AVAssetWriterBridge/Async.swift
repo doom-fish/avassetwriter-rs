@@ -6,9 +6,9 @@
 // exactly once when the operation finishes.  The Rust side converts the
 // callback into a `std::future::Future` via `doom_fish_utils::completion`.
 //
-// Tier-2 note: AVAssetWriterInput.requestMediaDataWhenReady(on:using:) is a
-// *multi-fire* handler (fires once per ready window, not once per operation)
-// and belongs in a Stream/channel pattern (Tier 2), not here.
+// AVAssetWriterInput.requestMediaDataWhenReady(on:using:) is a *multi-fire*
+// handler, so Rust exposes it as a bounded async stream via the ready-stream
+// bridge below rather than as a one-shot Future.
 //
 // AVAssetExportSession.export(to:as:isolation:) is the Swift concurrency
 // projection of exportAsynchronouslyWithCompletionHandler: added in macOS
@@ -21,6 +21,7 @@
 // surface.  No thunk is generated.
 
 import AVFoundation
+import Dispatch
 import Foundation
 
 /// Sentinel non-null pointer used to signal "success, no meaningful value".
@@ -86,6 +87,89 @@ public func av_writer_finish_async(
             "unexpected writer status \(wrapper.writer.status.rawValue)".withCString { cb(nil, $0, ctx) }
         }
     }
+}
+
+// MARK: - AVAssetWriterInput.requestMediaDataWhenReady(on:using:)
+
+final class ReadyStreamBridge: NSObject {
+    let writer: AVAssetWriter
+    let input: AVAssetWriterInput
+    let inputId: Int32
+    let cb: @convention(c) (UnsafeMutableRawPointer) -> Void
+    let ctx: UnsafeMutableRawPointer
+    let queue: DispatchQueue
+    let queueKey = DispatchSpecificKey<UInt8>()
+    var active = true
+
+    init?(
+        writerPtr: UnsafeMutableRawPointer,
+        inputId: Int32,
+        cb: @escaping @convention(c) (UnsafeMutableRawPointer) -> Void,
+        ctx: UnsafeMutableRawPointer,
+        outError: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    ) {
+        let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+        guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
+            outError?.pointee = ffiString("invalid input id: \(inputId)")
+            return nil
+        }
+        guard wrapper.readyCallbackBoxes[inputId] == nil else {
+            outError?.pointee = ffiString("requestMediaDataWhenReady already registered for input \(inputId)")
+            return nil
+        }
+
+        self.writer = wrapper.writer
+        self.input = wrapper.inputs[Int(inputId)]
+        self.inputId = inputId
+        self.cb = cb
+        self.ctx = ctx
+        self.queue = DispatchQueue(label: "fish.doom.avassetwriter.input.ready.async.\(inputId)")
+        super.init()
+
+        queue.setSpecific(key: queueKey, value: 1)
+        wrapper.readyCallbackBoxes[inputId] = InputCallbackBox(userdata: nil, dropUserdata: nil)
+        input.requestMediaDataWhenReady(on: queue) { [weak self] in
+            guard let self, self.active else { return }
+            self.cb(self.ctx)
+        }
+    }
+
+    func cancel() {
+        let deactivate = { self.active = false }
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            deactivate()
+        } else {
+            queue.sync(execute: deactivate)
+        }
+    }
+}
+
+@_cdecl("av_writer_input_ready_stream_subscribe")
+public func av_writer_input_ready_stream_subscribe(
+    _ writerPtr: UnsafeMutableRawPointer,
+    _ inputId: Int32,
+    _ cb: @convention(c) (UnsafeMutableRawPointer) -> Void,
+    _ ctx: UnsafeMutableRawPointer,
+    _ outError: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> UnsafeMutableRawPointer? {
+    guard let bridge = ReadyStreamBridge(
+        writerPtr: writerPtr,
+        inputId: inputId,
+        cb: cb,
+        ctx: ctx,
+        outError: outError
+    ) else {
+        return nil
+    }
+    return Unmanaged.passRetained(bridge).toOpaque()
+}
+
+@_cdecl("av_writer_input_ready_stream_unsubscribe")
+public func av_writer_input_ready_stream_unsubscribe(_ handle: UnsafeMutableRawPointer?) {
+    guard let handle else { return }
+    let bridge = Unmanaged<ReadyStreamBridge>.fromOpaque(handle).takeUnretainedValue()
+    bridge.cancel()
+    Unmanaged<ReadyStreamBridge>.fromOpaque(handle).release()
 }
 
 // MARK: - AVAssetExportSession.exportAsynchronouslyWithCompletionHandler:

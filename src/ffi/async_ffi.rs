@@ -1,6 +1,6 @@
 //! Raw FFI declarations for async (callback-based) Swift bridge thunks.
 
-use core::ffi::c_void;
+use core::ffi::{c_char, c_void};
 
 /// Callback type used by all async FFI thunks.
 ///
@@ -11,6 +11,9 @@ use core::ffi::c_void;
 ///   the callback).
 /// - `ctx`:    opaque context pointer forwarded verbatim from the call-site.
 pub type AsyncCb = extern "C" fn(result: *const c_void, error: *const i8, ctx: *mut c_void);
+
+/// Callback type used by the ready-stream bridge.
+pub type ReadyStreamCb = unsafe extern "C" fn(ctx: *mut c_void);
 
 extern "C" {
     /// Async version of `av_writer_finish`.
@@ -36,4 +39,17 @@ extern "C" {
         cb: AsyncCb,
         ctx: *mut c_void,
     );
+
+    /// Async stream bridge for `AVAssetWriterInput.requestMediaDataWhenReady(on:using:)`.
+    pub fn av_writer_input_ready_stream_subscribe(
+        writer: *mut c_void,
+        input_id: i32,
+        cb: ReadyStreamCb,
+        ctx: *mut c_void,
+        out_error_message: *mut *mut c_char,
+    ) -> *mut c_void;
+
+    /// Tear down a ready-stream bridge created by
+    /// `av_writer_input_ready_stream_subscribe`.
+    pub fn av_writer_input_ready_stream_unsubscribe(handle: *mut c_void);
 }

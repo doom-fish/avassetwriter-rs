@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0] - 2026-05-20
+
+### Added
+
+- `AsyncWriterInput::request_media_data_when_ready` plus `InputMediaDataReadyStream` for `AVAssetWriterInput.requestMediaDataWhenReady(on:using:)`.
+- Updated the async example/README/docs to cover input-readiness streaming alongside the existing finish/export futures.
+- Added async integration coverage for the new ready-stream wrapper and refreshed the coverage notes for writer-input readiness.
+
+### Notes
+
+- Phase 32 completeness + async sweep.
+- Widened the local `videotoolbox` dev-dependency range to `<0.19` so validation resolves against the current sibling crate.
+
 ## [0.10.4] - 2026-05-20
 
 - Widened `videotoolbox` dependency bound to `<0.18` so the new 0.17.x async-API release resolves cleanly.
