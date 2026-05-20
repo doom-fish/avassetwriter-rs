@@ -611,3 +611,48 @@ impl core::fmt::Debug for Writer {
         f.debug_struct("Writer").field("ptr", &self.ptr).finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_type_variants_are_distinct() {
+        assert_ne!(FileType::Mov, FileType::Mp4);
+        assert_ne!(FileType::M4v, FileType::M4a);
+        assert_ne!(FileType::Heic, FileType::Heif);
+    }
+
+    #[test]
+    fn file_type_copy_and_clone() {
+        let ft = FileType::Mp4;
+        let copy = ft;
+        let clone = ft;
+        assert_eq!(copy, clone);
+        assert_eq!(ft, FileType::Mp4);
+    }
+
+    #[test]
+    fn file_type_hashes_consistently() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        set.insert(FileType::Mov);
+        set.insert(FileType::Mov);
+        assert_eq!(set.len(), 1);
+        set.insert(FileType::Mp4);
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn input_id_wraps_value() {
+        let id = InputId(7);
+        assert_eq!(id.0, 7);
+    }
+
+    #[test]
+    fn input_id_distinct_values() {
+        let a = InputId(1);
+        let b = InputId(2);
+        assert_ne!(a, b);
+    }
+}

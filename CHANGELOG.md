@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.4] - 2026-05-20
+
+- Widened `videotoolbox` dependency bound to `<0.18` so the new 0.17.x async-API release resolves cleanly.
+- Added in-`src/` unit tests across `time`, `error`, `writer` (Tier 2 quality polish), providing fast `cargo test --lib` fail-fast signal alongside the existing integration tests under `tests/`.
+
 ## [0.10.3] - 2026-05-20
 
 - Clippy hygiene sweep: cleared all `-D warnings` lints across the crate. No public API change.

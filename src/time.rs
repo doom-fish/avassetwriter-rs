@@ -82,3 +82,60 @@ impl TimeRange {
         Self { start, duration }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn time_numeric_constructor_preserves_components() {
+        let t = Time::new(600, 30);
+        assert_eq!(t.as_numeric(), Some((600, 30)));
+    }
+
+    #[test]
+    fn time_invalid_is_not_numeric() {
+        assert_eq!(Time::invalid().as_numeric(), None);
+    }
+
+    #[test]
+    fn time_indefinite_is_not_numeric() {
+        assert_eq!(Time::indefinite().as_numeric(), None);
+    }
+
+    #[test]
+    fn time_infinities_are_not_numeric() {
+        assert_eq!(Time::positive_infinity().as_numeric(), None);
+        assert_eq!(Time::negative_infinity().as_numeric(), None);
+    }
+
+    #[test]
+    fn time_from_tuple_round_trips() {
+        let t: Time = (1000, 24).into();
+        assert_eq!(t.as_numeric(), Some((1000, 24)));
+    }
+
+    #[test]
+    fn time_equality_distinguishes_variants() {
+        assert_ne!(Time::invalid(), Time::indefinite());
+        assert_ne!(Time::positive_infinity(), Time::negative_infinity());
+        assert_eq!(Time::new(1, 1), Time::new(1, 1));
+    }
+
+    #[test]
+    fn time_range_constructor_preserves_components() {
+        let start = Time::new(0, 30);
+        let duration = Time::new(300, 30);
+        let range = TimeRange::new(start, duration);
+        assert_eq!(range.start, start);
+        assert_eq!(range.duration, duration);
+    }
+
+    #[test]
+    fn time_serializes_round_trip() {
+        let t = Time::new(42, 600);
+        let json = serde_json::to_string(&t).unwrap();
+        let back: Time = serde_json::from_str(&json).unwrap();
+        assert_eq!(t, back);
+    }
+}

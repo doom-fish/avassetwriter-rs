@@ -66,3 +66,63 @@ pub(crate) unsafe fn from_swift(status: i32, error_str: *mut core::ffi::c_char) 
         _ => AVWriterError::InvalidState(format!("unknown status {status}: {message}")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_writer_create_failed_includes_message() {
+        let err = AVWriterError::WriterCreateFailed("bad path".into());
+        assert!(err.to_string().contains("bad path"));
+        assert!(err.to_string().contains("create failed"));
+    }
+
+    #[test]
+    fn display_start_failed_includes_message() {
+        let err = AVWriterError::StartFailed("no inputs".into());
+        assert!(err.to_string().contains("startWriting failed"));
+        assert!(err.to_string().contains("no inputs"));
+    }
+
+    #[test]
+    fn display_append_failed_includes_message() {
+        let err = AVWriterError::AppendFailed("bad buffer".into());
+        assert!(err.to_string().contains("append failed"));
+    }
+
+    #[test]
+    fn display_input_not_ready_has_constant_text() {
+        let err = AVWriterError::InputNotReady;
+        assert_eq!(err.to_string(), "input not ready for more media data");
+    }
+
+    #[test]
+    fn display_invalid_argument_includes_message() {
+        let err = AVWriterError::InvalidArgument("nul byte".into());
+        assert!(err.to_string().contains("invalid argument"));
+        assert!(err.to_string().contains("nul byte"));
+    }
+
+    #[test]
+    fn display_invalid_state_includes_message() {
+        let err = AVWriterError::InvalidState("already started".into());
+        assert!(err.to_string().contains("invalid state"));
+    }
+
+    #[test]
+    fn implements_std_error() {
+        fn assert_error<E: std::error::Error>(_e: &E) {}
+        let err = AVWriterError::InputNotReady;
+        assert_error(&err);
+    }
+
+    #[test]
+    fn equality_compares_messages() {
+        let a = AVWriterError::StartFailed("x".into());
+        let b = AVWriterError::StartFailed("x".into());
+        let c = AVWriterError::StartFailed("y".into());
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+}
