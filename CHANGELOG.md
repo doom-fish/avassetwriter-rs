@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.10.2] - 2026-05-20
+
+- Widen `doom-fish-utils` dependency bound to `<0.4` so the 0.3.x SPSC-ring release resolves cleanly. No source changes.
+
 ## [0.10.1] - 2026-05-19
 
 - Bump MSRV from 1.70 to 1.76 to match fleet baseline.
