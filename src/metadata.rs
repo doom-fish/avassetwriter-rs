@@ -135,12 +135,6 @@ pub struct MetadataItem {
 // guaranteed by AVFoundation, so `Sync` is intentionally not implemented.
 unsafe impl Send for MetadataItem {}
 
-impl Clone for MetadataItem {
-    fn clone(&self) -> Self {
-        Self::from_payload(self.payload())
-    }
-}
-
 impl PartialEq for MetadataItem {
     fn eq(&self, other: &Self) -> bool {
         self.payload() == other.payload()
@@ -159,11 +153,7 @@ impl core::fmt::Debug for MetadataItem {
     }
 }
 
-impl Drop for MetadataItem {
-    fn drop(&mut self) {
-        self.release_ptr();
-    }
-}
+crate::utils::retained::av_retained!(MetadataItem, release = ffi::av_metadata_item_release);
 
 impl MetadataItem {
     #[must_use]
@@ -528,12 +518,6 @@ pub struct TimedMetadataGroup {
 // object whose ownership may move across threads.
 unsafe impl Send for TimedMetadataGroup {}
 
-impl Clone for TimedMetadataGroup {
-    fn clone(&self) -> Self {
-        Self::from_payload(self.payload())
-    }
-}
-
 impl PartialEq for TimedMetadataGroup {
     fn eq(&self, other: &Self) -> bool {
         self.payload() == other.payload()
@@ -551,14 +535,10 @@ impl core::fmt::Debug for TimedMetadataGroup {
     }
 }
 
-impl Drop for TimedMetadataGroup {
-    fn drop(&mut self) {
-        let ptr = self.ptr.replace(ptr::null_mut());
-        if !ptr.is_null() {
-            unsafe { ffi::av_timed_metadata_group_release(ptr) };
-        }
-    }
-}
+crate::utils::retained::av_retained!(
+    TimedMetadataGroup,
+    release = ffi::av_timed_metadata_group_release
+);
 
 impl TimedMetadataGroup {
     #[must_use]
@@ -647,12 +627,6 @@ pub struct DateRangeMetadataGroup {
 // Objective-C object whose ownership may move across threads.
 unsafe impl Send for DateRangeMetadataGroup {}
 
-impl Clone for DateRangeMetadataGroup {
-    fn clone(&self) -> Self {
-        Self::from_payload(self.payload())
-    }
-}
-
 impl PartialEq for DateRangeMetadataGroup {
     fn eq(&self, other: &Self) -> bool {
         self.payload() == other.payload()
@@ -671,14 +645,10 @@ impl core::fmt::Debug for DateRangeMetadataGroup {
     }
 }
 
-impl Drop for DateRangeMetadataGroup {
-    fn drop(&mut self) {
-        let ptr = self.ptr.replace(ptr::null_mut());
-        if !ptr.is_null() {
-            unsafe { ffi::av_date_range_metadata_group_release(ptr) };
-        }
-    }
-}
+crate::utils::retained::av_retained!(
+    DateRangeMetadataGroup,
+    release = ffi::av_date_range_metadata_group_release
+);
 
 impl DateRangeMetadataGroup {
     #[must_use]
@@ -761,12 +731,6 @@ pub struct MutableDateRangeMetadataGroup {
 // Objective-C object whose ownership may move across threads.
 unsafe impl Send for MutableDateRangeMetadataGroup {}
 
-impl Clone for MutableDateRangeMetadataGroup {
-    fn clone(&self) -> Self {
-        Self::from_payload(self.payload())
-    }
-}
-
 impl PartialEq for MutableDateRangeMetadataGroup {
     fn eq(&self, other: &Self) -> bool {
         self.payload() == other.payload()
@@ -785,14 +749,10 @@ impl core::fmt::Debug for MutableDateRangeMetadataGroup {
     }
 }
 
-impl Drop for MutableDateRangeMetadataGroup {
-    fn drop(&mut self) {
-        let ptr = self.ptr.replace(ptr::null_mut());
-        if !ptr.is_null() {
-            unsafe { ffi::av_date_range_metadata_group_release(ptr) };
-        }
-    }
-}
+crate::utils::retained::av_retained!(
+    MutableDateRangeMetadataGroup,
+    release = ffi::av_date_range_metadata_group_release
+);
 
 impl MutableDateRangeMetadataGroup {
     #[must_use]

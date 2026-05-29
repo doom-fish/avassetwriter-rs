@@ -55,6 +55,7 @@ pub mod media_processing;
 pub mod metadata;
 pub mod output_settings;
 pub mod time;
+pub(crate) mod utils;
 pub mod writer;
 
 pub use asset::Asset;
