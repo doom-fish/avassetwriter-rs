@@ -954,7 +954,9 @@ unsafe extern "C" fn metadata_value_request_drop(userdata: *mut c_void) {
     if userdata.is_null() {
         return;
     }
-    unsafe {
+    // Dropping the box runs the user closure's destructor, so any panic it
+    // raises must be contained before unwinding across the C ABI boundary.
+    catch_user_panic("metadata_value_request_drop", || unsafe {
         drop(Box::from_raw(userdata.cast::<MetadataValueLoaderState>()));
-    }
+    });
 }

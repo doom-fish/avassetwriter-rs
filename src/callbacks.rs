@@ -51,8 +51,11 @@ pub(crate) unsafe extern "C" fn ready_callback_drop(userdata: *mut c_void) {
         // SAFETY: `userdata` was created via `Box::into_raw` in
         // `Writer::on_ready_for_more_media_data`; this drop trampoline is
         // called exactly once by the Swift bridge when the registration is
-        // torn down.
-        drop(unsafe { Box::from_raw(userdata.cast::<ReadyCallbackState>()) });
+        // torn down. Dropping the box runs the user closure's destructor, so
+        // any panic it raises must be contained before unwinding across C ABI.
+        catch_callback_panic("ready_callback_drop", || {
+            drop(unsafe { Box::from_raw(userdata.cast::<ReadyCallbackState>()) });
+        });
     }
 }
 
@@ -79,8 +82,12 @@ pub(crate) unsafe extern "C" fn pass_description_callback_trampoline(
 pub(crate) unsafe extern "C" fn pass_description_callback_drop(userdata: *mut c_void) {
     if !userdata.is_null() {
         // SAFETY: `userdata` was created via `Box::into_raw`; this drop
-        // trampoline is called exactly once by the Swift bridge.
-        drop(unsafe { Box::from_raw(userdata.cast::<PassDescriptionCallbackState>()) });
+        // trampoline is called exactly once by the Swift bridge. Dropping the
+        // box runs the user closure's destructor, so any panic it raises must
+        // be contained before unwinding across the C ABI boundary.
+        catch_callback_panic("pass_description_callback_drop", || {
+            drop(unsafe { Box::from_raw(userdata.cast::<PassDescriptionCallbackState>()) });
+        });
     }
 }
 
@@ -120,7 +127,11 @@ pub(crate) unsafe extern "C" fn segment_callback_trampoline(
 pub(crate) unsafe extern "C" fn segment_callback_drop(userdata: *mut c_void) {
     if !userdata.is_null() {
         // SAFETY: `userdata` was created via `Box::into_raw`; this drop
-        // trampoline is called exactly once by the Swift bridge.
-        drop(unsafe { Box::from_raw(userdata.cast::<SegmentCallbackState>()) });
+        // trampoline is called exactly once by the Swift bridge. Dropping the
+        // box runs the user closure's destructor, so any panic it raises must
+        // be contained before unwinding across the C ABI boundary.
+        catch_callback_panic("segment_callback_drop", || {
+            drop(unsafe { Box::from_raw(userdata.cast::<SegmentCallbackState>()) });
+        });
     }
 }
