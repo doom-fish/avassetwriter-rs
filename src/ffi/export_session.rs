@@ -91,6 +91,18 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> i32;
 
+    pub fn av_export_session_metadata(
+        session: *mut c_void,
+        out_error_message: *mut *mut c_char,
+    ) -> *mut c_void;
+
+    pub fn av_export_session_set_metadata_items(
+        session: *mut c_void,
+        items: *const *mut c_void,
+        item_count: usize,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
     pub fn av_export_session_metadata_item_filter(session: *mut c_void) -> *mut c_void;
 
     pub fn av_export_session_set_metadata_item_filter(

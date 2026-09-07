@@ -120,7 +120,8 @@ fn fill_surface(surface: &IOSurface, frame_idx: i32) -> Result<(), String> {
     let mut g = surface
         .lock(IOSurfaceLockOptions::NONE)
         .map_err(|c| format!("lock failed: {c}"))?;
-    if let Some(bytes) = g.as_slice_mut() {
+    // SAFETY: this exclusive lock scope does not hand the surface to the encoder.
+    if let Some(bytes) = unsafe { g.as_slice_mut() } {
         let v = u8::try_from(frame_idx * 4 % 256).unwrap_or(0);
         for px in bytes.chunks_exact_mut(4) {
             px[0] = 0x40;

@@ -54,7 +54,7 @@ Methodology: Per-header enumeration of Objective-C public interfaces, protocols,
 | `AVAssetExportSessionStatus` | enum | `AVAssetExportSession.h` | `ExportStatus` |
 | `AVAssetTrackGroupOutputHandling` | enum | `AVAssetExportSession.h` | `TrackGroupOutputHandling` |
 | `AVAssetExportSession` | interface | `AVAssetExportSession.h` | `ExportSession` (core export/config surface; see caveats below) |
-| `AVVideoCompositing` | protocol | `AVAssetExportSession.h` | `VideoCompositor` + `VideoCompositorClass` + `ExportSession::custom_video_compositor` |
+| `AVVideoCompositing` | protocol | `AVAssetExportSession.h` | `VideoComposition::install_rust_video_compositor` + retained `VideoCompositionRequest` completion + `VideoCompositor` diagnostics |
 | `AVOutputSettingsPreset640x480` | constant | `AVOutputSettingsAssistant.h` | `VideoPreset::Sd640x480` |
 | `AVOutputSettingsPreset960x540` | constant | `AVOutputSettingsAssistant.h` | `VideoPreset::Hd960x540` |
 | `AVOutputSettingsPreset1280x720` | constant | `AVOutputSettingsAssistant.h` | `VideoPreset::Hd1280x720` |
@@ -85,3 +85,7 @@ None.
 
 ## Summary
 The avassetwriter crate maintains 100% coverage of all non-deprecated public AVFoundation writer/export symbols across MacOSX26.2.sdk. All four deprecated adaptor classes are explicitly exempted because they carry `API_DEPRECATED` attributes in the Swift availability section of the headers and the crate intentionally maintains backward compatibility for client code using the legacy adaptor path. No gaps or regressions detected.
+
+The live Rust compositor currently covers retained 32-bit BGRA SDR
+pixel/sample-buffer requests. Tagged buffers, wide-color/HDR source frames, and
+direct Rust `CIImage` processing remain explicit member-level limitations.

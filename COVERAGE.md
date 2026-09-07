@@ -28,9 +28,9 @@ Legend:
 | `canAddInput:` / `addInput:` | ✅ implemented | Covered by sample-buffer, PCM, generic JSON, metadata, caption, and pixel-buffer input constructors. |
 | `canAddInputGroup:` / `addInputGroup:` | ✅ implemented | `Writer::add_input_group`. |
 | `startWriting` / `startSessionAtSourceTime:` | ✅ implemented | `Writer::start_session`. |
-| `endSessionAtSourceTime:` | ✅ implemented | `Writer::end_session`. |
-| `finishWritingWithCompletionHandler:` | ✅ implemented | `Writer::finish` blocks until the completion handler fires. |
-| `cancelWriting` | ✅ implemented | `Writer::cancel`. |
+| `endSessionAtSourceTime:` | ✅ implemented | `Writer::end_session` uses a split-phase native call that blocks unrelated threads while admitting delegate-originated reentrancy. |
+| `finishWritingWithCompletionHandler:` | ✅ implemented | `Writer::finish` uses a split-phase finish so the recursive writer gate is not held while native completion/callback work runs. |
+| `cancelWriting` | ✅ implemented | `Writer::cancel` detaches callback ownership without freeing in-flight userdata. |
 | `outputURL` / `outputFileType` / `availableMediaTypes` | ✅ implemented | Read back through `Writer::{output_path,output_file_type,available_media_types}`. |
 | `status` / `error` | ✅ implemented | `WriterStatus` + error string readback. |
 | `metadata` | ✅ implemented | `Writer::{metadata,set_metadata}`. |
@@ -41,8 +41,9 @@ Legend:
 | `producesCombinableFragments` | ✅ implemented | Readback + setter. |
 | `overallDurationHint` / `movieTimeScale` | ✅ implemented | Readback + setters. |
 | `preferredOutputSegmentInterval` / `initialSegmentStartTime` | ✅ implemented | Readback + setters for segmented output. |
+| `flushSegment` | ✅ implemented | Explicit flush validates the required indefinite segment interval and uses callback-reentrant split-phase exclusion. Numeric automatic intervals flush through `end_session` / `finish`. |
 | `outputFileTypeProfile` | ✅ implemented | `FileTypeProfile` readback + setter. |
-| Segmented-output delegate callbacks | ✅ implemented | Segmented writer bridge + `SegmentOutput` callback surface. |
+| Segmented-output delegate callbacks | ✅ implemented | Segmented writer bridge + `SegmentOutput`; explicit removal and in-flight-safe delegate/userdata teardown are included. |
 
 ## AVAssetWriterInput
 
@@ -52,7 +53,7 @@ Legend:
 | `initWithMediaType:outputSettings:sourceFormatHint:` | ✅ implemented | Sample-buffer video/audio and generic input helpers. |
 | `appendSampleBuffer:` | ✅ implemented | `Writer::append_sample`. |
 | `markAsFinished` | ✅ implemented | `Writer::mark_input_as_finished` and `Writer::finish`. |
-| `requestMediaDataWhenReadyOnQueue:usingBlock:` | ✅ implemented | `Writer::request_media_data_when_ready` + `async_api::AsyncWriterInput::request_media_data_when_ready`. |
+| `requestMediaDataWhenReadyOnQueue:usingBlock:` | ✅ implemented | Post-start `Writer::request_media_data_when_ready` + async stream support, serialized invocation, explicit removal, and deferred userdata release during reentrant teardown. |
 | `mediaType` / `outputSettings` / `sourceFormatHint` | ✅ implemented | `Writer::{input_media_type,input_output_settings,input_source_format_hint}`. |
 | `metadata` | ✅ implemented | `Writer::{input_metadata,set_input_metadata}`. |
 | `isReadyForMoreMediaData` / `expectsMediaDataInRealTime` | ✅ implemented | Input-state readback + setter. |
@@ -66,7 +67,7 @@ Legend:
 | `canAddTrackAssociationWithTrackOfInput:type:` / `addTrackAssociationWithTrackOfInput:type:` | ✅ implemented | `Writer::{can_add_track_association,add_track_association}`. |
 | `performsMultiPassEncodingIfSupported` / `canPerformMultiplePasses` | ✅ implemented | Readback + setter. |
 | `currentPassDescription` | ✅ implemented | Readback via `InputPassDescription`. |
-| `respondToEachPassDescriptionOnQueue:usingBlock:` | ✅ implemented | `Writer::respond_to_each_pass_description`. |
+| `respondToEachPassDescriptionOnQueue:usingBlock:` | ✅ implemented | `Writer::respond_to_each_pass_description` with the same invocation-lease/removal semantics as readiness callbacks. |
 | `markCurrentPassAsFinished` | ✅ implemented | `Writer::mark_current_pass_as_finished`. |
 
 ## Related writer adaptors and groups
@@ -116,12 +117,12 @@ Legend:
 | `fileLengthLimit` | ✅ implemented | Getter + setter. |
 | `estimateMaximumDurationWithCompletionHandler:` | ✅ implemented | `ExportSession::estimated_maximum_duration`. |
 | `estimateOutputFileLengthWithCompletionHandler:` | ✅ implemented | `ExportSession::estimated_output_file_length`. |
-| `metadata` | ✅ implemented | Getter + setter using `MetadataItem`. |
+| `metadata` | ✅ implemented | Getter + setter use retained native `MetadataItem` handles, preserving lazy identity and authoritative loaded values. |
 | `metadataItemFilter` | ✅ implemented | `MetadataItemFilter` + `ExportSession::{metadata_item_filter,set_metadata_item_filter}`. |
 | `audioTimePitchAlgorithm` | ⏭️ skipped | Requires a dedicated safe wrapper for AVFAudio processing constants/validation. |
 | `audioMix` | ✅ implemented | `AudioMix` + `ExportSession::{audio_mix,set_audio_mix}`. |
 | `videoComposition` | ✅ implemented | `VideoComposition` + `ExportSession::{video_composition,set_video_composition}`. |
-| `customVideoCompositor` | ✅ implemented | `VideoCompositor`, `VideoCompositorClass`, and `ExportSession::custom_video_compositor` cover the protocol/object readback path. |
+| `customVideoCompositor` | ✅ implemented | `VideoComposition::install_rust_video_compositor` supplies retained live requests with direct source pixel/sample buffers, render-context output allocation, and exactly-once frame/error/cancel completion. `VideoCompositor` retains diagnostic snapshots. |
 | `audioTrackGroupHandling` | ✅ implemented | `TrackGroupOutputHandling` getter + setter. |
 | `canPerformMultiplePassesOverSourceMediaData` | ✅ implemented | Getter + setter. |
 | `directoryForTemporaryFiles` | ✅ implemented | Getter + setter. |
@@ -142,6 +143,6 @@ Legend:
 ## Deferred / intentionally skipped summary
 
 1. `AVAssetExportSession.audioTimePitchAlgorithm` remains deferred until this crate grows a safe constant layer for AVFAudio processing algorithms instead of exposing stringly typed values.
-2. `MetadataItemFilter`, `AudioMix`, `VideoComposition`, and `VideoCompositor` are intentionally lightweight wrappers focused on export-session interop rather than full AVFoundation instruction/input-parameter editing APIs.
+2. `MetadataItemFilter` and `AudioMix` remain focused interop wrappers. `VideoComposition` now supports live Rust request processing, but the bundled compositor is intentionally limited to 32-bit BGRA SDR frames; tagged buffers, wide-color/HDR sources, and direct Rust `CIImage` processing remain explicit gaps.
 3. Deprecated `AVAssetExportSession.maxDuration` / `estimatedOutputFileLength` remain skipped in favor of the modern async estimate APIs.
 4. `AVVideoSettings` constants are currently exposed as JSON dictionaries rather than as a dedicated typed Rust wrapper.

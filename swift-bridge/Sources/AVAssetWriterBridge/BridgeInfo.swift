@@ -13,7 +13,7 @@ func writerInfoPayload(from wrapper: Writer) -> WriterInfoPayload {
         availableMediaTypes: wrapper.writer.availableMediaTypes.map(encodeMediaType),
         status: Int32(wrapper.writer.status.rawValue),
         errorMessage: wrapper.writer.error?.localizedDescription,
-        metadata: wrapper.writer.metadata.map(encodeMetadataItem),
+        metadata: [],
         shouldOptimizeForNetworkUse: wrapper.writer.shouldOptimizeForNetworkUse,
         directoryForTemporaryFiles: wrapper.writer.directoryForTemporaryFiles?.path,
         inputs: wrapper.inputs.indices.map { Int32($0) },
@@ -59,7 +59,7 @@ func inputInfoPayload(from wrapper: Writer, inputId: Int32) throws -> InputInfoP
     return InputInfoPayload(
         mediaType: encodeMediaType(input.mediaType),
         outputSettingsJson: jsonString(fromJSONObject: input.outputSettings),
-        metadata: input.metadata.map(encodeMetadataItem),
+        metadata: [],
         readyForMoreMediaData: input.isReadyForMoreMediaData,
         expectsMediaDataInRealTime: input.expectsMediaDataInRealTime,
         languageCode: input.languageCode,
@@ -126,7 +126,7 @@ func exportSessionInfoPayload(from session: AVAssetExportSession) -> ExportSessi
         supportedFileTypes: session.supportedFileTypes.compactMap(encodeFileType),
         timeRange: encodeTimeRange(session.timeRange),
         fileLengthLimit: session.fileLengthLimit,
-        metadata: (session.metadata ?? []).map(encodeMetadataItem),
+        metadata: [],
         canPerformMultiplePassesOverSourceMediaData: session.canPerformMultiplePassesOverSourceMediaData,
         directoryForTemporaryFiles: session.directoryForTemporaryFiles?.path,
         audioTrackGroupHandling: UInt64(session.audioTrackGroupHandling.rawValue)
@@ -154,4 +154,3 @@ func encodeSegmentReport(_ report: AVAssetSegmentReport) -> SegmentReportPayload
         }
     )
 }
-

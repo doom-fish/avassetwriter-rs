@@ -88,7 +88,8 @@ impl OutputSettingsAssistant {
     /// Return the current source-audio format hint, if present.
     pub fn source_audio_format(&self) -> Result<Option<CMFormatDescription>, AVWriterError> {
         let ptr = unsafe { ffi::av_output_settings_assistant_source_audio_format(self.ptr) };
-        Ok(CMFormatDescription::from_raw(ptr))
+        // SAFETY: the Swift bridge returns a +1 retained CMFormatDescription.
+        Ok(unsafe { CMFormatDescription::from_raw(ptr) })
     }
 
     /// Set or clear the source-audio format hint.
@@ -113,7 +114,8 @@ impl OutputSettingsAssistant {
     /// Return the current source-video format hint, if present.
     pub fn source_video_format(&self) -> Result<Option<CMFormatDescription>, AVWriterError> {
         let ptr = unsafe { ffi::av_output_settings_assistant_source_video_format(self.ptr) };
-        Ok(CMFormatDescription::from_raw(ptr))
+        // SAFETY: the Swift bridge returns a +1 retained CMFormatDescription.
+        Ok(unsafe { CMFormatDescription::from_raw(ptr) })
     }
 
     /// Set or clear the source-video format hint.

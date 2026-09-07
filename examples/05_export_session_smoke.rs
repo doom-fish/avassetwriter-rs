@@ -5,11 +5,15 @@
 )]
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
+use apple_cf::cv::CVPixelBuffer;
 use apple_cf::iosurface::{IOSurface, IOSurfaceLockOptions};
 use avassetwriter::{
     AudioMix, ExportPreset, ExportSession, FileType, MetadataItem, MetadataItemFilter, Time,
-    TimeRange, TrackGroupOutputHandling, VideoComposition, VideoCompositorClass, Writer,
+    TimeRange, TrackGroupOutputHandling, VideoComposition, VideoCompositionRequest,
+    VideoCompositor, VideoCompositorClass, Writer,
 };
 use videotoolbox::prelude::*;
 
@@ -30,8 +34,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let preset = presets
         .iter()
         .copied()
-        .find(|value| *value == ExportPreset::Passthrough)
-        .unwrap_or(presets[0]);
+        .find(|value| {
+            matches!(
+                value,
+                ExportPreset::HighestQuality
+                    | ExportPreset::MediumQuality
+                    | ExportPreset::LowQuality
+            )
+        })
+        .ok_or("no compatible re-encoding export preset")?;
     let session = ExportSession::new(&source, preset)?;
     let output_type = session
         .compatible_file_types()?
@@ -75,12 +86,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     session.set_audio_mix(None)?;
 
     let video_composition = VideoComposition::from_asset(&source)?;
-    video_composition.set_custom_video_compositor_class(Some(VideoCompositorClass::Passthrough))?;
+    let processed_requests = Arc::new(AtomicUsize::new(0));
+    video_composition.install_rust_video_compositor({
+        let processed_requests = Arc::clone(&processed_requests);
+        move |request| {
+            processed_requests.fetch_add(1, Ordering::Relaxed);
+            std::thread::spawn(move || process_video_request(request));
+        }
+    })?;
     session.set_video_composition(Some(&video_composition))?;
     if let Some(compositor) = session.custom_video_compositor()? {
+        assert_eq!(compositor.kind()?, Some(VideoCompositorClass::RustCallback));
         println!("custom compositor: {}", compositor.class_name()?);
     }
-    session.set_video_composition(None)?;
 
     let session = ExportSession::new(&source, preset)?;
     session.set_output_file_type(Some(output_type))?;
@@ -94,12 +112,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "mdta/com.apple.quicktime.title",
         "export session smoke",
     )])?;
+    session.set_video_composition(Some(&video_composition))?;
     session.set_can_perform_multiple_passes_over_source_media_data(false)?;
     session.set_directory_for_temporary_files(Some(temp_dir.as_path()))?;
     session.set_audio_track_group_handling(TrackGroupOutputHandling::None)?;
     let _ = session.estimated_maximum_duration()?;
     let _ = session.estimated_output_file_length()?;
     session.export()?;
+    assert!(processed_requests.load(Ordering::Relaxed) > 0);
+    if let Some(snapshot) = VideoCompositor::take_latest_video_composition_request()? {
+        println!(
+            "processed request at {:?} from tracks {:?}",
+            snapshot.composition_time, snapshot.source_track_ids
+        );
+    }
 
     let metadata = std::fs::metadata(&output)?;
     println!(
@@ -110,6 +136,102 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         output_type,
         metadata.len()
     );
+    Ok(())
+}
+
+fn process_video_request(request: VideoCompositionRequest) {
+    let track_id = match request.source_track_ids() {
+        Ok(track_ids) => match track_ids.into_iter().next() {
+            Some(track_id) => track_id,
+            None => {
+                let _ = request.finish_with_error("video composition request had no source track");
+                return;
+            }
+        },
+        Err(error) => {
+            let _ = request.finish_with_error(&error.to_string());
+            return;
+        }
+    };
+    let source = match request.source_frame(track_id) {
+        Ok(Some(source)) => source,
+        Ok(None) => {
+            let _ = request.finish_with_error("video composition request had no source frame");
+            return;
+        }
+        Err(error) => {
+            let _ = request.finish_with_error(&error.to_string());
+            return;
+        }
+    };
+    let output = match request.new_output_pixel_buffer() {
+        Ok(output) => output,
+        Err(error) => {
+            let _ = request.finish_with_error(&error.to_string());
+            return;
+        }
+    };
+    if let Err(error) = invert_bgra(&source, &output) {
+        let _ = request.finish_with_error(&error);
+        return;
+    }
+    if let Err(error) = request.finish_with_frame(&output) {
+        eprintln!("failed to finish video composition request: {error}");
+    }
+}
+
+fn invert_bgra(source: &CVPixelBuffer, output: &CVPixelBuffer) -> Result<(), String> {
+    if source.width() != output.width() || source.height() != output.height() {
+        return Err("source and output pixel-buffer sizes differ".into());
+    }
+    let width = source.width();
+    let height = source.height();
+    let source_guard = source
+        .lock_read_only()
+        .map_err(|code| format!("source pixel-buffer lock failed: {code}"))?;
+    let mut output_guard = output
+        .lock_read_write()
+        .map_err(|code| format!("output pixel-buffer lock failed: {code}"))?;
+    let source_stride = source_guard.bytes_per_row();
+    let output_stride = output_guard.bytes_per_row();
+    // SAFETY: the request exposes the source frame read-only for this processing scope.
+    let source_bytes = unsafe { source_guard.as_slice() }
+        .ok_or_else(|| "source pixel buffer is not contiguous BGRA".to_string())?;
+    // SAFETY: the new output buffer has not been submitted and has no other mutable byte view.
+    let output_bytes = unsafe { output_guard.as_slice_mut() }
+        .ok_or_else(|| "output pixel buffer is not contiguous BGRA".to_string())?;
+    let row_bytes = width
+        .checked_mul(4)
+        .ok_or_else(|| "pixel row size overflowed".to_string())?;
+    for row in 0..height {
+        let source_start = row
+            .checked_mul(source_stride)
+            .ok_or_else(|| "source row offset overflowed".to_string())?;
+        let output_start = row
+            .checked_mul(output_stride)
+            .ok_or_else(|| "output row offset overflowed".to_string())?;
+        let source_end = source_start
+            .checked_add(row_bytes)
+            .ok_or_else(|| "source row end overflowed".to_string())?;
+        let output_end = output_start
+            .checked_add(row_bytes)
+            .ok_or_else(|| "output row end overflowed".to_string())?;
+        let source_row = source_bytes
+            .get(source_start..source_end)
+            .ok_or_else(|| "source row exceeded its pixel buffer".to_string())?;
+        let output_row = output_bytes
+            .get_mut(output_start..output_end)
+            .ok_or_else(|| "output row exceeded its pixel buffer".to_string())?;
+        for (source_pixel, output_pixel) in source_row
+            .chunks_exact(4)
+            .zip(output_row.chunks_exact_mut(4))
+        {
+            output_pixel[0] = u8::MAX - source_pixel[0];
+            output_pixel[1] = u8::MAX - source_pixel[1];
+            output_pixel[2] = u8::MAX - source_pixel[2];
+            output_pixel[3] = source_pixel[3];
+        }
+    }
     Ok(())
 }
 
@@ -163,8 +285,8 @@ fn fill_surface(surface: &IOSurface, frame_idx: i32) -> Result<(), String> {
     let mut guard = surface
         .lock(IOSurfaceLockOptions::NONE)
         .map_err(|code| format!("lock failed: {code}"))?;
-    let bytes = guard
-        .as_slice_mut()
+    // SAFETY: this exclusive lock scope does not hand the surface to the encoder.
+    let bytes = unsafe { guard.as_slice_mut() }
         .ok_or_else(|| "surface storage was not contiguous".to_string())?;
     let green = (frame_idx * 17).clamp(0, 255) as u8;
     for pixel in bytes.chunks_exact_mut(4) {

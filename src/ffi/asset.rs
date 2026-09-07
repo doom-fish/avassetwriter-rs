@@ -15,6 +15,11 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> *mut c_char;
 
+    pub fn av_asset_metadata(
+        asset: *mut c_void,
+        out_error_message: *mut *mut c_char,
+    ) -> *mut c_void;
+
     pub fn av_asset_status_of_value(
         asset: *mut c_void,
         key: *const c_char,

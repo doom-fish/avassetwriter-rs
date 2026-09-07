@@ -5,12 +5,16 @@
 )]
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Barrier, Mutex};
+use std::time::Duration;
 
 use apple_cf::iosurface::{IOSurface, IOSurfaceLockOptions};
 use avassetwriter::{
     AudioMix, Composition, CompositionTrackSegment, ExportPreset, ExportSession, ExportStatus,
     FileType, MediaType, MetadataItem, MetadataItemFilter, MetadataItemFilterKind, Time, TimeRange,
-    TrackGroupOutputHandling, VideoComposition, VideoCompositorClass, Writer,
+    TrackGroupOutputHandling, VideoComposition, VideoCompositionRequest, VideoCompositor,
+    VideoCompositorClass, Writer,
 };
 use videotoolbox::prelude::*;
 
@@ -265,6 +269,210 @@ fn composition_smoke() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[test]
+fn rust_video_compositor_finishes_requests_from_worker_threads(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let artifacts = artifacts_dir();
+    std::fs::create_dir_all(&artifacts)?;
+
+    let source = artifacts.join("rust-compositor-source.mp4");
+    write_test_asset(&source)?;
+    let preset = ExportSession::compatible_presets(&source)?
+        .into_iter()
+        .find(|preset| {
+            matches!(
+                preset,
+                ExportPreset::HighestQuality
+                    | ExportPreset::MediumQuality
+                    | ExportPreset::LowQuality
+            )
+        })
+        .ok_or("no compatible re-encoding export preset")?;
+    let session = ExportSession::new(&source, preset)?;
+    let output_type = session
+        .compatible_file_types()?
+        .into_iter()
+        .find(|file_type| matches!(file_type, FileType::Mp4 | FileType::Mov))
+        .ok_or("no compatible video output type")?;
+    let output = artifacts.join(format!(
+        "rust-compositor-output.{}",
+        extension_for_file_type(output_type)
+    ));
+    if output.exists() {
+        std::fs::remove_file(&output)?;
+    }
+    session.set_output_file_type(Some(output_type))?;
+    session.set_output_path(Some(output.as_path()))?;
+
+    let request_count = Arc::new(AtomicUsize::new(0));
+    let handler_errors = Arc::new(Mutex::new(Vec::<String>::new()));
+    let composition = VideoComposition::from_asset(&source)?;
+    composition.install_rust_video_compositor({
+        let request_count = Arc::clone(&request_count);
+        let handler_errors = Arc::clone(&handler_errors);
+        move |request| {
+            request_count.fetch_add(1, Ordering::SeqCst);
+            let handler_errors = Arc::clone(&handler_errors);
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(2));
+                if let Err(error) = finish_with_first_source_frame(request) {
+                    handler_errors
+                        .lock()
+                        .expect("handler error lock")
+                        .push(error.to_string());
+                }
+            });
+        }
+    })?;
+    session.set_video_composition(Some(&composition))?;
+
+    if let Err(error) = session.export() {
+        let handler_errors = handler_errors.lock().expect("handler error lock");
+        return Err(std::io::Error::other(format!(
+            "export failed: {error}; handler errors: {handler_errors:?}"
+        ))
+        .into());
+    }
+
+    assert!(request_count.load(Ordering::SeqCst) > 0);
+    assert!(handler_errors
+        .lock()
+        .expect("handler error lock")
+        .is_empty());
+    let mut snapshot = None;
+    let mut empty_count = 0;
+    for result in take_video_snapshots_concurrently() {
+        match result? {
+            Some(value) => {
+                assert!(snapshot.replace(value).is_none());
+            }
+            None => empty_count += 1,
+        }
+    }
+    assert_eq!(empty_count, 1);
+    let snapshot = snapshot.expect("custom compositor should record one request snapshot");
+    assert!(!snapshot.source_track_ids.is_empty());
+    assert!(std::fs::metadata(output)?.len() > 0);
+    Ok(())
+}
+
+#[test]
+fn ci_snapshot_take_is_single_consumer() -> Result<(), Box<dyn std::error::Error>> {
+    let artifacts = artifacts_dir();
+    std::fs::create_dir_all(&artifacts)?;
+
+    let source = artifacts.join("ci-snapshot-source.mp4");
+    write_test_asset(&source)?;
+    let preset = compatible_reencoding_preset(&source)?;
+    let session = ExportSession::new(&source, preset)?;
+    let output_type = compatible_video_file_type(&session)?;
+    let output = artifacts.join(format!(
+        "ci-snapshot-output.{}",
+        extension_for_file_type(output_type)
+    ));
+    if output.exists() {
+        std::fs::remove_file(&output)?;
+    }
+    session.set_output_file_type(Some(output_type))?;
+    session.set_output_path(Some(output.as_path()))?;
+    let composition = VideoComposition::from_asset_with_ci_filter_passthrough(&source)?;
+    session.set_video_composition(Some(&composition))?;
+    session.export()?;
+
+    let start = Arc::new(Barrier::new(3));
+    let mut threads = Vec::new();
+    for _ in 0..2 {
+        let start = Arc::clone(&start);
+        threads.push(std::thread::spawn(move || {
+            start.wait();
+            VideoComposition::take_latest_ci_image_filtering_request()
+        }));
+    }
+    start.wait();
+    let snapshots = threads
+        .into_iter()
+        .map(|thread| thread.join().expect("ci snapshot thread"))
+        .collect::<Vec<_>>();
+    let mut delivered_count = 0;
+    let mut empty_count = 0;
+    for result in snapshots {
+        match result? {
+            Some(_) => delivered_count += 1,
+            None => empty_count += 1,
+        }
+    }
+    assert_eq!(delivered_count, 1);
+    assert_eq!(empty_count, 1);
+    assert!(std::fs::metadata(output)?.len() > 0);
+    Ok(())
+}
+
+fn take_video_snapshots_concurrently() -> Vec<
+    Result<
+        Option<avassetwriter::AsynchronousVideoCompositionRequest>,
+        avassetwriter::AVWriterError,
+    >,
+> {
+    let start = Arc::new(Barrier::new(3));
+    let mut threads = Vec::new();
+    for _ in 0..2 {
+        let start = Arc::clone(&start);
+        threads.push(std::thread::spawn(move || {
+            start.wait();
+            VideoCompositor::take_latest_video_composition_request()
+        }));
+    }
+    start.wait();
+    threads
+        .into_iter()
+        .map(|thread| thread.join().expect("video snapshot thread"))
+        .collect()
+}
+
+fn compatible_reencoding_preset(source: &Path) -> Result<ExportPreset, Box<dyn std::error::Error>> {
+    ExportSession::compatible_presets(source)?
+        .into_iter()
+        .find(|preset| {
+            matches!(
+                preset,
+                ExportPreset::HighestQuality
+                    | ExportPreset::MediumQuality
+                    | ExportPreset::LowQuality
+            )
+        })
+        .ok_or_else(|| "no compatible re-encoding export preset".into())
+}
+
+fn compatible_video_file_type(
+    session: &ExportSession,
+) -> Result<FileType, Box<dyn std::error::Error>> {
+    session
+        .compatible_file_types()?
+        .into_iter()
+        .find(|file_type| matches!(file_type, FileType::Mp4 | FileType::Mov))
+        .ok_or_else(|| "no compatible video output type".into())
+}
+
+fn finish_with_first_source_frame(
+    request: VideoCompositionRequest,
+) -> Result<(), avassetwriter::AVWriterError> {
+    let track_id = request
+        .source_track_ids()?
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            avassetwriter::AVWriterError::InvalidState(
+                "video composition request had no source tracks".into(),
+            )
+        })?;
+    let frame = request.source_frame(track_id)?.ok_or_else(|| {
+        avassetwriter::AVWriterError::InvalidState(
+            "video composition request had no source frame".into(),
+        )
+    })?;
+    request.finish_with_frame(&frame)
+}
+
 fn write_test_asset(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     if path.exists() {
         std::fs::remove_file(path)?;
@@ -315,8 +523,8 @@ fn fill_surface(surface: &IOSurface, frame_idx: i32) -> Result<(), String> {
     let mut guard = surface
         .lock(IOSurfaceLockOptions::NONE)
         .map_err(|code| format!("lock failed: {code}"))?;
-    let bytes = guard
-        .as_slice_mut()
+    // SAFETY: this exclusive lock scope does not hand the surface to the encoder.
+    let bytes = unsafe { guard.as_slice_mut() }
         .ok_or_else(|| "surface storage was not contiguous".to_string())?;
     let green = (frame_idx * 17).clamp(0, 255) as u8;
     for pixel in bytes.chunks_exact_mut(4) {

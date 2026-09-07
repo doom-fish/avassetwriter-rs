@@ -19,10 +19,10 @@
 //!
 //! ## Notes
 //!
-//! * Like the underlying `requestMediaDataWhenReady(on:using:)` registration,
-//!   an input can only be wrapped once for the lifetime of that writer/input.
-//!   Dropping the Rust stream stops delivery into Rust, but re-registering the
-//!   same input still returns `InvalidState`.
+//! * Dropping an input-ready stream stops delivery into Rust. Once writing has
+//!   started, removal marks that input as finished because the native API has
+//!   no independent cancellation operation. Registration therefore requires
+//!   [`Writer::start_session`] to have succeeded first.
 //! * `AVOutputSettingsAssistant.compatibilityTest(forSourceFormat:completionHandler:)` —
 //!   this method does **not** exist in the `AVFoundation` SDK.
 //!   `AVOutputSettingsAssistant` is a purely synchronous settings-recommendation
@@ -66,15 +66,6 @@ use crate::error::{from_swift, AVWriterError};
 use crate::export_session::ExportSession;
 use crate::ffi::{self, AsyncCb, ReadyStreamCb};
 use crate::writer::{FileType, InputId, Writer};
-
-fn drop_boxed_ptr<T>(raw: &mut *mut T) {
-    if !(*raw).is_null() {
-        // SAFETY: `*raw` was created by `Box::into_raw` during stream
-        // subscription and this path runs at most once before nulling it out.
-        unsafe { drop(Box::from_raw(*raw)) };
-        *raw = ptr::null_mut();
-    }
-}
 
 // ============================================================================
 // WriterFinishFuture — AVAssetWriter.finishWritingWithCompletionHandler:
@@ -174,7 +165,6 @@ pub struct InputMediaDataReadyEvent;
 pub struct InputMediaDataReadyStream {
     inner: BoundedAsyncStream<InputMediaDataReadyEvent>,
     bridge_ptr: *mut c_void,
-    sender_raw: *mut AsyncStreamSender<InputMediaDataReadyEvent>,
 }
 
 impl core::fmt::Debug for InputMediaDataReadyStream {
@@ -185,9 +175,9 @@ impl core::fmt::Debug for InputMediaDataReadyStream {
     }
 }
 
-// SAFETY: `bridge_ptr` is an opaque Swift bridge handle. Its teardown waits
-// for the dedicated callback queue before `sender_raw` is reclaimed, and
-// `BoundedAsyncStream` is itself `Send`.
+// SAFETY: `bridge_ptr` is an opaque Swift bridge handle whose native lifetime
+// box serializes callback invocation and teardown. `BoundedAsyncStream` is
+// itself `Send`.
 unsafe impl Send for InputMediaDataReadyStream {}
 
 impl Drop for InputMediaDataReadyStream {
@@ -196,7 +186,6 @@ impl Drop for InputMediaDataReadyStream {
             unsafe { ffi::av_writer_input_ready_stream_unsubscribe(self.bridge_ptr) };
             self.bridge_ptr = ptr::null_mut();
         }
-        drop_boxed_ptr(&mut self.sender_raw);
     }
 }
 
@@ -212,33 +201,43 @@ unsafe extern "C" fn input_media_data_ready_cb(ctx: *mut c_void) {
     });
 }
 
+unsafe extern "C" fn input_media_data_ready_drop(ctx: *mut c_void) {
+    if ctx.is_null() {
+        return;
+    }
+    catch_user_panic("input_media_data_ready_drop", || {
+        // SAFETY: native ownership is transferred only after successful
+        // registration and the Swift lifetime box invokes this exactly once.
+        drop(unsafe { Box::from_raw(ctx.cast::<AsyncStreamSender<InputMediaDataReadyEvent>>()) });
+    });
+}
+
 impl InputMediaDataReadyStream {
     fn subscribe(
         writer: &Writer,
         input_id: InputId,
         capacity: usize,
     ) -> Result<Self, AVWriterError> {
-        let _ = writer.input_ready_for_more_media_data(input_id)?;
         let (stream, sender) = BoundedAsyncStream::new(capacity);
-        let mut sender_raw = Box::into_raw(Box::new(sender));
+        let sender_raw = Box::into_raw(Box::new(sender));
         let mut err_msg: *mut c_char = ptr::null_mut();
         let bridge_ptr = unsafe {
-            ffi::av_writer_input_ready_stream_subscribe(
+            ffi::av_writer_input_ready_stream_subscribe_owned(
                 writer.as_raw_ptr(),
                 input_id.raw(),
                 input_media_data_ready_cb as ReadyStreamCb,
                 sender_raw.cast::<c_void>(),
+                Some(input_media_data_ready_drop),
                 &mut err_msg,
             )
         };
         if bridge_ptr.is_null() {
-            drop_boxed_ptr(&mut sender_raw);
+            unsafe { input_media_data_ready_drop(sender_raw.cast::<c_void>()) };
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
         Ok(Self {
             inner: stream,
             bridge_ptr,
-            sender_raw,
         })
     }
 
@@ -271,8 +270,8 @@ impl AsyncWriterInput {
     ///
     /// # Errors
     ///
-    /// Returns [`AVWriterError::InvalidState`] if a ready callback/stream has
-    /// already been registered for that input.
+    /// Returns [`AVWriterError::InvalidState`] if writing has not started or a
+    /// ready callback/stream has already been registered for that input.
     pub fn request_media_data_when_ready(
         writer: &Writer,
         input_id: InputId,
@@ -477,5 +476,169 @@ impl AsyncExportSession {
             );
         }
         CompatibleFileTypesFuture { inner: future }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    struct ReadyContext {
+        calls: Arc<AtomicUsize>,
+        drops: Option<Arc<AtomicUsize>>,
+    }
+
+    impl Drop for ReadyContext {
+        fn drop(&mut self) {
+            if let Some(drops) = &self.drops {
+                drops.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
+
+    unsafe extern "C" fn ready_callback(ctx: *mut c_void) {
+        let Some(context) = (unsafe { ctx.cast::<ReadyContext>().as_ref() }) else {
+            return;
+        };
+        context.calls.fetch_add(1, Ordering::SeqCst);
+    }
+
+    unsafe extern "C" fn ready_context_drop(ctx: *mut c_void) {
+        if !ctx.is_null() {
+            drop(unsafe { Box::from_raw(ctx.cast::<ReadyContext>()) });
+        }
+    }
+
+    fn artifact_path(name: &str) -> PathBuf {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-artifacts");
+        std::fs::create_dir_all(&dir).expect("create test artifacts");
+        dir.join(format!("{name}-{}.m4a", std::process::id()))
+    }
+
+    fn create_audio_writer(name: &str) -> (Writer, InputId, PathBuf) {
+        let path = artifact_path(name);
+        let _ = std::fs::remove_file(&path);
+        let writer = Writer::create(&path, FileType::M4a).expect("create writer");
+        let input = writer
+            .add_audio_input_pcm(48_000.0, 1, 16)
+            .expect("add audio input");
+        (writer, input, path)
+    }
+
+    fn wait_for_callback(calls: &AtomicUsize) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while calls.load(Ordering::SeqCst) == 0 {
+            assert!(
+                Instant::now() < deadline,
+                "ready callback did not fire before deadline"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn legacy_ready_subscribe_writes_the_real_error_slot() {
+        let (writer, input, path) = create_audio_writer("legacy-ready-failure");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let context = Box::into_raw(Box::new(ReadyContext {
+            calls: Arc::clone(&calls),
+            drops: None,
+        }));
+        let mut error = ptr::null_mut();
+
+        let handle = unsafe {
+            ffi::av_writer_input_ready_stream_subscribe(
+                writer.as_raw_ptr(),
+                input.raw(),
+                ready_callback,
+                context.cast(),
+                &mut error,
+            )
+        };
+
+        assert!(handle.is_null());
+        let message = crate::bridge_support::take_swift_string(error)
+            .expect("legacy subscribe should populate its error pointer");
+        assert!(message.contains("requires a writing session"));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        drop(unsafe { Box::from_raw(context) });
+        drop(writer);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn legacy_ready_subscribe_keeps_context_caller_owned() {
+        let (writer, input, path) = create_audio_writer("legacy-ready-owned-by-caller");
+        writer
+            .start_session((0, 48_000))
+            .expect("start writing session");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let context = Box::into_raw(Box::new(ReadyContext {
+            calls: Arc::clone(&calls),
+            drops: None,
+        }));
+        let mut error = ptr::null_mut();
+
+        let handle = unsafe {
+            ffi::av_writer_input_ready_stream_subscribe(
+                writer.as_raw_ptr(),
+                input.raw(),
+                ready_callback,
+                context.cast(),
+                &mut error,
+            )
+        };
+        assert!(!handle.is_null(), "legacy subscribe failed");
+        assert!(error.is_null());
+        wait_for_callback(&calls);
+
+        unsafe { ffi::av_writer_input_ready_stream_unsubscribe(handle) };
+        let calls_after_unsubscribe = calls.load(Ordering::SeqCst);
+        drop(unsafe { Box::from_raw(context) });
+        std::thread::sleep(Duration::from_millis(10));
+        assert_eq!(calls.load(Ordering::SeqCst), calls_after_unsubscribe);
+
+        writer.finish().expect("finish writer");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn owned_ready_subscribe_drops_context_once_after_teardown() {
+        let (writer, input, path) = create_audio_writer("owned-ready-teardown");
+        writer
+            .start_session((0, 48_000))
+            .expect("start writing session");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let drops = Arc::new(AtomicUsize::new(0));
+        let context = Box::into_raw(Box::new(ReadyContext {
+            calls: Arc::clone(&calls),
+            drops: Some(Arc::clone(&drops)),
+        }));
+        let mut error = ptr::null_mut();
+
+        let handle = unsafe {
+            ffi::av_writer_input_ready_stream_subscribe_owned(
+                writer.as_raw_ptr(),
+                input.raw(),
+                ready_callback,
+                context.cast(),
+                Some(ready_context_drop),
+                &mut error,
+            )
+        };
+        assert!(!handle.is_null(), "owned subscribe failed");
+        assert!(error.is_null());
+        wait_for_callback(&calls);
+
+        unsafe { ffi::av_writer_input_ready_stream_unsubscribe(handle) };
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+
+        writer.finish().expect("finish writer");
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+        let _ = std::fs::remove_file(path);
     }
 }

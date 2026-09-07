@@ -15,7 +15,9 @@ use core::ptr;
 use doom_fish_utils::panic_safe::catch_user_panic;
 use serde::{Deserialize, Serialize};
 
-use crate::bridge_support::{cstring_arg, parse_json_ptr, serialize_json};
+use crate::bridge_support::{
+    cstring_arg, parse_json_ptr, serialize_json, time_kind, time_scale, time_value,
+};
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
 use crate::media_processing::MetadataItemFilter;
@@ -33,42 +35,40 @@ pub enum MetadataValue {
     Data(Vec<u8>),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct MetadataItemPayload {
-    pub identifier: String,
-    pub value: MetadataValue,
-    pub data_type: Option<String>,
-    pub extended_language_tag: Option<String>,
-    pub locale_identifier: Option<String>,
+struct MetadataItemPayload {
+    identifier: String,
+    value: MetadataValue,
+    data_type: Option<String>,
+    extended_language_tag: Option<String>,
+    locale_identifier: Option<String>,
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct MetadataGroupPayload {
-    pub items: Vec<MetadataItemPayload>,
-    pub classifying_label: Option<String>,
-    pub unique_id: Option<String>,
+struct MetadataItemPropertiesPayload {
+    identifier: String,
+    data_type: Option<String>,
+    extended_language_tag: Option<String>,
+    locale_identifier: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TimedMetadataGroupPayload {
-    pub items: Vec<MetadataItemPayload>,
-    pub time_range: TimeRange,
-    pub classifying_label: Option<String>,
-    pub unique_id: Option<String>,
+struct TimedMetadataGroupPropertiesPayload {
+    time_range: TimeRange,
+    classifying_label: Option<String>,
+    unique_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct DateRangeMetadataGroupPayload {
-    pub items: Vec<MetadataItemPayload>,
-    pub start_date: String,
-    pub end_date: Option<String>,
-    pub classifying_label: Option<String>,
-    pub unique_id: Option<String>,
+struct DateRangeMetadataGroupPropertiesPayload {
+    start_date: String,
+    end_date: Option<String>,
+    classifying_label: Option<String>,
+    unique_id: Option<String>,
 }
 
 /// A CoreMedia metadata specification used to build a metadata-track format hint.
@@ -121,9 +121,12 @@ pub struct KeyLoadStatus {
 }
 
 /// Safe wrapper around `AVMetadataItem`.
+///
+/// Cloning a native-backed item retains the same native object without
+/// resolving a lazy value.
 pub struct MetadataItem {
     identifier: String,
-    value: MetadataValue,
+    detached_value: Option<MetadataValue>,
     data_type: Option<String>,
     extended_language_tag: Option<String>,
     locale_identifier: Option<String>,
@@ -135,32 +138,72 @@ pub struct MetadataItem {
 // guaranteed by AVFoundation, so `Sync` is intentionally not implemented.
 unsafe impl Send for MetadataItem {}
 
+impl Clone for MetadataItem {
+    fn clone(&self) -> Self {
+        let current = self.ptr.get();
+        let ptr = if current.is_null() {
+            ptr::null_mut()
+        } else {
+            unsafe { ffi::av_metadata_item_retain(current) }
+        };
+        Self {
+            identifier: self.identifier.clone(),
+            detached_value: self.detached_value.clone(),
+            data_type: self.data_type.clone(),
+            extended_language_tag: self.extended_language_tag.clone(),
+            locale_identifier: self.locale_identifier.clone(),
+            ptr: Cell::new(ptr),
+        }
+    }
+}
+
 impl PartialEq for MetadataItem {
     fn eq(&self, other: &Self) -> bool {
-        self.payload() == other.payload()
+        let self_ptr = self.ptr.get();
+        let other_ptr = other.ptr.get();
+        if !self_ptr.is_null() && self_ptr == other_ptr {
+            return true;
+        }
+        if self.identifier != other.identifier
+            || self.data_type != other.data_type
+            || self.extended_language_tag != other.extended_language_tag
+            || self.locale_identifier != other.locale_identifier
+        {
+            return false;
+        }
+        matches!((self.value(), other.value()), (Ok(left), Ok(right)) if left == right)
     }
 }
 
 impl core::fmt::Debug for MetadataItem {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("MetadataItem")
+        let mut debug = f.debug_struct("MetadataItem");
+        debug
             .field("identifier", &self.identifier)
-            .field("value", &self.value)
             .field("data_type", &self.data_type)
             .field("extended_language_tag", &self.extended_language_tag)
-            .field("locale_identifier", &self.locale_identifier)
-            .finish()
+            .field("locale_identifier", &self.locale_identifier);
+        if self.ptr.get().is_null() {
+            debug.field("value", &self.detached_value);
+        } else {
+            debug.field("native_backed", &true);
+        }
+        debug.finish()
     }
 }
 
-crate::utils::retained::av_retained!(MetadataItem, release = ffi::av_metadata_item_release);
+crate::utils::retained::av_retained!(
+    MetadataItem,
+    drop_only,
+    release = ffi::av_metadata_item_release
+);
 
 impl MetadataItem {
     #[must_use]
     pub fn new(identifier: impl Into<String>, value: MetadataValue) -> Self {
         Self {
             identifier: identifier.into(),
-            value,
+            detached_value: Some(value),
             data_type: None,
             extended_language_tag: None,
             locale_identifier: None,
@@ -193,24 +236,72 @@ impl MetadataItem {
         Self::new(identifier, MetadataValue::Data(value))
     }
 
+    /// Set the native data type on a copy of this item.
+    ///
+    /// Native-backed items use the framework's synchronous
+    /// `mutableCopy`/`copy` path. That path may invoke a lazy value loader
+    /// before this method returns.
     #[must_use]
     pub fn with_data_type(mut self, data_type: impl Into<String>) -> Self {
-        self.release_ptr();
-        self.data_type = Some(data_type.into());
+        let data_type = data_type.into();
+        let current = self.ptr.get();
+        if !current.is_null() {
+            let replacement = unsafe {
+                ffi::av_metadata_item_copy_with_data_type(
+                    current,
+                    data_type.as_ptr(),
+                    data_type.len(),
+                )
+            };
+            self.replace_native_ptr(current, replacement);
+        }
+        self.data_type = Some(data_type);
         self
     }
 
+    /// Set the extended language tag on a copy of this item.
+    ///
+    /// Native-backed items use the framework's synchronous
+    /// `mutableCopy`/`copy` path. That path may invoke a lazy value loader
+    /// before this method returns.
     #[must_use]
     pub fn with_extended_language_tag(mut self, tag: impl Into<String>) -> Self {
-        self.release_ptr();
-        self.extended_language_tag = Some(tag.into());
+        let tag = tag.into();
+        let current = self.ptr.get();
+        if !current.is_null() {
+            let replacement = unsafe {
+                ffi::av_metadata_item_copy_with_extended_language_tag(
+                    current,
+                    tag.as_ptr(),
+                    tag.len(),
+                )
+            };
+            self.replace_native_ptr(current, replacement);
+        }
+        self.extended_language_tag = Some(tag);
         self
     }
 
+    /// Set the locale on a copy of this item.
+    ///
+    /// Native-backed items use the framework's synchronous
+    /// `mutableCopy`/`copy` path. That path may invoke a lazy value loader
+    /// before this method returns.
     #[must_use]
     pub fn with_locale_identifier(mut self, identifier: impl Into<String>) -> Self {
-        self.release_ptr();
-        self.locale_identifier = Some(identifier.into());
+        let identifier = identifier.into();
+        let current = self.ptr.get();
+        if !current.is_null() {
+            let replacement = unsafe {
+                ffi::av_metadata_item_copy_with_locale_identifier(
+                    current,
+                    identifier.as_ptr(),
+                    identifier.len(),
+                )
+            };
+            self.replace_native_ptr(current, replacement);
+        }
+        self.locale_identifier = Some(identifier);
         self
     }
 
@@ -219,8 +310,23 @@ impl MetadataItem {
         &self.identifier
     }
 
+    /// Return the authoritative value.
+    ///
+    /// For a lazy native item this synchronously invokes its value loader on
+    /// first access.
     pub fn value(&self) -> Result<MetadataValue, AVWriterError> {
-        Ok(self.current_payload()?.value)
+        let current = self.ptr.get();
+        if current.is_null() {
+            return self.detached_value.clone().ok_or_else(|| {
+                AVWriterError::InvalidState("detached metadata item has no value".into())
+            });
+        }
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let value_ptr = unsafe { ffi::av_metadata_item_value_json(current, &mut err_msg) };
+        if value_ptr.is_null() {
+            return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
+        }
+        parse_json_ptr(value_ptr, "metadata item value")
     }
 
     #[must_use]
@@ -242,7 +348,7 @@ impl MetadataItem {
         let key_c = cstring_arg(key, "metadata item key")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let raw = unsafe {
-            ffi::av_metadata_item_status_of_value(self.ensure_ptr()?, key_c.as_ptr(), &mut err_msg)
+            ffi::av_metadata_item_status_of_value(self.as_ptr()?, key_c.as_ptr(), &mut err_msg)
         };
         if raw < 0 {
             return Err(unsafe { from_swift(raw, err_msg) });
@@ -267,7 +373,7 @@ impl MetadataItem {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let statuses_ptr = unsafe {
             ffi::av_metadata_item_load_values_json(
-                self.ensure_ptr()?,
+                self.as_ptr()?,
                 payload_c.as_ptr(),
                 30,
                 &mut err_msg,
@@ -288,20 +394,21 @@ impl MetadataItem {
             .collect())
     }
 
+    /// Create a lazy native item from the exact native representation of
+    /// `base`. Construction and cloning do not invoke `callback`.
     pub fn with_lazy_value_loader<F>(base: &Self, callback: F) -> Result<Self, AVWriterError>
     where
         F: Fn(MetadataItemValueRequest) + Send + 'static,
     {
-        let payload = serialize_json(&base.payload())?;
-        let payload_c = cstring_arg(&payload, "metadata item base json")?;
+        let base_ptr = base.as_ptr()?;
         let state = Box::new(MetadataValueLoaderState {
             callback: Box::new(callback),
         });
         let userdata = Box::into_raw(state).cast::<c_void>();
         let mut err_msg: *mut c_char = ptr::null_mut();
         let ptr = unsafe {
-            ffi::av_metadata_item_create_lazy_json(
-                payload_c.as_ptr(),
+            ffi::av_metadata_item_create_lazy(
+                base_ptr,
                 Some(metadata_value_request_trampoline),
                 userdata,
                 Some(metadata_value_request_drop),
@@ -312,9 +419,14 @@ impl MetadataItem {
             unsafe { metadata_value_request_drop(userdata) };
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
-        let item = base.clone();
-        item.ptr.set(ptr);
-        Ok(item)
+        Ok(Self {
+            identifier: base.identifier.clone(),
+            detached_value: base.detached_value.clone(),
+            data_type: base.data_type.clone(),
+            extended_language_tag: base.extended_language_tag.clone(),
+            locale_identifier: base.locale_identifier.clone(),
+            ptr: Cell::new(ptr),
+        })
     }
 
     pub fn filtered_and_sorted_according_to_preferred_languages<I, S>(
@@ -325,111 +437,85 @@ impl MetadataItem {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let items_payload = items.iter().map(Self::payload).collect::<Vec<_>>();
+        let item_ptrs = Self::native_ptrs(items)?;
         let languages_payload = preferred_languages
             .into_iter()
             .map(|value| value.as_ref().to_owned())
             .collect::<Vec<_>>();
-        let items_json = serialize_json(&items_payload)?;
         let languages_json = serialize_json(&languages_payload)?;
-        let items_c = cstring_arg(&items_json, "metadata items json")?;
         let languages_c = cstring_arg(&languages_json, "preferred languages json")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr = unsafe {
-            ffi::av_metadata_item_filter_preferred_languages_json(
-                items_c.as_ptr(),
+        let array = unsafe {
+            ffi::av_metadata_item_filter_preferred_languages(
+                item_ptrs.as_ptr(),
+                item_ptrs.len(),
                 languages_c.as_ptr(),
                 &mut err_msg,
             )
         };
-        if ptr.is_null() {
+        if array.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
-        let payloads: Vec<MetadataItemPayload> =
-            parse_json_ptr(ptr, "preferred-language metadata items")?;
-        Ok(payloads.into_iter().map(Self::from_payload).collect())
+        Self::from_retained_array(array, "preferred-language metadata items")
     }
 
     pub fn filtered_by_identifier(
         items: &[Self],
         identifier: impl AsRef<str>,
     ) -> Result<Vec<Self>, AVWriterError> {
-        let items_payload = items.iter().map(Self::payload).collect::<Vec<_>>();
-        let items_json = serialize_json(&items_payload)?;
-        let items_c = cstring_arg(&items_json, "metadata items json")?;
+        let item_ptrs = Self::native_ptrs(items)?;
         let identifier_c = cstring_arg(identifier.as_ref(), "metadata identifier")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr = unsafe {
-            ffi::av_metadata_item_filter_identifier_json(
-                items_c.as_ptr(),
+        let array = unsafe {
+            ffi::av_metadata_item_filter_identifier(
+                item_ptrs.as_ptr(),
+                item_ptrs.len(),
                 identifier_c.as_ptr(),
                 &mut err_msg,
             )
         };
-        if ptr.is_null() {
+        if array.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
-        let payloads: Vec<MetadataItemPayload> =
-            parse_json_ptr(ptr, "identifier-filtered metadata items")?;
-        Ok(payloads.into_iter().map(Self::from_payload).collect())
+        Self::from_retained_array(array, "identifier-filtered metadata items")
     }
 
     pub fn filtered_by_metadata_item_filter(
         items: &[Self],
         filter: &MetadataItemFilter,
     ) -> Result<Vec<Self>, AVWriterError> {
-        let items_payload = items.iter().map(Self::payload).collect::<Vec<_>>();
-        let items_json = serialize_json(&items_payload)?;
-        let items_c = cstring_arg(&items_json, "metadata items json")?;
+        let item_ptrs = Self::native_ptrs(items)?;
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr = unsafe {
-            ffi::av_metadata_item_filter_metadata_item_filter_json(
-                items_c.as_ptr(),
+        let array = unsafe {
+            ffi::av_metadata_item_filter_metadata_item_filter(
+                item_ptrs.as_ptr(),
+                item_ptrs.len(),
                 filter.as_ptr(),
                 &mut err_msg,
             )
         };
-        if ptr.is_null() {
+        if array.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
-        let payloads: Vec<MetadataItemPayload> = parse_json_ptr(ptr, "metadata-filtered items")?;
-        Ok(payloads.into_iter().map(Self::from_payload).collect())
+        Self::from_retained_array(array, "metadata-filtered items")
     }
 
-    pub(crate) fn from_payload(payload: MetadataItemPayload) -> Self {
-        Self {
-            identifier: payload.identifier,
-            value: payload.value,
-            data_type: payload.data_type,
-            extended_language_tag: payload.extended_language_tag,
-            locale_identifier: payload.locale_identifier,
-            ptr: Cell::new(ptr::null_mut()),
-        }
+    fn payload(&self) -> Result<MetadataItemPayload, AVWriterError> {
+        Ok(MetadataItemPayload {
+            identifier: self.identifier.clone(),
+            value: self.value()?,
+            data_type: self.data_type.clone(),
+            extended_language_tag: self.extended_language_tag.clone(),
+            locale_identifier: self.locale_identifier.clone(),
+        })
     }
 
-    pub(crate) fn payload(&self) -> MetadataItemPayload {
-        self.current_payload()
-            .unwrap_or_else(|_| MetadataItemPayload {
-                identifier: self.identifier.clone(),
-                value: self.value.clone(),
-                data_type: self.data_type.clone(),
-                extended_language_tag: self.extended_language_tag.clone(),
-                locale_identifier: self.locale_identifier.clone(),
-            })
-    }
-
-    fn ensure_ptr(&self) -> Result<*mut c_void, AVWriterError> {
+    pub(crate) fn as_ptr(&self) -> Result<*mut c_void, AVWriterError> {
         let current = self.ptr.get();
         if !current.is_null() {
             return Ok(current);
         }
-        let payload = serialize_json(&MetadataItemPayload {
-            identifier: self.identifier.clone(),
-            value: self.value.clone(),
-            data_type: self.data_type.clone(),
-            extended_language_tag: self.extended_language_tag.clone(),
-            locale_identifier: self.locale_identifier.clone(),
-        })?;
+        let payload = serialize_json(&self.payload()?)?;
         let payload_c = cstring_arg(&payload, "metadata item json")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let ptr = unsafe { ffi::av_metadata_item_create_json(payload_c.as_ptr(), &mut err_msg) };
@@ -440,29 +526,71 @@ impl MetadataItem {
         Ok(ptr)
     }
 
-    fn current_payload(&self) -> Result<MetadataItemPayload, AVWriterError> {
-        let current = self.ptr.get();
-        if current.is_null() {
-            return Ok(MetadataItemPayload {
-                identifier: self.identifier.clone(),
-                value: self.value.clone(),
-                data_type: self.data_type.clone(),
-                extended_language_tag: self.extended_language_tag.clone(),
-                locale_identifier: self.locale_identifier.clone(),
-            });
-        }
-        let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr = unsafe { ffi::av_metadata_item_info_json(current, &mut err_msg) };
-        if ptr.is_null() {
-            return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
-        }
-        parse_json_ptr(ptr, "metadata item info")
+    pub(crate) fn native_ptrs(items: &[Self]) -> Result<Vec<*mut c_void>, AVWriterError> {
+        items.iter().map(Self::as_ptr).collect()
     }
 
-    fn release_ptr(&self) {
-        let current = self.ptr.replace(ptr::null_mut());
-        if !current.is_null() {
-            unsafe { ffi::av_metadata_item_release(current) };
+    pub(crate) fn from_retained_array(
+        array: *mut c_void,
+        context: &str,
+    ) -> Result<Vec<Self>, AVWriterError> {
+        let array = RetainedMetadataItemArray(array);
+        let count = unsafe { ffi::av_metadata_item_array_count(array.0) };
+        let mut items = Vec::with_capacity(count);
+        for index in 0..count {
+            let item = unsafe { ffi::av_metadata_item_array_item_retain(array.0, index) };
+            if item.is_null() {
+                return Err(AVWriterError::InvalidState(format!(
+                    "{context} contained an invalid item at index {index}"
+                )));
+            }
+            items.push(Self::from_retained_ptr(item)?);
+        }
+        Ok(items)
+    }
+
+    fn from_retained_ptr(item_ptr: *mut c_void) -> Result<Self, AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let properties_ptr =
+            unsafe { ffi::av_metadata_item_properties_json(item_ptr, &mut err_msg) };
+        if properties_ptr.is_null() {
+            unsafe { ffi::av_metadata_item_release(item_ptr) };
+            return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
+        }
+        let properties: MetadataItemPropertiesPayload =
+            match parse_json_ptr(properties_ptr, "metadata item properties") {
+                Ok(properties) => properties,
+                Err(error) => {
+                    unsafe { ffi::av_metadata_item_release(item_ptr) };
+                    return Err(error);
+                }
+            };
+        Ok(Self {
+            identifier: properties.identifier,
+            detached_value: None,
+            data_type: properties.data_type,
+            extended_language_tag: properties.extended_language_tag,
+            locale_identifier: properties.locale_identifier,
+            ptr: Cell::new(item_ptr),
+        })
+    }
+
+    fn replace_native_ptr(&self, current: *mut c_void, replacement: *mut c_void) {
+        assert!(
+            !replacement.is_null(),
+            "AVMetadataItem native copy unexpectedly failed"
+        );
+        self.ptr.set(replacement);
+        unsafe { ffi::av_metadata_item_release(current) };
+    }
+}
+
+struct RetainedMetadataItemArray(*mut c_void);
+
+impl Drop for RetainedMetadataItemArray {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { ffi::av_metadata_item_array_release(self.0) };
         }
     }
 }
@@ -490,19 +618,6 @@ impl MetadataGroup {
     pub fn unique_id(&self) -> Option<&str> {
         self.unique_id.as_deref()
     }
-
-    #[allow(dead_code)]
-    fn from_payload(payload: MetadataGroupPayload) -> Self {
-        Self {
-            items: payload
-                .items
-                .into_iter()
-                .map(MetadataItem::from_payload)
-                .collect(),
-            classifying_label: payload.classifying_label,
-            unique_id: payload.unique_id,
-        }
-    }
 }
 
 /// Safe wrapper around `AVTimedMetadataGroup`.
@@ -518,9 +633,30 @@ pub struct TimedMetadataGroup {
 // object whose ownership may move across threads.
 unsafe impl Send for TimedMetadataGroup {}
 
+impl Clone for TimedMetadataGroup {
+    fn clone(&self) -> Self {
+        let current = self.ptr.get();
+        let ptr = if current.is_null() {
+            ptr::null_mut()
+        } else {
+            unsafe { ffi::av_timed_metadata_group_retain(current) }
+        };
+        Self {
+            items: self.items.clone(),
+            time_range: self.time_range,
+            classifying_label: self.classifying_label.clone(),
+            unique_id: self.unique_id.clone(),
+            ptr: Cell::new(ptr),
+        }
+    }
+}
+
 impl PartialEq for TimedMetadataGroup {
     fn eq(&self, other: &Self) -> bool {
-        self.payload() == other.payload()
+        self.items == other.items
+            && self.time_range == other.time_range
+            && self.classifying_label == other.classifying_label
+            && self.unique_id == other.unique_id
     }
 }
 
@@ -537,6 +673,7 @@ impl core::fmt::Debug for TimedMetadataGroup {
 
 crate::utils::retained::av_retained!(
     TimedMetadataGroup,
+    drop_only,
     release = ffi::av_timed_metadata_group_release
 );
 
@@ -571,45 +708,70 @@ impl TimedMetadataGroup {
         }
     }
 
-    pub(crate) fn from_payload(payload: TimedMetadataGroupPayload) -> Self {
-        Self {
-            items: payload
-                .items
-                .into_iter()
-                .map(MetadataItem::from_payload)
-                .collect(),
-            time_range: payload.time_range,
-            classifying_label: payload.classifying_label,
-            unique_id: payload.unique_id,
-            ptr: Cell::new(ptr::null_mut()),
-        }
-    }
-
-    pub(crate) fn payload(&self) -> TimedMetadataGroupPayload {
-        TimedMetadataGroupPayload {
-            items: self.items.iter().map(MetadataItem::payload).collect(),
-            time_range: self.time_range,
-            classifying_label: self.classifying_label.clone(),
-            unique_id: self.unique_id.clone(),
-        }
-    }
-
-    #[allow(dead_code)]
     pub(crate) fn as_ptr(&self) -> Result<*mut c_void, AVWriterError> {
         let current = self.ptr.get();
         if !current.is_null() {
             return Ok(current);
         }
-        let payload = serialize_json(&self.payload())?;
-        let payload_c = cstring_arg(&payload, "timed metadata group json")?;
+        let item_ptrs = MetadataItem::native_ptrs(&self.items)?;
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr =
-            unsafe { ffi::av_timed_metadata_group_create_json(payload_c.as_ptr(), &mut err_msg) };
+        let ptr = unsafe {
+            ffi::av_timed_metadata_group_create_items(
+                item_ptrs.as_ptr(),
+                item_ptrs.len(),
+                time_value(&self.time_range.start),
+                time_scale(&self.time_range.start),
+                time_kind(&self.time_range.start),
+                time_value(&self.time_range.duration),
+                time_scale(&self.time_range.duration),
+                time_kind(&self.time_range.duration),
+                &mut err_msg,
+            )
+        };
         if ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_ARGUMENT, err_msg) });
         }
         self.ptr.set(ptr);
         Ok(ptr)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn from_retained_ptr(group_ptr: *mut c_void) -> Result<Self, AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let items_ptr = unsafe { ffi::av_metadata_group_items(group_ptr, &mut err_msg) };
+        if items_ptr.is_null() {
+            unsafe { ffi::av_timed_metadata_group_release(group_ptr) };
+            return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
+        }
+        let items = match MetadataItem::from_retained_array(items_ptr, "timed metadata group items")
+        {
+            Ok(items) => items,
+            Err(error) => {
+                unsafe { ffi::av_timed_metadata_group_release(group_ptr) };
+                return Err(error);
+            }
+        };
+        let properties_ptr =
+            unsafe { ffi::av_timed_metadata_group_properties_json(group_ptr, &mut err_msg) };
+        if properties_ptr.is_null() {
+            unsafe { ffi::av_timed_metadata_group_release(group_ptr) };
+            return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
+        }
+        let properties: TimedMetadataGroupPropertiesPayload =
+            match parse_json_ptr(properties_ptr, "timed metadata group properties") {
+                Ok(properties) => properties,
+                Err(error) => {
+                    unsafe { ffi::av_timed_metadata_group_release(group_ptr) };
+                    return Err(error);
+                }
+            };
+        Ok(Self {
+            items,
+            time_range: properties.time_range,
+            classifying_label: properties.classifying_label,
+            unique_id: properties.unique_id,
+            ptr: Cell::new(group_ptr),
+        })
     }
 }
 
@@ -627,9 +789,32 @@ pub struct DateRangeMetadataGroup {
 // Objective-C object whose ownership may move across threads.
 unsafe impl Send for DateRangeMetadataGroup {}
 
+impl Clone for DateRangeMetadataGroup {
+    fn clone(&self) -> Self {
+        let current = self.ptr.get();
+        let ptr = if current.is_null() {
+            ptr::null_mut()
+        } else {
+            unsafe { ffi::av_date_range_metadata_group_retain(current) }
+        };
+        Self {
+            items: self.items.clone(),
+            start_date: self.start_date.clone(),
+            end_date: self.end_date.clone(),
+            classifying_label: self.classifying_label.clone(),
+            unique_id: self.unique_id.clone(),
+            ptr: Cell::new(ptr),
+        }
+    }
+}
+
 impl PartialEq for DateRangeMetadataGroup {
     fn eq(&self, other: &Self) -> bool {
-        self.payload() == other.payload()
+        self.items == other.items
+            && self.start_date == other.start_date
+            && self.end_date == other.end_date
+            && self.classifying_label == other.classifying_label
+            && self.unique_id == other.unique_id
     }
 }
 
@@ -647,6 +832,7 @@ impl core::fmt::Debug for DateRangeMetadataGroup {
 
 crate::utils::retained::av_retained!(
     DateRangeMetadataGroup,
+    drop_only,
     release = ffi::av_date_range_metadata_group_release
 );
 
@@ -691,29 +877,77 @@ impl DateRangeMetadataGroup {
         }
     }
 
-    pub(crate) fn from_payload(payload: DateRangeMetadataGroupPayload) -> Self {
-        Self {
-            items: payload
-                .items
-                .into_iter()
-                .map(MetadataItem::from_payload)
-                .collect(),
-            start_date: payload.start_date,
-            end_date: payload.end_date,
-            classifying_label: payload.classifying_label,
-            unique_id: payload.unique_id,
-            ptr: Cell::new(ptr::null_mut()),
+    #[allow(dead_code)]
+    pub(crate) fn as_ptr(&self) -> Result<*mut c_void, AVWriterError> {
+        let current = self.ptr.get();
+        if !current.is_null() {
+            return Ok(current);
         }
+        let item_ptrs = MetadataItem::native_ptrs(&self.items)?;
+        let start_date = cstring_arg(&self.start_date, "date-range metadata start date")?;
+        let end_date = self
+            .end_date
+            .as_deref()
+            .map(|value| cstring_arg(value, "date-range metadata end date"))
+            .transpose()?;
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let ptr = unsafe {
+            ffi::av_date_range_metadata_group_create_items(
+                item_ptrs.as_ptr(),
+                item_ptrs.len(),
+                start_date.as_ptr(),
+                end_date
+                    .as_ref()
+                    .map_or(ptr::null(), |value| value.as_ptr()),
+                false,
+                &mut err_msg,
+            )
+        };
+        if ptr.is_null() {
+            return Err(unsafe { from_swift(ffi::status::INVALID_ARGUMENT, err_msg) });
+        }
+        self.ptr.set(ptr);
+        Ok(ptr)
     }
 
-    pub(crate) fn payload(&self) -> DateRangeMetadataGroupPayload {
-        DateRangeMetadataGroupPayload {
-            items: self.items.iter().map(MetadataItem::payload).collect(),
-            start_date: self.start_date.clone(),
-            end_date: self.end_date.clone(),
-            classifying_label: self.classifying_label.clone(),
-            unique_id: self.unique_id.clone(),
+    #[allow(dead_code)]
+    pub(crate) fn from_retained_ptr(group_ptr: *mut c_void) -> Result<Self, AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let items_ptr = unsafe { ffi::av_metadata_group_items(group_ptr, &mut err_msg) };
+        if items_ptr.is_null() {
+            unsafe { ffi::av_date_range_metadata_group_release(group_ptr) };
+            return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
+        let items =
+            match MetadataItem::from_retained_array(items_ptr, "date-range metadata group items") {
+                Ok(items) => items,
+                Err(error) => {
+                    unsafe { ffi::av_date_range_metadata_group_release(group_ptr) };
+                    return Err(error);
+                }
+            };
+        let properties_ptr =
+            unsafe { ffi::av_date_range_metadata_group_properties_json(group_ptr, &mut err_msg) };
+        if properties_ptr.is_null() {
+            unsafe { ffi::av_date_range_metadata_group_release(group_ptr) };
+            return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
+        }
+        let properties: DateRangeMetadataGroupPropertiesPayload =
+            match parse_json_ptr(properties_ptr, "date-range metadata group properties") {
+                Ok(properties) => properties,
+                Err(error) => {
+                    unsafe { ffi::av_date_range_metadata_group_release(group_ptr) };
+                    return Err(error);
+                }
+            };
+        Ok(Self {
+            items,
+            start_date: properties.start_date,
+            end_date: properties.end_date,
+            classifying_label: properties.classifying_label,
+            unique_id: properties.unique_id,
+            ptr: Cell::new(group_ptr),
+        })
     }
 }
 
@@ -731,9 +965,37 @@ pub struct MutableDateRangeMetadataGroup {
 // Objective-C object whose ownership may move across threads.
 unsafe impl Send for MutableDateRangeMetadataGroup {}
 
+impl Clone for MutableDateRangeMetadataGroup {
+    fn clone(&self) -> Self {
+        let current = self.ptr.get();
+        let ptr = if current.is_null() {
+            ptr::null_mut()
+        } else {
+            let copied = unsafe { ffi::av_date_range_metadata_group_mutable_copy(current) };
+            assert!(
+                !copied.is_null(),
+                "AVMutableDateRangeMetadataGroup native copy unexpectedly failed"
+            );
+            copied
+        };
+        Self {
+            items: self.items.clone(),
+            start_date: self.start_date.clone(),
+            end_date: self.end_date.clone(),
+            classifying_label: self.classifying_label.clone(),
+            unique_id: self.unique_id.clone(),
+            ptr: Cell::new(ptr),
+        }
+    }
+}
+
 impl PartialEq for MutableDateRangeMetadataGroup {
     fn eq(&self, other: &Self) -> bool {
-        self.payload() == other.payload()
+        self.items == other.items
+            && self.start_date == other.start_date
+            && self.end_date == other.end_date
+            && self.classifying_label == other.classifying_label
+            && self.unique_id == other.unique_id
     }
 }
 
@@ -751,6 +1013,7 @@ impl core::fmt::Debug for MutableDateRangeMetadataGroup {
 
 crate::utils::retained::av_retained!(
     MutableDateRangeMetadataGroup,
+    drop_only,
     release = ffi::av_date_range_metadata_group_release
 );
 
@@ -803,31 +1066,24 @@ impl MutableDateRangeMetadataGroup {
 
     #[must_use]
     pub fn as_date_range_metadata_group(&self) -> DateRangeMetadataGroup {
-        DateRangeMetadataGroup::from_payload(self.payload())
-    }
-
-    pub(crate) fn from_payload(payload: DateRangeMetadataGroupPayload) -> Self {
-        Self {
-            items: payload
-                .items
-                .into_iter()
-                .map(MetadataItem::from_payload)
-                .collect(),
-            start_date: payload.start_date,
-            end_date: payload.end_date,
-            classifying_label: payload.classifying_label,
-            unique_id: payload.unique_id,
-            ptr: Cell::new(ptr::null_mut()),
-        }
-    }
-
-    pub(crate) fn payload(&self) -> DateRangeMetadataGroupPayload {
-        DateRangeMetadataGroupPayload {
-            items: self.items.iter().map(MetadataItem::payload).collect(),
+        let current = self.ptr.get();
+        let ptr = if current.is_null() {
+            ptr::null_mut()
+        } else {
+            let copied = unsafe { ffi::av_date_range_metadata_group_immutable_copy(current) };
+            assert!(
+                !copied.is_null(),
+                "AVDateRangeMetadataGroup native copy unexpectedly failed"
+            );
+            copied
+        };
+        DateRangeMetadataGroup {
+            items: self.items.clone(),
             start_date: self.start_date.clone(),
             end_date: self.end_date.clone(),
             classifying_label: self.classifying_label.clone(),
             unique_id: self.unique_id.clone(),
+            ptr: Cell::new(ptr),
         }
     }
 
@@ -837,11 +1093,25 @@ impl MutableDateRangeMetadataGroup {
         if !current.is_null() {
             return Ok(current);
         }
-        let payload = serialize_json(&self.payload())?;
-        let payload_c = cstring_arg(&payload, "mutable date-range metadata group json")?;
+        let item_ptrs = MetadataItem::native_ptrs(&self.items)?;
+        let start_date = cstring_arg(&self.start_date, "mutable date-range metadata start date")?;
+        let end_date = self
+            .end_date
+            .as_deref()
+            .map(|value| cstring_arg(value, "mutable date-range metadata end date"))
+            .transpose()?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let ptr = unsafe {
-            ffi::av_date_range_metadata_group_create_json(payload_c.as_ptr(), true, &mut err_msg)
+            ffi::av_date_range_metadata_group_create_items(
+                item_ptrs.as_ptr(),
+                item_ptrs.len(),
+                start_date.as_ptr(),
+                end_date
+                    .as_ref()
+                    .map_or(ptr::null(), |value| value.as_ptr()),
+                true,
+                &mut err_msg,
+            )
         };
         if ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_ARGUMENT, err_msg) });
@@ -877,19 +1147,13 @@ impl Drop for MetadataItemValueRequest {
 }
 
 impl MetadataItemValueRequest {
+    /// Return a retained alias of the native item associated with this request.
     pub fn metadata_item(&self) -> Result<Option<MetadataItem>, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr = unsafe {
-            ffi::av_metadata_item_value_request_metadata_item_json(self.ptr, &mut err_msg)
-        };
+        let ptr = unsafe { ffi::av_metadata_item_value_request_metadata_item(self.ptr) };
         if ptr.is_null() {
-            if err_msg.is_null() {
-                return Ok(None);
-            }
-            return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
+            return Ok(None);
         }
-        let payload: MetadataItemPayload = parse_json_ptr(ptr, "metadata-item value request item")?;
-        Ok(Some(MetadataItem::from_payload(payload)))
+        MetadataItem::from_retained_ptr(ptr).map(Some)
     }
 
     pub fn respond_with_value(&self, value: &MetadataValue) -> Result<(), AVWriterError> {
@@ -959,4 +1223,87 @@ unsafe extern "C" fn metadata_value_request_drop(userdata: *mut c_void) {
     catch_user_panic("metadata_value_request_drop", || unsafe {
         drop(Box::from_raw(userdata.cast::<MetadataValueLoaderState>()));
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::time::Time;
+
+    #[test]
+    fn timed_group_materialization_and_clone_keep_lazy_item() {
+        let loads = Arc::new(AtomicUsize::new(0));
+        let callback_loads = Arc::clone(&loads);
+        let base = MetadataItem::string("mdta/com.example.identity", "stale seed");
+        let lazy = MetadataItem::with_lazy_value_loader(&base, move |request| {
+            callback_loads.fetch_add(1, Ordering::SeqCst);
+            request
+                .respond_with_value(&MetadataValue::String("loaded".into()))
+                .expect("lazy metadata response should succeed");
+        })
+        .expect("lazy metadata item should be created");
+        let group = TimedMetadataGroup::new(
+            vec![lazy.clone()],
+            TimeRange::new(Time::new(0, 600), Time::new(600, 600)),
+        );
+
+        group
+            .as_ptr()
+            .expect("timed metadata group should materialize");
+        let cloned = group.clone();
+        assert_eq!(loads.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            cloned.items()[0]
+                .value()
+                .expect("group item value should load"),
+            MetadataValue::String("loaded".into())
+        );
+        assert_eq!(
+            lazy.value().expect("original alias should share the value"),
+            MetadataValue::String("loaded".into())
+        );
+        assert_eq!(loads.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn mutable_group_changes_keep_lazy_item() {
+        let loads = Arc::new(AtomicUsize::new(0));
+        let callback_loads = Arc::clone(&loads);
+        let base = MetadataItem::string("mdta/com.example.mutable", "stale seed");
+        let lazy = MetadataItem::with_lazy_value_loader(&base, move |request| {
+            callback_loads.fetch_add(1, Ordering::SeqCst);
+            request
+                .respond_with_value(&MetadataValue::String("loaded".into()))
+                .expect("lazy metadata response should succeed");
+        })
+        .expect("lazy metadata item should be created");
+        let mut group =
+            MutableDateRangeMetadataGroup::new(vec![lazy.clone()], "2026-01-01T00:00:00Z", None);
+
+        group
+            .as_ptr()
+            .expect("mutable metadata group should materialize");
+        group.set_start_date("2026-01-02T00:00:00Z");
+        group.set_end_date(Some("2026-01-03T00:00:00Z".into()));
+        group.set_items(vec![lazy.clone()]);
+        group
+            .as_ptr()
+            .expect("changed mutable metadata group should materialize");
+        let immutable = group.as_date_range_metadata_group();
+        assert_eq!(loads.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            immutable.items()[0]
+                .value()
+                .expect("mutable group item value should load"),
+            MetadataValue::String("loaded".into())
+        );
+        assert_eq!(
+            lazy.value().expect("original alias should share the value"),
+            MetadataValue::String("loaded".into())
+        );
+        assert_eq!(loads.load(Ordering::SeqCst), 1);
+    }
 }

@@ -5,6 +5,38 @@ import Dispatch
 import Foundation
 import UniformTypeIdentifiers
 
+@_cdecl("av_writer_add_caption_input")
+public func av_writer_add_caption_input(
+    _ writerPtr: UnsafeMutableRawPointer,
+    _ mediaTypePtr: UnsafePointer<CChar>,
+    _ expectsMediaDataInRealTime: Bool,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
+    let mediaTypeString = String(cString: mediaTypePtr)
+    guard let mediaType = decodeMediaType(mediaTypeString),
+          mediaType == .text || mediaType == .closedCaption || mediaType == .subtitle else {
+        outErrorMessage?.pointee = ffiString(
+            "caption inputs must use text, closed_caption, or subtitle media types"
+        )
+        return AVW_INVALID_ARGUMENT
+    }
+    let input = AVAssetWriterInput(mediaType: mediaType, outputSettings: nil)
+    input.expectsMediaDataInRealTime = expectsMediaDataInRealTime
+    guard wrapper.writer.canAdd(input) else {
+        outErrorMessage?.pointee = ffiString(
+            "writer cannot add caption input (status=\(wrapper.writer.status.rawValue))"
+        )
+        return AVW_INVALID_STATE
+    }
+    wrapper.writer.add(input)
+    let inputId = Int32(wrapper.inputs.count)
+    wrapper.inputs.append(input)
+    wrapper.captionAdaptors[inputId] = AVAssetWriterInputCaptionAdaptor(assetWriterInput: input)
+    return inputId
+}
+
 @_cdecl("av_writer_attach_pixel_buffer_adaptor_json")
 public func av_writer_attach_pixel_buffer_adaptor_json(
     _ writerPtr: UnsafeMutableRawPointer,
@@ -12,7 +44,8 @@ public func av_writer_attach_pixel_buffer_adaptor_json(
     _ attributesJson: UnsafePointer<CChar>?,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -36,7 +69,8 @@ public func av_writer_pixel_buffer_pool(
     _ writerPtr: UnsafeMutableRawPointer,
     _ inputId: Int32
 ) -> UnsafeMutableRawPointer? {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard let pool = wrapper.pixelBufferAdaptors[inputId]?.pixelBufferPool else {
         return nil
     }
@@ -54,7 +88,8 @@ public func av_writer_attach_tagged_pixel_buffer_group_adaptor_json(
         outErrorMessage?.pointee = ffiString("tagged pixel buffer group adaptor requires macOS 14+")
         return AVW_INVALID_STATE
     }
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -79,7 +114,8 @@ public func av_writer_tagged_pixel_buffer_pool(
     _ inputId: Int32
 ) -> UnsafeMutableRawPointer? {
     guard #available(macOS 14.0, *) else { return nil }
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard let adaptor = wrapper.taggedPixelBufferGroupAdaptors[inputId] as? AVAssetWriterInputTaggedPixelBufferGroupAdaptor,
           let pool = adaptor.pixelBufferPool else {
         return nil
@@ -103,7 +139,8 @@ public func av_writer_append_tagged_pixel_buffer_group(
         outErrorMessage?.pointee = ffiString("tagged pixel buffer group append requires macOS 14+")
         return AVW_INVALID_STATE
     }
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard let adaptor = wrapper.taggedPixelBufferGroupAdaptors[inputId] as? AVAssetWriterInputTaggedPixelBufferGroupAdaptor else {
         outErrorMessage?.pointee = ffiString("input \(inputId) has no tagged pixel buffer group adaptor")
         return AVW_INVALID_ARGUMENT
@@ -141,7 +178,8 @@ public func av_writer_attach_metadata_adaptor(
     _ inputId: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -160,7 +198,8 @@ public func av_writer_append_timed_metadata_group_json(
     _ groupJson: UnsafePointer<CChar>,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard let adaptor = wrapper.metadataAdaptors[inputId] else {
         outErrorMessage?.pointee = ffiString("input \(inputId) has no metadata adaptor")
         return AVW_INVALID_ARGUMENT
@@ -174,13 +213,31 @@ public func av_writer_append_timed_metadata_group_json(
     }
 }
 
+@_cdecl("av_writer_append_timed_metadata_group")
+public func av_writer_append_timed_metadata_group(
+    _ writerPtr: UnsafeMutableRawPointer,
+    _ inputId: Int32,
+    _ groupPtr: UnsafeMutableRawPointer,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
+    guard let adaptor = wrapper.metadataAdaptors[inputId] else {
+        outErrorMessage?.pointee = ffiString("input \(inputId) has no metadata adaptor")
+        return AVW_INVALID_ARGUMENT
+    }
+    let group = Unmanaged<AVTimedMetadataGroup>.fromOpaque(groupPtr).takeUnretainedValue()
+    return adaptor.append(group) ? AVW_OK : AVW_APPEND_FAILED
+}
+
 @_cdecl("av_writer_attach_caption_adaptor")
 public func av_writer_attach_caption_adaptor(
     _ writerPtr: UnsafeMutableRawPointer,
     _ inputId: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -199,7 +256,8 @@ public func av_writer_append_caption_json(
     _ captionJson: UnsafePointer<CChar>,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard let adaptor = wrapper.captionAdaptors[inputId] else {
         outErrorMessage?.pointee = ffiString("input \(inputId) has no caption adaptor")
         return AVW_INVALID_ARGUMENT
@@ -220,7 +278,8 @@ public func av_writer_append_caption_group_json(
     _ captionGroupJson: UnsafePointer<CChar>,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard let adaptor = wrapper.captionAdaptors[inputId] else {
         outErrorMessage?.pointee = ffiString("input \(inputId) has no caption adaptor")
         return AVW_INVALID_ARGUMENT
@@ -233,4 +292,3 @@ public func av_writer_append_caption_group_json(
         return AVW_INVALID_ARGUMENT
     }
 }
-

@@ -1,6 +1,6 @@
 [package]
 name = "avassetwriter"
-version = "0.11.1"
+version = "0.12.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/doom-fish/avassetwriter-rs"
@@ -16,6 +16,8 @@ include = [
     "src/**/*",
     "swift-bridge/Package.swift",
     "swift-bridge/Sources/**/*",
+    "examples/**/*",
+    "tests/**/*",
     "build.rs",
     "Cargo.toml",
     "README.md",
@@ -40,16 +42,16 @@ default = []
 async = []
 
 [dependencies]
-apple-cf = { path = "../apple-cf-rs", version = ">=0.7, <0.10", default-features = false, features = ["cm", "cv"] }
-doom-fish-utils = { path = "../doom-fish-utils", version = ">=0.1, <0.4" }
+apple-cf = { path = "../apple-cf-rs", version = ">=0.10, <0.11", default-features = false, features = ["cm", "cv"] }
+doom-fish-utils = { path = "../doom-fish-utils", version = ">=0.4, <0.5" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
 regex-lite = "0.1"
-videotoolbox = { path = "../videotoolbox-rs", version = ">=0.10, <0.19" }
-apple-cf = { path = "../apple-cf-rs", version = ">=0.7, <0.10" }
-doom-fish-utils = { path = "../doom-fish-utils", version = ">=0.1, <0.4" }
+videotoolbox = { path = "../videotoolbox-rs", version = ">=0.20, <0.21" }
+apple-cf = { path = "../apple-cf-rs", version = ">=0.10, <0.11" }
+doom-fish-utils = { path = "../doom-fish-utils", version = ">=0.4, <0.5" }
 pollster = "0.3"
 
 [package.metadata.docs.rs]

@@ -103,9 +103,9 @@ fn fill_surface(surface: &IOSurface, frame_idx: i32) -> Result<(), String> {
     let mut guard = surface
         .lock(IOSurfaceLockOptions::NONE)
         .map_err(|c| format!("lock failed: {c}"))?;
-    let bytes = guard
-        .as_slice_mut()
-        .ok_or_else(|| "non-contiguous surface".to_string())?;
+    // SAFETY: this exclusive lock scope does not hand the surface to the encoder.
+    let bytes =
+        unsafe { guard.as_slice_mut() }.ok_or_else(|| "non-contiguous surface".to_string())?;
     let g = u8::try_from(frame_idx * 4 % 256).unwrap_or(0);
     for px in bytes.chunks_exact_mut(4) {
         px[0] = 0x40; // B

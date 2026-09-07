@@ -60,24 +60,238 @@ final class Writer {
     var metadataAdaptors: [Int32: AVAssetWriterInputMetadataAdaptor] = [:]
     var captionAdaptors: [Int32: AVAssetWriterInputCaptionAdaptor] = [:]
     var inputGroups: [AVAssetWriterInputGroup] = []
-    var readyCallbackBoxes: [Int32: InputCallbackBox] = [:]
-    var passDescriptionCallbackBoxes: [Int32: InputCallbackBox] = [:]
+    var readyCallbackBoxes: [Int32: CallbackLifetimeBox] = [:]
+    var passDescriptionCallbackBoxes: [Int32: CallbackLifetimeBox] = [:]
     var segmentCallbackBox: SegmentCallbackBox? = nil
     var segmentDelegate: AnyObject? = nil
     var lastError: String? = nil
+    private var finishedInputIds: Set<Int32> = []
+    private let gate = NSRecursiveLock()
+    private let blockingOperationCondition = NSCondition()
+    private let callbackContextKey: String
+    private var blockingNativeOperation = false
+    private var finishStarted = false
+    private var releasing = false
 
     init(writer: AVAssetWriter) {
         self.writer = writer
+        self.callbackContextKey = "fish.doom.avassetwriter.callback.\(UUID().uuidString)"
     }
 
     deinit {
-        for box in readyCallbackBoxes.values {
-            box.dispose()
+        withGate {
+            prepareForRelease()
         }
-        for box in passDescriptionCallbackBoxes.values {
-            box.dispose()
+    }
+
+    static func locked(_ ptr: UnsafeMutableRawPointer) -> Writer {
+        let wrapper = Unmanaged<Writer>.fromOpaque(ptr).takeUnretainedValue()
+        while true {
+            wrapper.waitUntilExternalOperationAllowed()
+            wrapper.gate.lock()
+            if wrapper.externalOperationAllowedForCurrentThread() {
+                return wrapper
+            }
+            wrapper.gate.unlock()
         }
-        segmentCallbackBox?.dispose()
+    }
+
+    func unlock() {
+        gate.unlock()
+    }
+
+    func withGate<T>(_ body: () throws -> T) rethrows -> T {
+        gate.lock()
+        defer { gate.unlock() }
+        return try body()
+    }
+
+    func invokeCallback(
+        _ lifetime: CallbackLifetimeBox,
+        _ body: (UnsafeMutableRawPointer?) -> Void
+    ) {
+        withGate {
+            guard !releasing else {
+                lifetime.deactivate()
+                return
+            }
+            let (shouldInvoke, userdata) = lifetime.beginInvocation()
+            guard shouldInvoke else { return }
+            enterCallbackContext()
+            defer {
+                lifetime.endInvocation()
+                leaveCallbackContext()
+            }
+            body(userdata)
+        }
+    }
+
+    func isInsideCallback() -> Bool {
+        let depth = Thread.current.threadDictionary[callbackContextKey] as? Int
+        return (depth ?? 0) > 0
+    }
+
+    func runBlockingNativeOperation(_ body: () -> Void) -> Bool {
+        blockingOperationCondition.lock()
+        guard !blockingNativeOperation, !isInsideCallback() else {
+            blockingOperationCondition.unlock()
+            return false
+        }
+        blockingNativeOperation = true
+        blockingOperationCondition.unlock()
+
+        gate.unlock()
+        body()
+        gate.lock()
+
+        blockingOperationCondition.lock()
+        blockingNativeOperation = false
+        blockingOperationCondition.broadcast()
+        blockingOperationCondition.unlock()
+        return true
+    }
+
+    func inputIsFinished(_ inputId: Int32) -> Bool {
+        finishedInputIds.contains(inputId)
+    }
+
+    func markInputAsFinished(_ inputId: Int32) {
+        if finishedInputIds.insert(inputId).inserted {
+            inputs[Int(inputId)].markAsFinished()
+        }
+        detachInputCallbacks(inputId)
+    }
+
+    func markCurrentPassAsFinished(_ inputId: Int32) {
+        inputs[Int(inputId)].markCurrentPassAsFinished()
+        if let box = readyCallbackBoxes.removeValue(forKey: inputId) {
+            box.nativeRemoved()
+        }
+    }
+
+    func removeInputCallbacks(_ inputId: Int32) -> Bool {
+        guard readyCallbackBoxes[inputId] != nil
+                || passDescriptionCallbackBoxes[inputId] != nil else {
+            return true
+        }
+        switch writer.status {
+        case .writing:
+            markInputAsFinished(inputId)
+            return true
+        case .completed, .failed, .cancelled:
+            detachInputCallbacks(inputId)
+            return true
+        default:
+            return false
+        }
+    }
+
+    func markAllInputsAsFinished() {
+        for inputId in inputs.indices.map(Int32.init) {
+            if finishedInputIds.insert(inputId).inserted {
+                inputs[Int(inputId)].markAsFinished()
+            }
+        }
+        detachAllInputCallbacks()
+    }
+
+    func beginFinishing() -> Bool {
+        guard !finishStarted else { return false }
+        finishStarted = true
+        markAllInputsAsFinished()
+        return true
+    }
+
+    func detachCallbacksAfterTerminalState() {
+        detachAllInputCallbacks()
+        detachSegmentCallback()
+    }
+
+    func detachSegmentCallback() {
+        if writer.status == .unknown {
+            writer.delegate = nil
+        }
+        segmentDelegate = nil
+        let box = segmentCallbackBox
+        segmentCallbackBox = nil
+        box?.nativeRemoved()
+    }
+
+    func prepareForRelease() {
+        guard !releasing else { return }
+        releasing = true
+        detachSegmentCallback()
+        switch writer.status {
+        case .writing:
+            if !finishStarted {
+                writer.cancelWriting()
+            }
+            detachAllInputCallbacks()
+        case .completed, .failed, .cancelled:
+            detachAllInputCallbacks()
+        default:
+            for box in readyCallbackBoxes.values {
+                box.deactivate()
+            }
+            for box in passDescriptionCallbackBoxes.values {
+                box.deactivate()
+            }
+            readyCallbackBoxes.removeAll()
+            passDescriptionCallbackBoxes.removeAll()
+        }
+    }
+
+    private func detachInputCallbacks(_ inputId: Int32) {
+        if let box = readyCallbackBoxes.removeValue(forKey: inputId) {
+            box.nativeRemoved()
+        }
+        if let box = passDescriptionCallbackBoxes.removeValue(forKey: inputId) {
+            box.nativeRemoved()
+        }
+    }
+
+    private func detachAllInputCallbacks() {
+        let readyBoxes = Array(readyCallbackBoxes.values)
+        let passBoxes = Array(passDescriptionCallbackBoxes.values)
+        readyCallbackBoxes.removeAll()
+        passDescriptionCallbackBoxes.removeAll()
+        for box in readyBoxes {
+            box.nativeRemoved()
+        }
+        for box in passBoxes {
+            box.nativeRemoved()
+        }
+    }
+
+    private func waitUntilExternalOperationAllowed() {
+        blockingOperationCondition.lock()
+        while blockingNativeOperation && !isInsideCallback() {
+            blockingOperationCondition.wait()
+        }
+        blockingOperationCondition.unlock()
+    }
+
+    private func externalOperationAllowedForCurrentThread() -> Bool {
+        blockingOperationCondition.lock()
+        let allowed = !blockingNativeOperation || isInsideCallback()
+        blockingOperationCondition.unlock()
+        return allowed
+    }
+
+    private func enterCallbackContext() {
+        let dictionary = Thread.current.threadDictionary
+        let depth = dictionary[callbackContextKey] as? Int ?? 0
+        dictionary[callbackContextKey] = depth + 1
+    }
+
+    private func leaveCallbackContext() {
+        let dictionary = Thread.current.threadDictionary
+        let depth = dictionary[callbackContextKey] as? Int ?? 0
+        if depth <= 1 {
+            dictionary.removeObject(forKey: callbackContextKey)
+        } else {
+            dictionary[callbackContextKey] = depth - 1
+        }
     }
 }
 
@@ -119,6 +333,9 @@ public func av_writer_create(
 @_cdecl("av_writer_release")
 public func av_writer_release(_ ptr: UnsafeMutableRawPointer?) {
     guard let ptr = ptr else { return }
+    let wrapper = Writer.locked(ptr)
+    wrapper.prepareForRelease()
+    wrapper.unlock()
     Unmanaged<Writer>.fromOpaque(ptr).release()
 }
 
@@ -136,7 +353,8 @@ public func av_writer_add_video_input_from_sample(
     _ sampleBufferPtr: UnsafeMutableRawPointer,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     let sampleBuffer = Unmanaged<CMSampleBuffer>.fromOpaque(sampleBufferPtr).takeUnretainedValue()
 
     guard let format = CMSampleBufferGetFormatDescription(sampleBuffer) else {
@@ -176,7 +394,8 @@ public func av_writer_add_audio_input_pcm(
     _ bitsPerSample: UInt32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
 
     guard channels >= 1, channels <= 8 else {
         outErrorMessage?.pointee = ffiString("channels must be in 1...8 (got \(channels))")
@@ -239,7 +458,8 @@ public func av_writer_append_audio_pcm(
     _ ptsTimescale: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0 && Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -348,7 +568,8 @@ public func av_writer_start_session(
     _ sourceTimeScale: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     if !wrapper.writer.startWriting() {
         let msg = wrapper.writer.error?.localizedDescription ?? "startWriting() returned false"
         outErrorMessage?.pointee = ffiString(msg)
@@ -369,7 +590,8 @@ public func av_writer_append_sample(
     _ sampleBufferPtr: UnsafeMutableRawPointer,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0 && Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -398,28 +620,64 @@ public func av_writer_finish(
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
     let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
-    for input in wrapper.inputs {
-        input.markAsFinished()
+    let semaphore = DispatchSemaphore(value: 0)
+    let immediateStatus: Int32? = wrapper.withGate {
+        if wrapper.isInsideCallback() {
+            outErrorMessage?.pointee = ffiString(
+                "blocking finish cannot be called from a writer callback"
+            )
+            return AVW_INVALID_STATE
+        }
+        switch wrapper.writer.status {
+        case .writing:
+            guard wrapper.beginFinishing() else {
+                outErrorMessage?.pointee = ffiString("finish is already in progress")
+                return AVW_INVALID_STATE
+            }
+            wrapper.writer.finishWriting {
+                semaphore.signal()
+            }
+            return nil
+        case .completed:
+            wrapper.detachCallbacksAfterTerminalState()
+            return AVW_OK
+        case .failed:
+            wrapper.detachCallbacksAfterTerminalState()
+            let msg = wrapper.writer.error?.localizedDescription ?? "writer status = failed"
+            outErrorMessage?.pointee = ffiString(msg)
+            return AVW_FINISH_FAILED
+        case .cancelled:
+            wrapper.detachCallbacksAfterTerminalState()
+            outErrorMessage?.pointee = ffiString("writer cancelled")
+            return AVW_FINISH_FAILED
+        default:
+            outErrorMessage?.pointee = ffiString(
+                "writer not in writing state (status=\(wrapper.writer.status.rawValue)); call start_session first"
+            )
+            return AVW_INVALID_STATE
+        }
+    }
+    if let immediateStatus {
+        return immediateStatus
     }
 
-    let semaphore = DispatchSemaphore(value: 0)
-    wrapper.writer.finishWriting {
-        semaphore.signal()
-    }
     semaphore.wait()
 
-    switch wrapper.writer.status {
-    case .completed:
-        return AVW_OK
-    case .failed:
-        let msg = wrapper.writer.error?.localizedDescription ?? "writer status = failed"
-        outErrorMessage?.pointee = ffiString(msg)
-        return AVW_FINISH_FAILED
-    case .cancelled:
-        outErrorMessage?.pointee = ffiString("writer cancelled")
-        return AVW_FINISH_FAILED
-    default:
-        outErrorMessage?.pointee = ffiString("writer status = \(wrapper.writer.status.rawValue)")
-        return AVW_INVALID_STATE
+    return wrapper.withGate {
+        wrapper.detachCallbacksAfterTerminalState()
+        switch wrapper.writer.status {
+        case .completed:
+            return AVW_OK
+        case .failed:
+            let msg = wrapper.writer.error?.localizedDescription ?? "writer status = failed"
+            outErrorMessage?.pointee = ffiString(msg)
+            return AVW_FINISH_FAILED
+        case .cancelled:
+            outErrorMessage?.pointee = ffiString("writer cancelled")
+            return AVW_FINISH_FAILED
+        default:
+            outErrorMessage?.pointee = ffiString("writer status = \(wrapper.writer.status.rawValue)")
+            return AVW_INVALID_STATE
+        }
     }
 }

@@ -24,7 +24,8 @@ public func av_writer_add_video_input_from_preset(
         outErrorMessage?.pointee = ffiString("AVOutputSettingsAssistant returned nil for preset")
         return AVW_INVALID_ARGUMENT
     }
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     let input = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
     input.expectsMediaDataInRealTime = true
     if !wrapper.writer.canAdd(input) {
@@ -44,7 +45,8 @@ public func av_writer_set_should_optimize_for_network_use(
     _ writerPtr: UnsafeMutableRawPointer,
     _ shouldOptimize: Bool
 ) {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     wrapper.writer.shouldOptimizeForNetworkUse = shouldOptimize
 }
 
@@ -53,7 +55,8 @@ public func av_writer_set_movie_fragment_interval_seconds(
     _ writerPtr: UnsafeMutableRawPointer,
     _ seconds: Double
 ) {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     if seconds > 0 {
         wrapper.writer.movieFragmentInterval = CMTime(seconds: seconds, preferredTimescale: 600)
     } else {
@@ -72,7 +75,8 @@ public func av_writer_add_input_group(
     _ defaultId: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Bool {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     var inputs: [AVAssetWriterInput] = []
     for i in 0..<count {
         let id = ids[i]

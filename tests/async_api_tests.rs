@@ -50,6 +50,24 @@ fn async_writer_finish_happy_path() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn async_writer_input_ready_stream_requires_started_writer() {
+    let path = artifacts_dir().join("async_writer_ready_stream_prestart.m4a");
+    let _ = std::fs::remove_file(&path);
+
+    let writer = Writer::create(&path, FileType::M4a).expect("Writer::create failed");
+    let input = writer
+        .add_audio_input_pcm(48_000.0, 1, 16)
+        .expect("add_audio_input_pcm failed");
+    assert!(matches!(
+        AsyncWriterInput::request_media_data_when_ready(&writer, input, 4),
+        Err(avassetwriter::AVWriterError::InvalidState(_))
+    ));
+
+    drop(writer);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
 fn async_writer_input_ready_stream_happy_path() {
     let path = artifacts_dir().join("async_writer_ready_stream.m4a");
     let _ = std::fs::remove_file(&path);

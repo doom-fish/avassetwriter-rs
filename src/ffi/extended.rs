@@ -24,6 +24,18 @@ extern "C" {
 
     pub fn av_writer_info_json(writer: *mut c_void) -> *mut c_char;
 
+    pub fn av_writer_metadata(
+        writer: *mut c_void,
+        out_error_message: *mut *mut c_char,
+    ) -> *mut c_void;
+
+    pub fn av_writer_set_metadata_items(
+        writer: *mut c_void,
+        items: *const *mut c_void,
+        item_count: usize,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
     pub fn av_writer_set_metadata_json(
         writer: *mut c_void,
         metadata_json: *const c_char,
@@ -65,6 +77,13 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> i32;
 
+    pub fn av_writer_add_caption_input(
+        writer: *mut c_void,
+        media_type: *const c_char,
+        expects_media_data_in_real_time: bool,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
     pub fn av_writer_end_session(
         writer: *mut c_void,
         time_value: i64,
@@ -74,6 +93,11 @@ extern "C" {
     ) -> i32;
 
     pub fn av_writer_cancel(writer: *mut c_void, out_error_message: *mut *mut c_char) -> i32;
+
+    pub fn av_writer_remove_segment_callback(
+        writer: *mut c_void,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
 
     pub fn av_writer_attach_pixel_buffer_adaptor_json(
         writer: *mut c_void,
@@ -118,6 +142,13 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> i32;
 
+    pub fn av_writer_append_timed_metadata_group(
+        writer: *mut c_void,
+        input_id: i32,
+        group: *mut c_void,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
     pub fn av_writer_attach_caption_adaptor(
         writer: *mut c_void,
         input_id: i32,
@@ -141,6 +172,20 @@ extern "C" {
     pub fn av_writer_input_info_json(writer: *mut c_void, input_id: i32) -> *mut c_char;
 
     pub fn av_writer_input_source_format_hint(writer: *mut c_void, input_id: i32) -> *mut c_void;
+
+    pub fn av_writer_input_metadata(
+        writer: *mut c_void,
+        input_id: i32,
+        out_error_message: *mut *mut c_char,
+    ) -> *mut c_void;
+
+    pub fn av_writer_set_input_metadata_items(
+        writer: *mut c_void,
+        input_id: i32,
+        items: *const *mut c_void,
+        item_count: usize,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
 
     pub fn av_writer_set_input_metadata_json(
         writer: *mut c_void,
@@ -166,6 +211,12 @@ extern "C" {
     ) -> i32;
 
     pub fn av_writer_input_mark_as_finished(
+        writer: *mut c_void,
+        input_id: i32,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
+    pub fn av_writer_input_remove_callbacks(
         writer: *mut c_void,
         input_id: i32,
         out_error_message: *mut *mut c_char,

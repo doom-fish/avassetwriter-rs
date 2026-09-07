@@ -6,13 +6,11 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::bridge_support::{
-    cstring_arg, parse_json_ptr, serialize_json, time_kind, time_scale, time_value,
-};
+use crate::bridge_support::{cstring_arg, parse_json_ptr, time_kind, time_scale, time_value};
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
 use crate::media_processing::{AudioMix, MetadataItemFilter, VideoComposition, VideoCompositor};
-use crate::metadata::{MetadataItem, MetadataItemPayload};
+use crate::metadata::MetadataItem;
 use crate::time::{Time, TimeRange};
 use crate::writer::FileType;
 
@@ -198,7 +196,6 @@ struct ExportSessionInfoPayload {
     supported_file_types: Vec<String>,
     time_range: TimeRange,
     file_length_limit: i64,
-    metadata: Vec<MetadataItemPayload>,
     can_perform_multiple_passes_over_source_media_data: bool,
     directory_for_temporary_files: Option<String>,
     audio_track_group_handling: u64,
@@ -497,25 +494,24 @@ impl ExportSession {
     }
 
     pub fn metadata(&self) -> Result<Vec<MetadataItem>, AVWriterError> {
-        Ok(self
-            .info()?
-            .metadata
-            .into_iter()
-            .map(MetadataItem::from_payload)
-            .collect())
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let array = unsafe { ffi::av_export_session_metadata(self.ptr, &mut err_msg) };
+        if array.is_null() {
+            return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
+        }
+        MetadataItem::from_retained_array(array, "export session metadata")
     }
 
     pub fn set_metadata(&self, metadata: &[MetadataItem]) -> Result<(), AVWriterError> {
-        let payload = serialize_json(
-            &metadata
-                .iter()
-                .map(MetadataItem::payload)
-                .collect::<Vec<_>>(),
-        )?;
-        let payload_c = cstring_arg(&payload, "export metadata json")?;
+        let item_ptrs = MetadataItem::native_ptrs(metadata)?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_export_session_set_metadata_json(self.ptr, payload_c.as_ptr(), &mut err_msg)
+            ffi::av_export_session_set_metadata_items(
+                self.ptr,
+                item_ptrs.as_ptr(),
+                item_ptrs.len(),
+                &mut err_msg,
+            )
         };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });

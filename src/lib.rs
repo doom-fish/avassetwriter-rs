@@ -80,8 +80,9 @@ pub use export_session::{ExportPreset, ExportSession, ExportStatus, TrackGroupOu
 pub use media_processing::{
     AsynchronousCIImageFilteringRequest, AsynchronousVideoCompositionRequest, AudioMix,
     AudioMixInputParameters, AudioVolumeRamp, ImageRect, MetadataItemFilter,
-    MetadataItemFilterKind, MutableAudioMix, MutableAudioMixInputParameters, VideoComposition,
-    VideoCompositor, VideoCompositorClass,
+    MetadataItemFilterKind, MutableAudioMix, MutableAudioMixInputParameters,
+    RustVideoCompositorCapabilities, VideoComposition, VideoCompositionRequest, VideoCompositor,
+    VideoCompositorClass,
 };
 pub use metadata::{
     DateRangeMetadataGroup, KeyLoadStatus, KeyValueStatus, MetadataGroup, MetadataItem,
@@ -124,7 +125,8 @@ pub mod prelude {
     pub use crate::media_processing::{
         AsynchronousCIImageFilteringRequest, AsynchronousVideoCompositionRequest, AudioMix,
         AudioMixInputParameters, AudioVolumeRamp, ImageRect, MetadataItemFilter,
-        MetadataItemFilterKind, MutableAudioMix, MutableAudioMixInputParameters, VideoComposition,
+        MetadataItemFilterKind, MutableAudioMix, MutableAudioMixInputParameters,
+        RustVideoCompositorCapabilities, VideoComposition, VideoCompositionRequest,
         VideoCompositor, VideoCompositorClass,
     };
     pub use crate::metadata::{

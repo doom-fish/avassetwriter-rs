@@ -82,6 +82,17 @@ fn read_our_swift_bridge() -> String {
         .join("\n")
 }
 
+fn declaration<'a>(source: &'a str, marker: &str, terminator: char) -> &'a str {
+    let start = source
+        .find(marker)
+        .unwrap_or_else(|| panic!("missing declaration marker: {marker}"));
+    let tail = &source[start..];
+    let end = tail
+        .find(terminator)
+        .unwrap_or_else(|| panic!("unterminated declaration marker: {marker}"));
+    &tail[..=end]
+}
+
 fn report(
     framework: &str,
     apple: &BTreeSet<String>,
@@ -236,7 +247,7 @@ fn objc_to_swift_aliases() -> std::collections::BTreeMap<&'static str, Vec<&'sta
         ),
         (
             "appendTimedMetadataGroup",
-            vec!["av_writer_append_timed_metadata_group_json"],
+            vec!["av_writer_append_timed_metadata_group"],
         ),
         ("appendCaption", vec!["av_writer_append_caption_json"]),
         (
@@ -304,6 +315,66 @@ fn objc_to_swift_aliases() -> std::collections::BTreeMap<&'static str, Vec<&'sta
     ]
     .into_iter()
     .collect()
+}
+
+#[test]
+fn ownership_sensitive_bridge_paths_are_present() {
+    let bridge = read_our_swift_bridge();
+    for symbol in [
+        "CallbackLifetimeBox",
+        "av_writer_input_remove_callbacks",
+        "av_writer_remove_segment_callback",
+        "av_metadata_item_retain",
+        "av_metadata_item_copy_with_data_type",
+        "av_metadata_item_value_request_metadata_item",
+        "av_video_composition_install_rust_compositor",
+        "av_video_composition_request_copy_source_frame",
+        "av_video_composition_request_finish_with_frame",
+        "av_ack_latest_video_composition_request",
+    ] {
+        assert!(bridge.contains(symbol), "missing bridge path: {symbol}");
+    }
+}
+
+#[test]
+fn ready_stream_c_abi_signatures_are_inventoried() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let rust_ffi = read_file(&root.join("src/ffi/async_ffi.rs"));
+    let swift = read_file(&root.join("swift-bridge/Sources/AVAssetWriterBridge/Async.swift"));
+
+    let legacy_rust = declaration(
+        &rust_ffi,
+        "pub fn av_writer_input_ready_stream_subscribe(",
+        ';',
+    );
+    assert!(legacy_rust.contains("ctx: *mut c_void"));
+    assert!(legacy_rust.contains("out_error_message: *mut *mut c_char"));
+    assert!(!legacy_rust.contains("drop_userdata"));
+
+    let owned_rust = declaration(
+        &rust_ffi,
+        "pub fn av_writer_input_ready_stream_subscribe_owned(",
+        ';',
+    );
+    assert!(owned_rust.contains("drop_userdata: Option<DropCallback>"));
+
+    let legacy_swift = declaration(
+        &swift,
+        "public func av_writer_input_ready_stream_subscribe(",
+        '{',
+    );
+    assert!(legacy_swift.contains("_ ctx: UnsafeMutableRawPointer"));
+    assert!(
+        legacy_swift.contains("_ outError: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?")
+    );
+    assert!(!legacy_swift.contains("dropUserdata"));
+
+    let owned_swift = declaration(
+        &swift,
+        "public func av_writer_input_ready_stream_subscribe_owned(",
+        '{',
+    );
+    assert!(owned_swift.contains("_ dropUserdata: AVWDropCallback?"));
 }
 
 #[test]

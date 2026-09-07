@@ -3,56 +3,93 @@
 use core::ffi::{c_char, c_void};
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
+use std::sync::{Mutex, MutexGuard, TryLockError};
 
 use crate::writer::{InputPassDescription, SegmentOutput, SegmentReport, SegmentType};
 
 pub(crate) struct ReadyCallbackState {
-    pub callback: Box<dyn FnMut() + Send + 'static>,
+    callback: Mutex<Box<dyn FnMut() + Send + 'static>>,
+}
+
+impl ReadyCallbackState {
+    pub(crate) fn new(callback: impl FnMut() + Send + 'static) -> Self {
+        Self {
+            callback: Mutex::new(Box::new(callback)),
+        }
+    }
 }
 
 pub(crate) struct PassDescriptionCallbackState {
-    pub callback: Box<dyn FnMut(Option<InputPassDescription>) + Send + 'static>,
+    callback: Mutex<Box<dyn FnMut(Option<InputPassDescription>) + Send + 'static>>,
+}
+
+impl PassDescriptionCallbackState {
+    pub(crate) fn new(callback: impl FnMut(Option<InputPassDescription>) + Send + 'static) -> Self {
+        Self {
+            callback: Mutex::new(Box::new(callback)),
+        }
+    }
 }
 
 pub(crate) struct SegmentCallbackState {
-    pub callback: Box<dyn FnMut(SegmentOutput) + Send + 'static>,
+    callback: Mutex<Box<dyn FnMut(SegmentOutput) + Send + 'static>>,
 }
 
-/// Catch and log any panic from a user-supplied callback.
-///
-/// Panics that escape `extern "C"` trampolines are undefined behaviour.
-/// This function mirrors `doom_fish_utils::panic_safe::catch_user_panic`
-/// without requiring the optional `doom-fish-utils` dependency.
+impl SegmentCallbackState {
+    pub(crate) fn new(callback: impl FnMut(SegmentOutput) + Send + 'static) -> Self {
+        Self {
+            callback: Mutex::new(Box::new(callback)),
+        }
+    }
+}
+
 fn catch_callback_panic<F: FnOnce()>(site: &str, f: F) {
     if let Err(payload) = std::panic::catch_unwind(AssertUnwindSafe(f)) {
         let msg = payload
             .downcast_ref::<&str>()
             .copied()
             .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-            .unwrap_or("<non-string panic payload>");
-        // The eprintln! write is itself protected in case stderr is broken.
-        let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            .unwrap_or("<non-string panic payload>")
+            .to_owned();
+        forget_nested_panic(std::panic::catch_unwind(AssertUnwindSafe(|| {
             eprintln!("avassetwriter: panic in {site} caught at C ABI boundary: {msg}");
-        }));
+        })));
+        forget_nested_panic(std::panic::catch_unwind(AssertUnwindSafe(|| drop(payload))));
+    }
+}
+
+fn forget_nested_panic(result: std::thread::Result<()>) {
+    if let Err(payload) = result {
+        std::mem::forget(payload);
+    }
+}
+
+fn try_lock_callback<'a, T>(site: &str, callback: &'a Mutex<T>) -> Option<MutexGuard<'a, T>> {
+    match callback.try_lock() {
+        Ok(callback) => Some(callback),
+        Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+        Err(TryLockError::WouldBlock) => {
+            forget_nested_panic(std::panic::catch_unwind(AssertUnwindSafe(|| {
+                eprintln!("avassetwriter: overlapping invocation suppressed in {site}");
+            })));
+            None
+        }
     }
 }
 
 pub(crate) unsafe extern "C" fn ready_callback_trampoline(userdata: *mut c_void) {
-    // SAFETY: `userdata` is a `Box<ReadyCallbackState>` raw pointer created in
-    // `Writer::on_ready_for_more_media_data` and kept alive for the lifetime of
-    // the callback registration. The Swift bridge calls this trampoline serially
-    // on its own queue, so no aliasing occurs.
-    let state = unsafe { &mut *(userdata.cast::<ReadyCallbackState>()) };
-    catch_callback_panic("ready_callback_trampoline", || (state.callback)());
+    if userdata.is_null() {
+        return;
+    }
+    let state = unsafe { &*userdata.cast::<ReadyCallbackState>() };
+    let Some(mut callback) = try_lock_callback("ready_callback_trampoline", &state.callback) else {
+        return;
+    };
+    catch_callback_panic("ready_callback_trampoline", || callback());
 }
 
 pub(crate) unsafe extern "C" fn ready_callback_drop(userdata: *mut c_void) {
     if !userdata.is_null() {
-        // SAFETY: `userdata` was created via `Box::into_raw` in
-        // `Writer::on_ready_for_more_media_data`; this drop trampoline is
-        // called exactly once by the Swift bridge when the registration is
-        // torn down. Dropping the box runs the user closure's destructor, so
-        // any panic it raises must be contained before unwinding across C ABI.
         catch_callback_panic("ready_callback_drop", || {
             drop(unsafe { Box::from_raw(userdata.cast::<ReadyCallbackState>()) });
         });
@@ -63,28 +100,28 @@ pub(crate) unsafe extern "C" fn pass_description_callback_trampoline(
     payload_json: *const c_char,
     userdata: *mut c_void,
 ) {
-    // SAFETY: `userdata` is a `Box<PassDescriptionCallbackState>` raw pointer
-    // kept alive for the lifetime of the multipass callback registration.
-    // `payload_json` is either null or a valid NUL-terminated C string owned
-    // by the Swift bridge for the duration of this call.
-    let state = unsafe { &mut *(userdata.cast::<PassDescriptionCallbackState>()) };
+    if userdata.is_null() {
+        return;
+    }
+    let state = unsafe { &*userdata.cast::<PassDescriptionCallbackState>() };
     let payload = if payload_json.is_null() {
         None
     } else {
         let json = unsafe { CStr::from_ptr(payload_json) }.to_string_lossy();
         serde_json::from_str::<InputPassDescription>(&json).ok()
     };
+    let Some(mut callback) =
+        try_lock_callback("pass_description_callback_trampoline", &state.callback)
+    else {
+        return;
+    };
     catch_callback_panic("pass_description_callback_trampoline", || {
-        (state.callback)(payload);
+        callback(payload);
     });
 }
 
 pub(crate) unsafe extern "C" fn pass_description_callback_drop(userdata: *mut c_void) {
     if !userdata.is_null() {
-        // SAFETY: `userdata` was created via `Box::into_raw`; this drop
-        // trampoline is called exactly once by the Swift bridge. Dropping the
-        // box runs the user closure's destructor, so any panic it raises must
-        // be contained before unwinding across the C ABI boundary.
         catch_callback_panic("pass_description_callback_drop", || {
             drop(unsafe { Box::from_raw(userdata.cast::<PassDescriptionCallbackState>()) });
         });
@@ -98,12 +135,10 @@ pub(crate) unsafe extern "C" fn segment_callback_trampoline(
     report_json: *const c_char,
     userdata: *mut c_void,
 ) {
-    // SAFETY: `userdata` is a `Box<SegmentCallbackState>` raw pointer kept
-    // alive for the lifetime of the segmented-writer's callback registration.
-    // `bytes` (when non-null) points to `byte_len` bytes valid for this call.
-    // `report_json` (when non-null) is a valid NUL-terminated C string for
-    // the duration of this call.
-    let state = unsafe { &mut *(userdata.cast::<SegmentCallbackState>()) };
+    if userdata.is_null() {
+        return;
+    }
+    let state = unsafe { &*userdata.cast::<SegmentCallbackState>() };
     let data = if bytes.is_null() {
         Vec::new()
     } else {
@@ -115,8 +150,12 @@ pub(crate) unsafe extern "C" fn segment_callback_trampoline(
         let json = unsafe { CStr::from_ptr(report_json) }.to_string_lossy();
         serde_json::from_str::<SegmentReport>(&json).ok()
     };
+    let Some(mut callback) = try_lock_callback("segment_callback_trampoline", &state.callback)
+    else {
+        return;
+    };
     catch_callback_panic("segment_callback_trampoline", || {
-        (state.callback)(SegmentOutput {
+        callback(SegmentOutput {
             data,
             segment_type: SegmentType::from_raw(segment_type),
             report,
@@ -126,12 +165,132 @@ pub(crate) unsafe extern "C" fn segment_callback_trampoline(
 
 pub(crate) unsafe extern "C" fn segment_callback_drop(userdata: *mut c_void) {
     if !userdata.is_null() {
-        // SAFETY: `userdata` was created via `Box::into_raw`; this drop
-        // trampoline is called exactly once by the Swift bridge. Dropping the
-        // box runs the user closure's destructor, so any panic it raises must
-        // be contained before unwinding across the C ABI boundary.
         catch_callback_panic("segment_callback_drop", || {
             drop(unsafe { Box::from_raw(userdata.cast::<SegmentCallbackState>()) });
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn ready_callback_invocations_do_not_overlap() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let overlapped = Arc::new(AtomicBool::new(false));
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+
+        let state = Box::new(ReadyCallbackState::new({
+            let active = Arc::clone(&active);
+            let calls = Arc::clone(&calls);
+            let overlapped = Arc::clone(&overlapped);
+            let entered = Arc::clone(&entered);
+            let release = Arc::clone(&release);
+            move || {
+                let call = calls.fetch_add(1, Ordering::SeqCst);
+                if active.fetch_add(1, Ordering::SeqCst) != 0 {
+                    overlapped.store(true, Ordering::SeqCst);
+                }
+                if call == 0 {
+                    entered.wait();
+                    release.wait();
+                }
+                active.fetch_sub(1, Ordering::SeqCst);
+            }
+        }));
+        let userdata = Box::into_raw(state).cast::<c_void>();
+        let address = userdata as usize;
+        let thread = std::thread::spawn(move || unsafe {
+            ready_callback_trampoline(address as *mut c_void);
+        });
+
+        entered.wait();
+        unsafe { ready_callback_trampoline(userdata) };
+        release.wait();
+        thread.join().expect("callback thread");
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(!overlapped.load(Ordering::SeqCst));
+        unsafe { ready_callback_drop(userdata) };
+    }
+
+    #[test]
+    fn callback_panic_does_not_poison_future_invocations() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let state = Box::new(ReadyCallbackState::new({
+            let calls = Arc::clone(&calls);
+            move || {
+                if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    panic!("first invocation");
+                }
+            }
+        }));
+        let userdata = Box::into_raw(state).cast::<c_void>();
+
+        unsafe {
+            ready_callback_trampoline(userdata);
+            ready_callback_trampoline(userdata);
+            ready_callback_drop(userdata);
+        }
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn panic_payload_drop_cannot_unwind_across_ffi() {
+        struct PanicPayload(Arc<AtomicUsize>);
+
+        impl Drop for PanicPayload {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                panic!("payload drop");
+            }
+        }
+
+        let drops = Arc::new(AtomicUsize::new(0));
+        let state = Box::new(ReadyCallbackState::new({
+            let drops = Arc::clone(&drops);
+            move || std::panic::panic_any(PanicPayload(Arc::clone(&drops)))
+        }));
+        let userdata = Box::into_raw(state).cast::<c_void>();
+
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| unsafe {
+            ready_callback_trampoline(userdata);
+        }));
+        assert!(result.is_ok());
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+        unsafe { ready_callback_drop(userdata) };
+    }
+
+    #[test]
+    fn callback_destructor_panic_cannot_unwind_across_ffi() {
+        struct PanicOnDrop(Arc<AtomicUsize>);
+
+        impl Drop for PanicOnDrop {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                panic!("callback drop");
+            }
+        }
+
+        let drops = Arc::new(AtomicUsize::new(0));
+        let state = Box::new(ReadyCallbackState::new({
+            let guard = PanicOnDrop(Arc::clone(&drops));
+            move || {
+                let _ = &guard;
+            }
+        }));
+        let userdata = Box::into_raw(state).cast::<c_void>();
+
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| unsafe {
+            ready_callback_drop(userdata);
+        }));
+        assert!(result.is_ok());
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
     }
 }

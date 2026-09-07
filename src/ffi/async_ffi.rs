@@ -2,6 +2,8 @@
 
 use core::ffi::{c_char, c_void};
 
+use super::extended::DropCallback;
+
 /// Callback type used by all async FFI thunks.
 ///
 /// - `result`: non-null sentinel on success (or a heap JSON `*mut c_char` for
@@ -40,7 +42,7 @@ extern "C" {
         ctx: *mut c_void,
     );
 
-    /// Async stream bridge for `AVAssetWriterInput.requestMediaDataWhenReady(on:using:)`.
+    /// Legacy ready-stream ABI. `ctx` remains owned by the caller.
     pub fn av_writer_input_ready_stream_subscribe(
         writer: *mut c_void,
         input_id: i32,
@@ -49,7 +51,44 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> *mut c_void;
 
+    /// Owned-context variant used by the safe Rust stream wrapper.
+    ///
+    /// Native code invokes `drop_userdata(ctx)` after registration removal and
+    /// any active callback complete.
+    pub fn av_writer_input_ready_stream_subscribe_owned(
+        writer: *mut c_void,
+        input_id: i32,
+        cb: ReadyStreamCb,
+        ctx: *mut c_void,
+        drop_userdata: Option<DropCallback>,
+        out_error_message: *mut *mut c_char,
+    ) -> *mut c_void;
+
     /// Tear down a ready-stream bridge created by
-    /// `av_writer_input_ready_stream_subscribe`.
+    /// either ready-stream subscribe function.
     pub fn av_writer_input_ready_stream_unsubscribe(handle: *mut c_void);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ready_stream_subscribe_signatures_are_stable() {
+        let _: unsafe extern "C" fn(
+            *mut c_void,
+            i32,
+            ReadyStreamCb,
+            *mut c_void,
+            *mut *mut c_char,
+        ) -> *mut c_void = av_writer_input_ready_stream_subscribe;
+        let _: unsafe extern "C" fn(
+            *mut c_void,
+            i32,
+            ReadyStreamCb,
+            *mut c_void,
+            Option<DropCallback>,
+            *mut *mut c_char,
+        ) -> *mut c_void = av_writer_input_ready_stream_subscribe_owned;
+    }
 }

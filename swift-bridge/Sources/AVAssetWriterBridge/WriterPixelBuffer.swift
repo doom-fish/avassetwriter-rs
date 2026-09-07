@@ -21,7 +21,8 @@ public func av_writer_add_video_input_pixel_buffer(
     _ pixelFormatType: UInt32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
 
     let outputSettings: [String: Any] = [
         AVVideoCodecKey: AVVideoCodecType.h264,
@@ -63,7 +64,8 @@ public func av_writer_append_pixel_buffer(
     _ ptsTimescale: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard let pba = wrapper.pixelBufferAdaptors[inputId] else {
         outErrorMessage?.pointee = ffiString("input id \(inputId) has no pixel buffer adaptor")
         return AVW_INVALID_ARGUMENT

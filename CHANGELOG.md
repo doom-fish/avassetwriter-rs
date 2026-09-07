@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.12.0] - 2026-09-07
+
+### Added
+
+- Retained `VideoCompositionRequest` handlers with direct source
+  `CVPixelBuffer` / `CMSampleBuffer` access, render-context output allocation,
+  asynchronous completion, and exactly-once frame/error/cancel operations.
+- Explicit writer input-callback and segmented-output callback removal APIs.
+- Metadata identity regression coverage and an export smoke path that performs
+  frame processing from Rust.
+- **Audio support** — `Writer::add_audio_input_pcm(sample_rate, channels, bits_per_sample)`
+  configures an audio track and `Writer::append_audio_pcm` muxes interleaved
+  little-endian signed-integer PCM bytes. AVAssetWriter transcodes to AAC at
+  128 kbps internally for `.mp4` / `.m4v` containers.
+- Smoke test `02_write_av_mp4` verifies the full pipeline:
+  IOSurface → H.264 video + 48 kHz stereo PCM sine → AAC-muxed `.mp4`.
+  ffprobe confirms two streams: H.264 High @ 640×480 / 2.0s and AAC LC stereo / 2.0s.
+
+### Changed (breaking)
+
+- Serialized complete writer/input/adaptor operations behind a reentrant native
+  gate while retaining `Writer: Send + Sync`.
+- Metadata clones, builders, filters, groups, writer/export round trips, and
+  value requests now preserve retained native/lazy item identity. Native
+  property builders use copy-on-write and authoritative loaded values.
+- Composition request diagnostics now use versioned wire keys and copy/ack
+  transfer. Failed transfer or parsing no longer discards the latest snapshot.
+- Raised in-family requirements to `videotoolbox >=0.20, <0.21`,
+  `apple-cf >=0.10, <0.11`, and `doom-fish-utils >=0.4, <0.5`, and migrated
+  this crate to the current retained raw constructors.
+- README quick-start example now demonstrates video + audio together.
+
+### Fixed
+
+- Deferred readiness, multipass, segmented-output, and async-stream userdata
+  release until native removal and all active callback invocations complete,
+  including teardown initiated from inside the callback.
+- Corrected `sourceTrackIDs` / `sourceSampleDataTrackIDs` wire names.
+- Avoided eager lazy-metadata resolution when constructing mutable date-range
+  groups.
+- Prevented writer terminal teardown from mutating the segment delegate after
+  writing had started.
+- Prevented invalid/non-numeric `end_session` and unsupported `flush_segment`
+  calls from reaching exception-raising native preconditions.
+- Restored the original five-argument
+  `av_writer_input_ready_stream_subscribe` C ABI with caller-owned context and
+  moved safe Rust teardown ownership to a separately named `_owned` symbol.
+- Serialized video-composition and CI snapshot copy/decode/ack transactions so
+  concurrent takers cannot both return the same generation; failed decoding
+  remains retryable and lost acknowledgments are surfaced.
+
 ## [0.11.0] - 2026-05-20
 
 ### Added
@@ -198,22 +249,6 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - `apple-cf` as a regular dependency (with `cm` feature).
-
-## [Unreleased]
-
-### Added
-
-- **Audio support** — `Writer::add_audio_input_pcm(sample_rate, channels, bits_per_sample)`
-  configures an audio track and `Writer::append_audio_pcm` muxes interleaved
-  little-endian signed-integer PCM bytes. AVAssetWriter transcodes to AAC at
-  128 kbps internally for `.mp4` / `.m4v` containers.
-- Smoke test `02_write_av_mp4` verifies the full pipeline:
-  IOSurface → H.264 video + 48 kHz stereo PCM sine → AAC-muxed `.mp4`.
-  ffprobe confirms two streams: H.264 High @ 640×480 / 2.0s and AAC LC stereo / 2.0s.
-
-### Changed
-
-- README quick-start example now demonstrates video + audio together.
 
 ## Initial release
 

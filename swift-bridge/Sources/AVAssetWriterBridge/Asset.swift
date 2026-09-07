@@ -4,7 +4,6 @@ import Foundation
 private struct AssetInfoPayload: Codable {
     let url: String?
     let duration: TimePayload
-    let metadata: [MetadataItemPayload]
 }
 
 private struct KeyLoadStatusPayload: Codable {
@@ -48,13 +47,22 @@ public func av_asset_info_json(
     do {
         return ffiString(try encodeJson(AssetInfoPayload(
             url: (asset as? AVURLAsset)?.url.absoluteString,
-            duration: encodeTime(asset.duration),
-            metadata: asset.metadata.map(encodeMetadataItem)
+            duration: encodeTime(asset.duration)
         )))
     } catch {
         outErrorMessage?.pointee = ffiString(error.localizedDescription)
         return nil
     }
+}
+
+@_cdecl("av_asset_metadata")
+public func av_asset_metadata(
+    _ assetPtr: UnsafeMutableRawPointer,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> UnsafeMutableRawPointer? {
+    let asset = Unmanaged<AVAsset>.fromOpaque(assetPtr).takeUnretainedValue()
+    _ = outErrorMessage
+    return retainedMetadataItemArray(asset.metadata)
 }
 
 @_cdecl("av_asset_status_of_value")

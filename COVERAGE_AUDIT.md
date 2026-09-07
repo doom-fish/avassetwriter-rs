@@ -56,7 +56,7 @@ COVERAGE_PCT: 100.0%
 | `AVAssetExportSessionStatus` | enum | `AVAssetExportSession.h` | `ExportStatus` |
 | `AVAssetTrackGroupOutputHandling` | enum | `AVAssetExportSession.h` | `TrackGroupOutputHandling` |
 | `AVAssetExportSession` | interface | `AVAssetExportSession.h` | `ExportSession` (core export/config surface; see caveats below) |
-| `AVVideoCompositing` | protocol | `AVAssetExportSession.h` | `VideoCompositor` + `VideoCompositorClass` + `ExportSession::custom_video_compositor` |
+| `AVVideoCompositing` | protocol | `AVAssetExportSession.h` | `VideoComposition::install_rust_video_compositor` + retained `VideoCompositionRequest` frame/error/cancel completion + `VideoCompositor` diagnostics |
 | `AVComposition` | interface | `AVComposition.h` | `Composition` |
 | `AVCompositionTrack` | interface | `AVCompositionTrack.h` | `CompositionTrack` |
 | `AVCompositionTrackFormatDescriptionReplacement` | interface | `AVCompositionTrack.h` | `CompositionTrackFormatDescriptionReplacement` |
@@ -95,8 +95,7 @@ None.
 - `AVAssetExportSession` is still partially wrapped at the member level: `asset` is surfaced as `asset_path()` for URL-backed sessions, and `audioTimePitchAlgorithm` remains intentionally deferred.
 - `Composition` support is inspection-focused: the crate can snapshot compositions from existing `Asset`s and build standalone `CompositionTrackSegment`s, but it does not yet expose the full `AVMutableComposition` / `AVMutableCompositionTrack` editing surface as first-class Rust types.
 - `AssetTrackSegment` is surfaced via composition-track inspection and `CompositionTrackSegment::asset_track_segment()` because `AVAssetTrack` itself is not yet wrapped.
-- `MetadataItemFilter`, `AudioMix`, `VideoComposition`, and `VideoCompositor` are exposed as lightweight interop wrappers focused on round-tripping export-session state rather than full AVFoundation editing APIs.
+- `MetadataItemFilter` and `AudioMix` remain focused interop wrappers. The Rust video compositor processes live retained requests, but currently advertises only 32-bit BGRA SDR pixel/sample-buffer paths; tagged buffers, wide-color/HDR sources, and direct Rust `CIImage` processing remain unsupported.
 - `OutputSettingsAssistant` exposes `audioSettings` and `videoSettings` as `serde_json::Value` dictionaries rather than typed Rust key/value wrappers.
 - The crate models `AVAssetWriterInput` through `InputId` plus `Writer` methods rather than exposing a standalone Rust object for the Objective-C input instance.
 - `AVAssetWriterInputPixelBufferAdaptor`, `AVAssetWriterInputTaggedPixelBufferGroupAdaptor`, `AVAssetWriterInputMetadataAdaptor`, and `AVAssetWriterInputCaptionAdaptor` are all wrapped, but excluded from coverage percentage because Apple marks those Swift-imported interfaces deprecated in favor of newer receiver APIs.
-

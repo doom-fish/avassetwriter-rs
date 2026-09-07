@@ -47,20 +47,20 @@ public func av_writer_finish_async(
     _ cb: @convention(c) (UnsafeRawPointer?, UnsafePointer<CChar>?, UnsafeMutableRawPointer) -> Void,
     _ ctx: UnsafeMutableRawPointer
 ) {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
 
-    // Guard: finishWritingWithCompletionHandler: must only be called when the
-    // writer is in .writing status.  Any other status is reported immediately
-    // without invoking the underlying API so that no Objective-C exception can
-    // cross the Swift→Rust FFI boundary.
     guard wrapper.writer.status == .writing else {
         switch wrapper.writer.status {
         case .completed:
+            wrapper.detachCallbacksAfterTerminalState()
             cb(kSuccessSentinel, nil, ctx)
         case .failed:
+            wrapper.detachCallbacksAfterTerminalState()
             let msg = wrapper.writer.error?.localizedDescription ?? "writer status = failed"
             msg.withCString { cb(nil, $0, ctx) }
         case .cancelled:
+            wrapper.detachCallbacksAfterTerminalState()
             "writer cancelled".withCString { cb(nil, $0, ctx) }
         default:
             let raw = wrapper.writer.status.rawValue
@@ -71,20 +71,26 @@ public func av_writer_finish_async(
         return
     }
 
-    for input in wrapper.inputs {
-        input.markAsFinished()
+    guard wrapper.beginFinishing() else {
+        "finish is already in progress".withCString { cb(nil, $0, ctx) }
+        return
     }
-    wrapper.writer.finishWriting {
-        switch wrapper.writer.status {
-        case .completed:
-            cb(kSuccessSentinel, nil, ctx)
-        case .failed:
-            let msg = wrapper.writer.error?.localizedDescription ?? "writer status = failed"
-            msg.withCString { cb(nil, $0, ctx) }
-        case .cancelled:
-            "writer cancelled".withCString { cb(nil, $0, ctx) }
-        default:
-            "unexpected writer status \(wrapper.writer.status.rawValue)".withCString { cb(nil, $0, ctx) }
+    wrapper.writer.finishWriting { [wrapper] in
+        wrapper.withGate {
+            wrapper.detachCallbacksAfterTerminalState()
+            switch wrapper.writer.status {
+            case .completed:
+                cb(kSuccessSentinel, nil, ctx)
+            case .failed:
+                let msg = wrapper.writer.error?.localizedDescription ?? "writer status = failed"
+                msg.withCString { cb(nil, $0, ctx) }
+            case .cancelled:
+                "writer cancelled".withCString { cb(nil, $0, ctx) }
+            default:
+                "unexpected writer status \(wrapper.writer.status.rawValue)".withCString {
+                    cb(nil, $0, ctx)
+                }
+            }
         }
     }
 }
@@ -92,25 +98,32 @@ public func av_writer_finish_async(
 // MARK: - AVAssetWriterInput.requestMediaDataWhenReady(on:using:)
 
 final class ReadyStreamBridge: NSObject {
-    let writer: AVAssetWriter
-    let input: AVAssetWriterInput
+    weak var writerBox: Writer?
+    weak var lifetime: CallbackLifetimeBox?
     let inputId: Int32
-    let cb: @convention(c) (UnsafeMutableRawPointer) -> Void
-    let ctx: UnsafeMutableRawPointer
-    let queue: DispatchQueue
-    let queueKey = DispatchSpecificKey<UInt8>()
-    var active = true
 
     init?(
         writerPtr: UnsafeMutableRawPointer,
         inputId: Int32,
         cb: @escaping @convention(c) (UnsafeMutableRawPointer) -> Void,
         ctx: UnsafeMutableRawPointer,
+        dropUserdata: AVWDropCallback?,
         outError: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
     ) {
-        let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+        let wrapper = Writer.locked(writerPtr)
+        defer { wrapper.unlock() }
         guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
             outError?.pointee = ffiString("invalid input id: \(inputId)")
+            return nil
+        }
+        guard wrapper.writer.status == .writing else {
+            outError?.pointee = ffiString(
+                "request_media_data_when_ready requires a writing session"
+            )
+            return nil
+        }
+        guard !wrapper.inputIsFinished(inputId) else {
+            outError?.pointee = ffiString("input \(inputId) is already finished")
             return nil
         }
         guard wrapper.readyCallbackBoxes[inputId] == nil else {
@@ -118,28 +131,32 @@ final class ReadyStreamBridge: NSObject {
             return nil
         }
 
-        self.writer = wrapper.writer
-        self.input = wrapper.inputs[Int(inputId)]
         self.inputId = inputId
-        self.cb = cb
-        self.ctx = ctx
-        self.queue = DispatchQueue(label: "fish.doom.avassetwriter.input.ready.async.\(inputId)")
         super.init()
+        self.writerBox = wrapper
 
-        queue.setSpecific(key: queueKey, value: 1)
-        wrapper.readyCallbackBoxes[inputId] = InputCallbackBox(userdata: nil, dropUserdata: nil)
-        input.requestMediaDataWhenReady(on: queue) { [weak self] in
-            guard let self, self.active else { return }
-            self.cb(self.ctx)
+        let input = wrapper.inputs[Int(inputId)]
+        let lifetime = CallbackLifetimeBox(userdata: ctx, dropUserdata: dropUserdata)
+        let owner = NativeCallbackOwner(lifetime: lifetime)
+        self.lifetime = lifetime
+        wrapper.readyCallbackBoxes[inputId] = lifetime
+        let queue = DispatchQueue(label: "fish.doom.avassetwriter.input.ready.async.\(inputId)")
+        input.requestMediaDataWhenReady(on: queue) { [weak wrapper, owner] in
+            guard let wrapper else { return }
+            wrapper.invokeCallback(owner.lifetime) { userdata in
+                guard let userdata else { return }
+                cb(userdata)
+            }
         }
     }
 
     func cancel() {
-        let deactivate = { self.active = false }
-        if DispatchQueue.getSpecific(key: queueKey) != nil {
-            deactivate()
-        } else {
-            queue.sync(execute: deactivate)
+        guard let writerBox, let lifetime else { return }
+        writerBox.withGate {
+            guard writerBox.readyCallbackBoxes[inputId] === lifetime else { return }
+            if !writerBox.removeInputCallbacks(inputId) {
+                lifetime.deactivate()
+            }
         }
     }
 }
@@ -157,6 +174,29 @@ public func av_writer_input_ready_stream_subscribe(
         inputId: inputId,
         cb: cb,
         ctx: ctx,
+        dropUserdata: nil,
+        outError: outError
+    ) else {
+        return nil
+    }
+    return Unmanaged.passRetained(bridge).toOpaque()
+}
+
+@_cdecl("av_writer_input_ready_stream_subscribe_owned")
+public func av_writer_input_ready_stream_subscribe_owned(
+    _ writerPtr: UnsafeMutableRawPointer,
+    _ inputId: Int32,
+    _ cb: @convention(c) (UnsafeMutableRawPointer) -> Void,
+    _ ctx: UnsafeMutableRawPointer,
+    _ dropUserdata: AVWDropCallback?,
+    _ outError: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> UnsafeMutableRawPointer? {
+    guard let bridge = ReadyStreamBridge(
+        writerPtr: writerPtr,
+        inputId: inputId,
+        cb: cb,
+        ctx: ctx,
+        dropUserdata: dropUserdata,
         outError: outError
     ) else {
         return nil

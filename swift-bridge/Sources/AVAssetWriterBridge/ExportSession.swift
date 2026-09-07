@@ -346,6 +346,33 @@ public func av_export_session_set_metadata_json(
     }
 }
 
+@_cdecl("av_export_session_metadata")
+public func av_export_session_metadata(
+    _ sessionPtr: UnsafeMutableRawPointer,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> UnsafeMutableRawPointer? {
+    let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
+    _ = outErrorMessage
+    return retainedMetadataItemArray(session.metadata ?? [])
+}
+
+@_cdecl("av_export_session_set_metadata_items")
+public func av_export_session_set_metadata_items(
+    _ sessionPtr: UnsafeMutableRawPointer,
+    _ itemPointers: UnsafePointer<UnsafeMutableRawPointer?>?,
+    _ itemCount: Int,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
+    do {
+        session.metadata = try metadataItems(from: itemPointers, count: itemCount)
+        return AVW_OK
+    } catch {
+        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        return AVW_INVALID_ARGUMENT
+    }
+}
+
 @_cdecl("av_export_session_metadata_item_filter")
 public func av_export_session_metadata_item_filter(
     _ sessionPtr: UnsafeMutableRawPointer

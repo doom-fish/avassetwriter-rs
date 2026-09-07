@@ -1,5 +1,9 @@
 use core::ffi::{c_char, c_void};
 
+pub type VideoCompositionRequestCallback =
+    unsafe extern "C" fn(request: *mut c_void, userdata: *mut c_void);
+pub type VideoCompositionDropCallback = unsafe extern "C" fn(userdata: *mut c_void);
+
 extern "C" {
     pub fn av_metadata_item_filter_for_sharing() -> *mut c_void;
 
@@ -89,13 +93,102 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> i32;
 
+    pub fn av_video_composition_install_rust_compositor(
+        composition: *mut c_void,
+        callback: Option<VideoCompositionRequestCallback>,
+        userdata: *mut c_void,
+        drop_userdata: Option<VideoCompositionDropCallback>,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
+    pub fn av_video_composition_clear_rust_compositor(
+        composition: *mut c_void,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
     pub fn av_video_composition_release(composition: *mut c_void);
 
     pub fn av_video_compositor_info_json(compositor: *mut c_void) -> *mut c_char;
 
+    pub fn av_copy_latest_video_composition_request_json(out_generation: *mut u64) -> *mut c_char;
+
+    pub fn av_ack_latest_video_composition_request(generation: u64) -> bool;
+
     pub fn av_take_latest_video_composition_request_json() -> *mut c_char;
 
+    pub fn av_copy_latest_ci_image_filtering_request_json(out_generation: *mut u64) -> *mut c_char;
+
+    pub fn av_ack_latest_ci_image_filtering_request(generation: u64) -> bool;
+
     pub fn av_take_latest_ci_image_filtering_request_json() -> *mut c_char;
+
+    pub fn av_video_composition_request_release(request: *mut c_void);
+
+    pub fn av_video_composition_request_composition_time(
+        request: *mut c_void,
+        out_value: *mut i64,
+        out_scale: *mut i32,
+        out_kind: *mut i32,
+    );
+
+    pub fn av_video_composition_request_render_info(
+        request: *mut c_void,
+        out_width: *mut f64,
+        out_height: *mut f64,
+        out_scale: *mut f32,
+    );
+
+    pub fn av_video_composition_request_source_track_id_count(request: *mut c_void) -> usize;
+
+    pub fn av_video_composition_request_source_track_id_at(
+        request: *mut c_void,
+        index: usize,
+        out_track_id: *mut i32,
+    ) -> bool;
+
+    pub fn av_video_composition_request_source_sample_data_track_id_count(
+        request: *mut c_void,
+    ) -> usize;
+
+    pub fn av_video_composition_request_source_sample_data_track_id_at(
+        request: *mut c_void,
+        index: usize,
+        out_track_id: *mut i32,
+    ) -> bool;
+
+    pub fn av_video_composition_request_copy_source_frame(
+        request: *mut c_void,
+        track_id: i32,
+        out_error_message: *mut *mut c_char,
+    ) -> *mut c_void;
+
+    pub fn av_video_composition_request_copy_source_sample_buffer(
+        request: *mut c_void,
+        track_id: i32,
+        out_error_message: *mut *mut c_char,
+    ) -> *mut c_void;
+
+    pub fn av_video_composition_request_new_output_pixel_buffer(
+        request: *mut c_void,
+        out_error_message: *mut *mut c_char,
+    ) -> *mut c_void;
+
+    pub fn av_video_composition_request_finish_with_frame(
+        request: *mut c_void,
+        frame: *mut c_void,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
+    pub fn av_video_composition_request_finish_with_error(
+        request: *mut c_void,
+        message: *const c_char,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
+    pub fn av_video_composition_request_cancel(
+        request: *mut c_void,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
 
     pub fn av_video_compositor_release(compositor: *mut c_void);
 }

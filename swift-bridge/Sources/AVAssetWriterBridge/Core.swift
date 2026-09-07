@@ -31,30 +31,94 @@ enum BridgeError: LocalizedError {
     }
 }
 
-final class InputCallbackBox {
-    let userdata: UnsafeMutableRawPointer?
-    let dropUserdata: AVWDropCallback?
-    private var disposed = false
+final class CallbackLifetimeBox {
+    private let lock = NSLock()
+    private var userdata: UnsafeMutableRawPointer?
+    private let dropUserdata: AVWDropCallback?
+    private var acceptsInvocations = true
+    private var nativeOwned = true
+    private var invocationCount = 0
+    private var dropped = false
 
     init(userdata: UnsafeMutableRawPointer?, dropUserdata: AVWDropCallback?) {
         self.userdata = userdata
         self.dropUserdata = dropUserdata
     }
 
-    func dispose() {
-        guard !disposed else { return }
-        disposed = true
-        if let userdata, let dropUserdata {
-            dropUserdata(userdata)
+    func beginInvocation() -> (Bool, UnsafeMutableRawPointer?) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard acceptsInvocations, nativeOwned, invocationCount == 0 else {
+            return (false, nil)
         }
+        invocationCount = 1
+        return (true, userdata)
+    }
+
+    func endInvocation() {
+        let pendingDrop: (UnsafeMutableRawPointer, AVWDropCallback)?
+        lock.lock()
+        invocationCount = 0
+        pendingDrop = takeDropIfReady()
+        lock.unlock()
+        performDrop(pendingDrop)
+    }
+
+    func deactivate() {
+        lock.lock()
+        acceptsInvocations = false
+        lock.unlock()
+    }
+
+    func nativeRemoved() {
+        let pendingDrop: (UnsafeMutableRawPointer, AVWDropCallback)?
+        lock.lock()
+        acceptsInvocations = false
+        nativeOwned = false
+        pendingDrop = takeDropIfReady()
+        lock.unlock()
+        performDrop(pendingDrop)
+    }
+
+    deinit {
+        let pendingDrop: (UnsafeMutableRawPointer, AVWDropCallback)?
+        lock.lock()
+        acceptsInvocations = false
+        nativeOwned = false
+        pendingDrop = takeDropIfReady()
+        lock.unlock()
+        performDrop(pendingDrop)
+    }
+
+    private func takeDropIfReady() -> (UnsafeMutableRawPointer, AVWDropCallback)? {
+        guard !nativeOwned, invocationCount == 0, !dropped else { return nil }
+        dropped = true
+        guard let userdata, let dropUserdata else { return nil }
+        self.userdata = nil
+        return (userdata, dropUserdata)
+    }
+
+    private func performDrop(_ pendingDrop: (UnsafeMutableRawPointer, AVWDropCallback)?) {
+        guard let (userdata, dropUserdata) = pendingDrop else { return }
+        dropUserdata(userdata)
+    }
+}
+
+final class NativeCallbackOwner {
+    let lifetime: CallbackLifetimeBox
+
+    init(lifetime: CallbackLifetimeBox) {
+        self.lifetime = lifetime
+    }
+
+    deinit {
+        lifetime.nativeRemoved()
     }
 }
 
 final class SegmentCallbackBox {
     let callback: AVWSegmentCallback?
-    let userdata: UnsafeMutableRawPointer?
-    let dropUserdata: AVWDropCallback?
-    private var disposed = false
+    let lifetime: CallbackLifetimeBox
 
     init(
         callback: AVWSegmentCallback?,
@@ -62,11 +126,15 @@ final class SegmentCallbackBox {
         dropUserdata: AVWDropCallback?
     ) {
         self.callback = callback
-        self.userdata = userdata
-        self.dropUserdata = dropUserdata
+        self.lifetime = CallbackLifetimeBox(userdata: userdata, dropUserdata: dropUserdata)
     }
 
-    func emit(data: Data, segmentType: Int32, report: SegmentReportPayload?) {
+    func emit(
+        data: Data,
+        segmentType: Int32,
+        report: SegmentReportPayload?,
+        userdata: UnsafeMutableRawPointer?
+    ) {
         guard let callback else { return }
         let reportCString = report.flatMap { payload in
             (try? encodeJson(payload)).flatMap(ffiString)
@@ -85,12 +153,12 @@ final class SegmentCallbackBox {
         }
     }
 
-    func dispose() {
-        guard !disposed else { return }
-        disposed = true
-        if let userdata, let dropUserdata {
-            dropUserdata(userdata)
-        }
+    func nativeRemoved() {
+        lifetime.nativeRemoved()
+    }
+
+    deinit {
+        lifetime.nativeRemoved()
     }
 }
 
@@ -363,4 +431,3 @@ struct VideoCompositorInfoPayload: Codable {
     let supportsWideColorSourceFrames: Bool
     let supportsHDRSourceFrames: Bool
 }
-

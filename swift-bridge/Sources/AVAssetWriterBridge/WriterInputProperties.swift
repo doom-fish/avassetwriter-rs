@@ -10,7 +10,8 @@ public func av_writer_input_info_json(
     _ writerPtr: UnsafeMutableRawPointer,
     _ inputId: Int32
 ) -> UnsafeMutablePointer<CChar>? {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     do {
         return ffiString(try encodeJson(inputInfoPayload(from: wrapper, inputId: inputId)))
     } catch {
@@ -23,7 +24,8 @@ public func av_writer_input_source_format_hint(
     _ writerPtr: UnsafeMutableRawPointer,
     _ inputId: Int32
 ) -> UnsafeMutableRawPointer? {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else { return nil }
     guard let sourceFormatHint = wrapper.inputs[Int(inputId)].sourceFormatHint else { return nil }
     return Unmanaged.passRetained(sourceFormatHint).toOpaque()
@@ -36,7 +38,8 @@ public func av_writer_set_input_metadata_json(
     _ metadataJson: UnsafePointer<CChar>,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -51,6 +54,47 @@ public func av_writer_set_input_metadata_json(
     }
 }
 
+@_cdecl("av_writer_input_metadata")
+public func av_writer_input_metadata(
+    _ writerPtr: UnsafeMutableRawPointer,
+    _ inputId: Int32,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> UnsafeMutableRawPointer? {
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
+    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
+        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
+        return nil
+    }
+    return retainedMetadataItemArray(wrapper.inputs[Int(inputId)].metadata)
+}
+
+@_cdecl("av_writer_set_input_metadata_items")
+public func av_writer_set_input_metadata_items(
+    _ writerPtr: UnsafeMutableRawPointer,
+    _ inputId: Int32,
+    _ itemPointers: UnsafePointer<UnsafeMutableRawPointer?>?,
+    _ itemCount: Int,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
+    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
+        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
+        return AVW_INVALID_ARGUMENT
+    }
+    do {
+        wrapper.inputs[Int(inputId)].metadata = try metadataItems(
+            from: itemPointers,
+            count: itemCount
+        )
+        return AVW_OK
+    } catch {
+        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        return AVW_INVALID_ARGUMENT
+    }
+}
+
 @_cdecl("av_writer_input_set_expects_media_data_in_real_time")
 public func av_writer_input_set_expects_media_data_in_real_time(
     _ writerPtr: UnsafeMutableRawPointer,
@@ -58,7 +102,8 @@ public func av_writer_input_set_expects_media_data_in_real_time(
     _ expectsMediaDataInRealTime: Bool,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -76,21 +121,36 @@ public func av_writer_input_request_media_data_when_ready(
     _ dropUserdata: AVWDropCallback?,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
+    }
+    guard wrapper.writer.status == .writing else {
+        outErrorMessage?.pointee = ffiString(
+            "request_media_data_when_ready requires a writing session"
+        )
+        return AVW_INVALID_STATE
+    }
+    guard !wrapper.inputIsFinished(inputId) else {
+        outErrorMessage?.pointee = ffiString("input \(inputId) is already finished")
+        return AVW_INVALID_STATE
     }
     guard wrapper.readyCallbackBoxes[inputId] == nil else {
         outErrorMessage?.pointee = ffiString("requestMediaDataWhenReady already registered for input \(inputId)")
         return AVW_INVALID_STATE
     }
     let input = wrapper.inputs[Int(inputId)]
-    let box = InputCallbackBox(userdata: userdata, dropUserdata: dropUserdata)
-    wrapper.readyCallbackBoxes[inputId] = box
+    let lifetime = CallbackLifetimeBox(userdata: userdata, dropUserdata: dropUserdata)
+    let owner = NativeCallbackOwner(lifetime: lifetime)
+    wrapper.readyCallbackBoxes[inputId] = lifetime
     let queue = DispatchQueue(label: "fish.doom.avassetwriter.input.ready.\(inputId)")
-    input.requestMediaDataWhenReady(on: queue) {
-        callback?(userdata)
+    input.requestMediaDataWhenReady(on: queue) { [weak wrapper, owner] in
+        guard let wrapper else { return }
+        wrapper.invokeCallback(owner.lifetime) { userdata in
+            callback?(userdata)
+        }
     }
     return AVW_OK
 }
@@ -101,12 +161,38 @@ public func av_writer_input_mark_as_finished(
     _ inputId: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
     }
-    wrapper.inputs[Int(inputId)].markAsFinished()
+    guard wrapper.writer.status == .writing else {
+        outErrorMessage?.pointee = ffiString("mark_input_as_finished requires a writing session")
+        return AVW_INVALID_STATE
+    }
+    wrapper.markInputAsFinished(inputId)
+    return AVW_OK
+}
+
+@_cdecl("av_writer_input_remove_callbacks")
+public func av_writer_input_remove_callbacks(
+    _ writerPtr: UnsafeMutableRawPointer,
+    _ inputId: Int32,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
+    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
+        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
+        return AVW_INVALID_ARGUMENT
+    }
+    guard wrapper.removeInputCallbacks(inputId) else {
+        outErrorMessage?.pointee = ffiString(
+            "input callbacks can only be removed while writing or after terminal state"
+        )
+        return AVW_INVALID_STATE
+    }
     return AVW_OK
 }
 
@@ -117,7 +203,8 @@ public func av_writer_input_set_language_code(
     _ languageCode: UnsafePointer<CChar>?,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -133,7 +220,8 @@ public func av_writer_input_set_extended_language_tag(
     _ extendedLanguageTag: UnsafePointer<CChar>?,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -150,7 +238,8 @@ public func av_writer_input_set_natural_size(
     _ height: Double,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -171,7 +260,8 @@ public func av_writer_input_set_transform(
     _ ty: Double,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -187,7 +277,8 @@ public func av_writer_input_set_preferred_volume(
     _ preferredVolume: Float,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -203,7 +294,8 @@ public func av_writer_input_set_marks_output_track_as_enabled(
     _ enabled: Bool,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -219,7 +311,8 @@ public func av_writer_input_set_media_time_scale(
     _ mediaTimeScale: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -237,7 +330,8 @@ public func av_writer_input_set_preferred_media_chunk_duration(
     _ durationKind: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -253,7 +347,8 @@ public func av_writer_input_set_preferred_media_chunk_alignment(
     _ alignment: Int64,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -269,7 +364,8 @@ public func av_writer_input_set_sample_reference_base_url(
     _ sampleReferenceBaseURL: UnsafePointer<CChar>?,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -287,7 +383,8 @@ public func av_writer_input_set_media_data_location(
     _ location: UnsafePointer<CChar>,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -309,7 +406,8 @@ public func av_writer_input_can_add_track_association(
     _ associationType: UnsafePointer<CChar>,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count, otherInputId >= 0, Int(otherInputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("input id out of range")
         return AVW_INVALID_ARGUMENT
@@ -326,7 +424,8 @@ public func av_writer_input_add_track_association(
     _ associationType: UnsafePointer<CChar>,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count, otherInputId >= 0, Int(otherInputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("input id out of range")
         return AVW_INVALID_ARGUMENT
@@ -342,7 +441,8 @@ public func av_writer_input_set_performs_multi_pass_encoding_if_supported(
     _ enabled: Bool,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
@@ -360,28 +460,47 @@ public func av_writer_input_respond_to_each_pass_description(
     _ dropUserdata: AVWDropCallback?,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
+    }
+    guard wrapper.writer.status == .writing else {
+        outErrorMessage?.pointee = ffiString(
+            "respond_to_each_pass_description requires a writing session"
+        )
+        return AVW_INVALID_STATE
+    }
+    guard !wrapper.inputIsFinished(inputId) else {
+        outErrorMessage?.pointee = ffiString("input \(inputId) is already finished")
+        return AVW_INVALID_STATE
     }
     guard wrapper.passDescriptionCallbackBoxes[inputId] == nil else {
         outErrorMessage?.pointee = ffiString("respondToEachPassDescription already registered for input \(inputId)")
         return AVW_INVALID_STATE
     }
     let input = wrapper.inputs[Int(inputId)]
-    let box = InputCallbackBox(userdata: userdata, dropUserdata: dropUserdata)
-    wrapper.passDescriptionCallbackBoxes[inputId] = box
+    let lifetime = CallbackLifetimeBox(userdata: userdata, dropUserdata: dropUserdata)
+    let owner = NativeCallbackOwner(lifetime: lifetime)
+    wrapper.passDescriptionCallbackBoxes[inputId] = lifetime
     let queue = DispatchQueue(label: "fish.doom.avassetwriter.input.pass.\(inputId)")
-    input.respondToEachPassDescription(on: queue) {
-        let payload = input.currentPassDescription.map { description in
-            PassDescriptionPayload(sourceTimeRanges: description.sourceTimeRanges.map { encodeTimeRange($0.timeRangeValue) })
-        }
-        let payloadString = payload.flatMap { try? encodeJson($0) }
-        let cString = payloadString.flatMap(ffiString)
-        callback?(cString, userdata)
-        if let cString {
-            free(cString)
+    input.respondToEachPassDescription(on: queue) { [weak wrapper, weak input, owner] in
+        guard let wrapper, let input else { return }
+        wrapper.invokeCallback(owner.lifetime) { userdata in
+            let payload = input.currentPassDescription.map { description in
+                PassDescriptionPayload(
+                    sourceTimeRanges: description.sourceTimeRanges.map {
+                        encodeTimeRange($0.timeRangeValue)
+                    }
+                )
+            }
+            let payloadString = payload.flatMap { try? encodeJson($0) }
+            let cString = payloadString.flatMap(ffiString)
+            callback?(cString, userdata)
+            if let cString {
+                free(cString)
+            }
         }
     }
     return AVW_OK
@@ -393,12 +512,18 @@ public func av_writer_input_mark_current_pass_as_finished(
     _ inputId: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
         outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
         return AVW_INVALID_ARGUMENT
     }
-    wrapper.inputs[Int(inputId)].markCurrentPassAsFinished()
+    guard wrapper.writer.status == .writing else {
+        outErrorMessage?.pointee = ffiString(
+            "mark_current_pass_as_finished requires a writing session"
+        )
+        return AVW_INVALID_STATE
+    }
+    wrapper.markCurrentPassAsFinished(inputId)
     return AVW_OK
 }
-

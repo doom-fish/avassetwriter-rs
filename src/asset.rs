@@ -9,9 +9,7 @@ use serde::Deserialize;
 use crate::bridge_support::{cstring_arg, parse_json_ptr, serialize_json};
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
-use crate::metadata::{
-    KeyLoadStatus, KeyLoadStatusPayload, KeyValueStatus, MetadataItem, MetadataItemPayload,
-};
+use crate::metadata::{KeyLoadStatus, KeyLoadStatusPayload, KeyValueStatus, MetadataItem};
 use crate::time::Time;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -19,7 +17,6 @@ use crate::time::Time;
 struct AssetInfoPayload {
     url: Option<String>,
     duration: Time,
-    metadata: Vec<MetadataItemPayload>,
 }
 
 /// Safe wrapper around `AVAsset` / `AVURLAsset` for file- and URL-backed assets.
@@ -64,12 +61,12 @@ impl Asset {
 
     /// Static metadata attached to the asset.
     pub fn metadata(&self) -> Result<Vec<MetadataItem>, AVWriterError> {
-        Ok(self
-            .info()?
-            .metadata
-            .into_iter()
-            .map(MetadataItem::from_payload)
-            .collect())
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let array = unsafe { ffi::av_asset_metadata(self.ptr, &mut err_msg) };
+        if array.is_null() {
+            return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
+        }
+        MetadataItem::from_retained_array(array, "asset metadata")
     }
 
     /// Asset URL when backed by `AVURLAsset`.

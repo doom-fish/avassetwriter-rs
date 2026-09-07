@@ -239,13 +239,19 @@ impl VideoPreset {
 ///    increasing presentation-time order.
 /// 5. Call [`Writer::finish`] to flush and finalise the file. Blocks until
 ///    the asynchronous `finishWriting` completion handler fires.
+///
+/// `Writer` is `Send + Sync`. The Swift bridge serializes complete writer,
+/// input, adaptor, callback-registration, and dictionary operations behind a
+/// recursive gate. Callbacks may reenter nonblocking writer methods; blocking
+/// [`Writer::finish`] reports [`AVWriterError::InvalidState`] when called from
+/// inside a writer callback.
 pub struct Writer {
     ptr: *mut c_void,
 }
 
-// SAFETY: Writer wraps an opaque retained AVAssetWriter ref-counted pointer.
-// All actual mutation happens on AVFoundation's internal queues — the Rust
-// side merely shuttles the pointer across the FFI boundary.
+// SAFETY: Every bridge entry point and native callback acquires the writer's
+// recursive operation gate. Callback teardown is leased until any active
+// invocation returns.
 unsafe impl Send for Writer {}
 unsafe impl Sync for Writer {}
 
@@ -480,7 +486,9 @@ impl Writer {
     /// # Errors
     ///
     /// Returns [`AVWriterError::FinishFailed`] if the writer ends in the
-    /// `.failed` or `.cancelled` state.
+    /// `.failed` or `.cancelled` state. Returns
+    /// [`AVWriterError::InvalidState`] when called reentrantly from a writer
+    /// callback because blocking there could prevent native completion.
     pub fn finish(self) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe { ffi::av_writer_finish(self.ptr, &mut err_msg) };
@@ -615,6 +623,82 @@ impl core::fmt::Debug for Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    #[test]
+    fn writer_is_send_and_sync() {
+        assert_send_sync::<Writer>();
+    }
+
+    #[test]
+    fn callbacks_require_a_writing_session() {
+        let artifacts =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-artifacts");
+        std::fs::create_dir_all(&artifacts).expect("create test artifacts");
+        let path = artifacts.join(format!("writer-callback-state-{}.m4a", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let writer = Writer::create(&path, FileType::M4a).expect("create audio writer");
+        let input = writer
+            .add_audio_input_pcm(48_000.0, 1, 16)
+            .expect("add audio input");
+
+        assert!(matches!(
+            writer.request_media_data_when_ready(input, || {}),
+            Err(AVWriterError::InvalidState(_))
+        ));
+        assert!(matches!(
+            writer.respond_to_each_pass_description(input, |_| {}),
+            Err(AVWriterError::InvalidState(_))
+        ));
+        assert!(matches!(
+            writer.end_session(crate::Time::invalid()),
+            Err(AVWriterError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            writer.end_session(crate::Time::new(0, 0)),
+            Err(AVWriterError::InvalidArgument(_))
+        ));
+
+        drop(writer);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn terminal_writer_paths_do_not_abort() {
+        let artifacts =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-artifacts");
+        std::fs::create_dir_all(&artifacts).expect("create test artifacts");
+
+        for action in ["finish", "cancel", "drop"] {
+            let path = artifacts.join(format!(
+                "writer-terminal-{action}-{}.m4a",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_file(&path);
+            let writer = Writer::create(&path, FileType::M4a).expect("create audio writer");
+            let input = writer
+                .add_audio_input_pcm(48_000.0, 1, 16)
+                .expect("add audio input");
+            writer
+                .start_session((0, 48_000))
+                .expect("start audio writer");
+
+            match action {
+                "finish" => {
+                    let silence = vec![0_u8; 960];
+                    writer
+                        .append_audio_pcm(input, &silence, 480, (0, 48_000))
+                        .expect("append silence");
+                    writer.finish().expect("finish audio writer");
+                }
+                "cancel" => writer.cancel().expect("cancel audio writer"),
+                "drop" => drop(writer),
+                _ => unreachable!(),
+            }
+            let _ = std::fs::remove_file(path);
+        }
+    }
 
     #[test]
     fn file_type_variants_are_distinct() {

@@ -13,7 +13,8 @@ public func av_writer_set_movie_fragment_interval(
     _ intervalKind: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     wrapper.writer.movieFragmentInterval = cmTime(value: intervalValue, timescale: intervalScale, kind: intervalKind)
     return AVW_OK
 }
@@ -30,7 +31,8 @@ public func av_writer_set_initial_movie_fragment_interval(
         outErrorMessage?.pointee = ffiString("initialMovieFragmentInterval requires macOS 14+")
         return AVW_INVALID_STATE
     }
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     wrapper.writer.initialMovieFragmentInterval = cmTime(value: intervalValue, timescale: intervalScale, kind: intervalKind)
     return AVW_OK
 }
@@ -41,7 +43,8 @@ public func av_writer_set_initial_movie_fragment_sequence_number(
     _ sequenceNumber: Int64,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     wrapper.writer.initialMovieFragmentSequenceNumber = Int(sequenceNumber)
     return AVW_OK
 }
@@ -52,7 +55,8 @@ public func av_writer_set_produces_combinable_fragments(
     _ enabled: Bool,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     wrapper.writer.producesCombinableFragments = enabled
     return AVW_OK
 }
@@ -65,7 +69,8 @@ public func av_writer_set_overall_duration_hint(
     _ hintKind: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     wrapper.writer.overallDurationHint = cmTime(value: hintValue, timescale: hintScale, kind: hintKind)
     return AVW_OK
 }
@@ -76,7 +81,8 @@ public func av_writer_set_movie_time_scale(
     _ movieTimeScale: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     wrapper.writer.movieTimeScale = movieTimeScale
     return AVW_OK
 }
@@ -89,7 +95,8 @@ public func av_writer_set_preferred_output_segment_interval(
     _ intervalKind: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     wrapper.writer.preferredOutputSegmentInterval = cmTime(value: intervalValue, timescale: intervalScale, kind: intervalKind)
     return AVW_OK
 }
@@ -102,7 +109,8 @@ public func av_writer_set_initial_segment_start_time(
     _ startKind: Int32,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     wrapper.writer.initialSegmentStartTime = cmTime(value: startValue, timescale: startScale, kind: startKind)
     return AVW_OK
 }
@@ -113,7 +121,8 @@ public func av_writer_set_output_file_type_profile(
     _ profile: UnsafePointer<CChar>?,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
     wrapper.writer.outputFileTypeProfile = decodeFileTypeProfile(profile.map(String.init(cString:)))
     return AVW_OK
 }
@@ -123,7 +132,25 @@ public func av_writer_flush_segment(
     _ writerPtr: UnsafeMutableRawPointer,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
-    wrapper.writer.flushSegment()
+    let wrapper = Writer.locked(writerPtr)
+    defer { wrapper.unlock() }
+    guard wrapper.writer.status == .writing else {
+        outErrorMessage?.pointee = ffiString("flush_segment requires a writing session")
+        return AVW_INVALID_STATE
+    }
+    guard wrapper.writer.preferredOutputSegmentInterval == .indefinite else {
+        outErrorMessage?.pointee = ffiString(
+            "flush_segment requires preferred_output_segment_interval to be indefinite"
+        )
+        return AVW_INVALID_STATE
+    }
+    guard wrapper.runBlockingNativeOperation({
+        wrapper.writer.flushSegment()
+    }) else {
+        outErrorMessage?.pointee = ffiString(
+            "flush_segment cannot run reentrantly or while another blocking writer operation is active"
+        )
+        return AVW_INVALID_STATE
+    }
     return AVW_OK
 }

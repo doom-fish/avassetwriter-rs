@@ -214,7 +214,8 @@ fn take_format_description(
     ptr: *mut c_void,
     context: &str,
 ) -> Result<CMFormatDescription, AVWriterError> {
-    CMFormatDescription::from_raw(ptr).ok_or_else(|| missing_payload(context))
+    // SAFETY: the Swift bridge returns a +1 retained CMFormatDescription.
+    unsafe { CMFormatDescription::from_raw(ptr) }.ok_or_else(|| missing_payload(context))
 }
 
 pub struct Composition {

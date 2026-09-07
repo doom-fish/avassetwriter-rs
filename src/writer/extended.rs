@@ -25,9 +25,7 @@ use crate::callbacks::{
 use crate::caption::{Caption, CaptionGroup};
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
-use crate::metadata::{
-    MetadataItem, MetadataItemPayload, MetadataSpecification, TimedMetadataGroup,
-};
+use crate::metadata::{MetadataItem, MetadataSpecification, TimedMetadataGroup};
 use crate::time::{Time, TimeRange};
 
 /// `AVFileTypeProfile`.
@@ -291,7 +289,6 @@ struct WriterInfoPayload {
     available_media_types: Vec<String>,
     status: i32,
     error_message: Option<String>,
-    metadata: Vec<MetadataItemPayload>,
     should_optimize_for_network_use: bool,
     directory_for_temporary_files: Option<String>,
     inputs: Vec<i32>,
@@ -328,7 +325,6 @@ struct TransformPayload {
 struct InputInfoPayload {
     media_type: String,
     output_settings_json: Option<String>,
-    metadata: Vec<MetadataItemPayload>,
     ready_for_more_media_data: bool,
     expects_media_data_in_real_time: bool,
     language_code: Option<String>,
@@ -370,9 +366,7 @@ impl Writer {
             .map(|value| cstring_arg(value.as_str(), "file type profile"))
             .transpose()?;
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let state = Box::new(SegmentCallbackState {
-            callback: Box::new(on_segment),
-        });
+        let state = Box::new(SegmentCallbackState::new(on_segment));
         let userdata = Box::into_raw(state).cast::<c_void>();
         let ptr = unsafe {
             ffi::av_writer_create_segmented(
@@ -423,25 +417,25 @@ impl Writer {
     }
 
     pub fn metadata(&self) -> Result<Vec<MetadataItem>, AVWriterError> {
-        Ok(self
-            .writer_info()?
-            .metadata
-            .into_iter()
-            .map(MetadataItem::from_payload)
-            .collect())
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let array = unsafe { ffi::av_writer_metadata(self.ptr, &mut err_msg) };
+        if array.is_null() {
+            return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
+        }
+        MetadataItem::from_retained_array(array, "writer metadata")
     }
 
     pub fn set_metadata(&self, metadata: &[MetadataItem]) -> Result<(), AVWriterError> {
-        let payload = serialize_json(
-            &metadata
-                .iter()
-                .map(MetadataItem::payload)
-                .collect::<Vec<_>>(),
-        )?;
-        let payload_c = cstring_arg(&payload, "metadata json")?;
+        let item_ptrs = MetadataItem::native_ptrs(metadata)?;
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status =
-            unsafe { ffi::av_writer_set_metadata_json(self.ptr, payload_c.as_ptr(), &mut err_msg) };
+        let status = unsafe {
+            ffi::av_writer_set_metadata_items(
+                self.ptr,
+                item_ptrs.as_ptr(),
+                item_ptrs.len(),
+                &mut err_msg,
+            )
+        };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -614,23 +608,41 @@ impl Writer {
                 ))
             }
         }
-        let input_id = self.add_input(media_type, None, None, expects_media_data_in_real_time)?;
-        self.attach_caption_adaptor(input_id)?;
-        Ok(input_id)
-    }
-
-    pub fn end_session(&self, end_time: impl Into<Time>) -> Result<(), AVWriterError> {
-        let time = end_time.into();
+        let media_type_c = cstring_arg(media_type.as_str(), "media type")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status = unsafe {
-            ffi::av_writer_end_session(
+        let result = unsafe {
+            ffi::av_writer_add_caption_input(
                 self.ptr,
-                time_value(&time),
-                time_scale(&time),
-                time_kind(&time),
+                media_type_c.as_ptr(),
+                expects_media_data_in_real_time,
                 &mut err_msg,
             )
         };
+        if result < 0 {
+            return Err(unsafe { from_swift(result, err_msg) });
+        }
+        Ok(InputId(result))
+    }
+
+    /// End the current writing session at `end_time`.
+    ///
+    /// This may flush segmented output. It returns
+    /// [`AVWriterError::InvalidState`] when called from inside a writer
+    /// callback because the native operation can wait for delegate delivery.
+    pub fn end_session(&self, end_time: impl Into<Time>) -> Result<(), AVWriterError> {
+        let time = end_time.into();
+        let Some((value, scale)) = time.as_numeric() else {
+            return Err(AVWriterError::InvalidArgument(
+                "end_session requires a numeric time".into(),
+            ));
+        };
+        if scale <= 0 {
+            return Err(AVWriterError::InvalidArgument(
+                "end_session timescale must be positive".into(),
+            ));
+        }
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let status = unsafe { ffi::av_writer_end_session(self.ptr, value, scale, 0, &mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -640,6 +652,18 @@ impl Writer {
     pub fn cancel(self) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe { ffi::av_writer_cancel(self.ptr, &mut err_msg) };
+        if status != ffi::status::OK {
+            return Err(unsafe { from_swift(status, err_msg) });
+        }
+        Ok(())
+    }
+
+    /// Stop delivering segmented-output callbacks.
+    ///
+    /// The writer remains usable, but subsequent segment data is discarded.
+    pub fn remove_segment_callback(&self) -> Result<(), AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let status = unsafe { ffi::av_writer_remove_segment_callback(self.ptr, &mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -688,7 +712,8 @@ impl Writer {
         input_id: InputId,
     ) -> Result<Option<CVPixelBufferPool>, AVWriterError> {
         let ptr = unsafe { ffi::av_writer_pixel_buffer_pool(self.ptr, input_id.0) };
-        Ok(CVPixelBufferPool::from_raw(ptr))
+        // SAFETY: the Swift bridge returns a +1 retained CVPixelBufferPool.
+        Ok(unsafe { CVPixelBufferPool::from_raw(ptr) })
     }
 
     pub fn attach_tagged_pixel_buffer_group_adaptor(
@@ -733,7 +758,8 @@ impl Writer {
         input_id: InputId,
     ) -> Result<Option<CVPixelBufferPool>, AVWriterError> {
         let ptr = unsafe { ffi::av_writer_tagged_pixel_buffer_pool(self.ptr, input_id.0) };
-        Ok(CVPixelBufferPool::from_raw(ptr))
+        // SAFETY: the Swift bridge returns a +1 retained CVPixelBufferPool.
+        Ok(unsafe { CVPixelBufferPool::from_raw(ptr) })
     }
 
     pub fn append_tagged_pixel_buffer_group(
@@ -788,14 +814,12 @@ impl Writer {
         input_id: InputId,
         group: &TimedMetadataGroup,
     ) -> Result<(), AVWriterError> {
-        let payload = serialize_json(&group.payload())?;
-        let payload_c = cstring_arg(&payload, "timed metadata group json")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_append_timed_metadata_group_json(
+            ffi::av_writer_append_timed_metadata_group(
                 self.ptr,
                 input_id.0,
-                payload_c.as_ptr(),
+                group.as_ptr()?,
                 &mut err_msg,
             )
         };
@@ -882,16 +906,17 @@ impl Writer {
         input_id: InputId,
     ) -> Result<Option<CMFormatDescription>, AVWriterError> {
         let ptr = unsafe { ffi::av_writer_input_source_format_hint(self.ptr, input_id.0) };
-        Ok(CMFormatDescription::from_raw(ptr))
+        // SAFETY: the Swift bridge returns a +1 retained CMFormatDescription.
+        Ok(unsafe { CMFormatDescription::from_raw(ptr) })
     }
 
     pub fn input_metadata(&self, input_id: InputId) -> Result<Vec<MetadataItem>, AVWriterError> {
-        Ok(self
-            .input_info(input_id)?
-            .metadata
-            .into_iter()
-            .map(MetadataItem::from_payload)
-            .collect())
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let array = unsafe { ffi::av_writer_input_metadata(self.ptr, input_id.0, &mut err_msg) };
+        if array.is_null() {
+            return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
+        }
+        MetadataItem::from_retained_array(array, "writer input metadata")
     }
 
     pub fn set_input_metadata(
@@ -899,19 +924,14 @@ impl Writer {
         input_id: InputId,
         metadata: &[MetadataItem],
     ) -> Result<(), AVWriterError> {
-        let payload = serialize_json(
-            &metadata
-                .iter()
-                .map(MetadataItem::payload)
-                .collect::<Vec<_>>(),
-        )?;
-        let payload_c = cstring_arg(&payload, "input metadata json")?;
+        let item_ptrs = MetadataItem::native_ptrs(metadata)?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_set_input_metadata_json(
+            ffi::av_writer_set_input_metadata_items(
                 self.ptr,
                 input_id.0,
-                payload_c.as_ptr(),
+                item_ptrs.as_ptr(),
+                item_ptrs.len(),
                 &mut err_msg,
             )
         };
@@ -955,14 +975,13 @@ impl Writer {
         Ok(())
     }
 
+    /// Register a serialized readiness callback after writing has started.
     pub fn request_media_data_when_ready(
         &self,
         input_id: InputId,
         callback: impl FnMut() + Send + 'static,
     ) -> Result<(), AVWriterError> {
-        let state = Box::new(ReadyCallbackState {
-            callback: Box::new(callback),
-        });
+        let state = Box::new(ReadyCallbackState::new(callback));
         let userdata = Box::into_raw(state).cast::<c_void>();
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
@@ -977,6 +996,20 @@ impl Writer {
         };
         if status != ffi::status::OK {
             unsafe { ready_callback_drop(userdata) };
+            return Err(unsafe { from_swift(status, err_msg) });
+        }
+        Ok(())
+    }
+
+    /// Remove readiness and multipass callbacks for an input.
+    ///
+    /// Native removal while writing marks the input as finished because the
+    /// framework does not expose independent cancellation for these blocks.
+    pub fn remove_input_callbacks(&self, input_id: InputId) -> Result<(), AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let status =
+            unsafe { ffi::av_writer_input_remove_callbacks(self.ptr, input_id.0, &mut err_msg) };
+        if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
         Ok(())
@@ -1361,14 +1394,13 @@ impl Writer {
         Ok(self.input_info(input_id)?.current_pass_description)
     }
 
+    /// Register a serialized multipass callback after writing has started.
     pub fn respond_to_each_pass_description(
         &self,
         input_id: InputId,
         callback: impl FnMut(Option<InputPassDescription>) + Send + 'static,
     ) -> Result<(), AVWriterError> {
-        let state = Box::new(PassDescriptionCallbackState {
-            callback: Box::new(callback),
-        });
+        let state = Box::new(PassDescriptionCallbackState::new(callback));
         let userdata = Box::into_raw(state).cast::<c_void>();
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
@@ -1544,7 +1576,21 @@ impl Writer {
         Ok(())
     }
 
+    /// Flush a segmented writer.
+    ///
+    /// The framework only permits explicit flushing when
+    /// [`Writer::preferred_output_segment_interval`] is
+    /// [`Time::Indefinite`]. Writers configured for automatic numeric
+    /// intervals should use [`Writer::end_session`] or [`Writer::finish`].
+    ///
+    /// Returns [`AVWriterError::InvalidState`] when called from inside a
+    /// writer callback because the native flush can wait for delegate delivery.
     pub fn flush_segment(&self) -> Result<(), AVWriterError> {
+        if self.preferred_output_segment_interval()? != Time::indefinite() {
+            return Err(AVWriterError::InvalidState(
+                "flush_segment requires an indefinite preferred output segment interval".into(),
+            ));
+        }
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe { ffi::av_writer_flush_segment(self.ptr, &mut err_msg) };
         if status != ffi::status::OK {

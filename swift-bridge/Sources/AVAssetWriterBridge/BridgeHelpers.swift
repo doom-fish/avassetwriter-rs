@@ -419,6 +419,34 @@ func metadataValueObject(from payload: MetadataValuePayload) throws -> NSCopying
     }
 }
 
+func stringFromUTF8(_ bytes: UnsafePointer<UInt8>?, count: Int) -> String {
+    guard count > 0, let bytes else { return "" }
+    return String(decoding: UnsafeBufferPointer(start: bytes, count: count), as: UTF8.self)
+}
+
+func metadataItems(
+    from pointers: UnsafePointer<UnsafeMutableRawPointer?>?,
+    count: Int
+) throws -> [AVMetadataItem] {
+    guard count >= 0 else {
+        throw BridgeError.message("metadata item count cannot be negative")
+    }
+    guard count > 0 else { return [] }
+    guard let pointers else {
+        throw BridgeError.message("missing metadata item pointers")
+    }
+    return try (0..<count).map { index in
+        guard let itemPtr = pointers[index] else {
+            throw BridgeError.message("metadata item pointer \(index) is null")
+        }
+        return Unmanaged<AVMetadataItem>.fromOpaque(itemPtr).takeUnretainedValue()
+    }
+}
+
+func retainedMetadataItemArray(_ items: [AVMetadataItem]) -> UnsafeMutableRawPointer {
+    Unmanaged.passRetained(items as NSArray).toOpaque()
+}
+
 func metadataValuePayload(from value: Any?) -> MetadataValuePayload {
     switch value {
     case let string as String:
@@ -494,4 +522,3 @@ func metadataFormatDescription(from specs: [MetadataSpecificationPayload]) throw
     }
     return formatDescription
 }
-
