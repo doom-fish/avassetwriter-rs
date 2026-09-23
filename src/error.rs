@@ -25,6 +25,7 @@ pub enum AVWriterError {
     InvalidArgument(String),
     /// Writer was in an unexpected state (e.g. asked to start twice).
     InvalidState(String),
+    OutputExists(String),
 }
 
 impl fmt::Display for AVWriterError {
@@ -37,6 +38,7 @@ impl fmt::Display for AVWriterError {
             Self::InputNotReady => write!(f, "input not ready for more media data"),
             Self::InvalidArgument(m) => write!(f, "invalid argument: {m}"),
             Self::InvalidState(m) => write!(f, "invalid state: {m}"),
+            Self::OutputExists(m) => write!(f, "output path already exists: {m}"),
         }
     }
 }
@@ -108,6 +110,12 @@ mod tests {
     fn display_invalid_state_includes_message() {
         let err = AVWriterError::InvalidState("already started".into());
         assert!(err.to_string().contains("invalid state"));
+    }
+
+    #[test]
+    fn display_output_exists_includes_path() {
+        let err = AVWriterError::OutputExists("/tmp/out.mp4".into());
+        assert_eq!(err.to_string(), "output path already exists: /tmp/out.mp4");
     }
 
     #[test]

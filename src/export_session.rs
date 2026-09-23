@@ -11,6 +11,7 @@ use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
 use crate::media_processing::{AudioMix, MetadataItemFilter, VideoComposition, VideoCompositor};
 use crate::metadata::MetadataItem;
+use crate::output::{prepare_output, OutputPolicy};
 use crate::time::{Time, TimeRange};
 use crate::writer::FileType;
 
@@ -204,6 +205,7 @@ struct ExportSessionInfoPayload {
 /// Safe wrapper around `AVAssetExportSession`, backed by an internal `AVURLAsset`.
 pub struct ExportSession {
     ptr: *mut c_void,
+    output_policy: core::cell::Cell<OutputPolicy>,
 }
 
 // SAFETY: `ExportSession` wraps an ARC-retained `AVAssetExportSession` pointer.
@@ -291,7 +293,31 @@ impl ExportSession {
         if ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
-        Ok(Self { ptr })
+        Ok(Self {
+            ptr,
+            output_policy: core::cell::Cell::new(OutputPolicy::FailIfExists),
+        })
+    }
+
+    #[must_use]
+    pub fn output_policy(&self) -> OutputPolicy {
+        self.output_policy.get()
+    }
+
+    pub fn set_output_policy(&self, policy: OutputPolicy) {
+        self.output_policy.set(policy);
+    }
+
+    pub(crate) fn prepare_output(&self) -> Result<(), AVWriterError> {
+        let Some(output) = self.output_path()? else {
+            return Ok(());
+        };
+        let source = self.asset_path()?;
+        prepare_output(
+            Path::new(&output),
+            self.output_policy.get(),
+            source.as_deref().map(Path::new),
+        )
     }
 
     pub fn preset_name(&self) -> Result<ExportPreset, AVWriterError> {
@@ -406,7 +432,12 @@ impl ExportSession {
     }
 
     /// Start the export and block until completion.
+    ///
+    /// An existing file at the output path is only replaced under
+    /// [`OutputPolicy::ReplaceFile`]; otherwise the export fails with
+    /// [`AVWriterError::OutputExists`].
     pub fn export(&self) -> Result<(), AVWriterError> {
+        self.prepare_output()?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe { ffi::av_export_session_export(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {

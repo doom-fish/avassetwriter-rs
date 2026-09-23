@@ -315,10 +315,6 @@ public func av_writer_create(
         return nil
     }
 
-    // Remove any pre-existing file at the destination — AVAssetWriter refuses
-    // to overwrite. This matches the convention of every other macOS muxer.
-    try? FileManager.default.removeItem(atPath: pathStr)
-
     let url = URL(fileURLWithPath: pathStr)
     do {
         let writer = try AVAssetWriter(outputURL: url, fileType: avFileType)

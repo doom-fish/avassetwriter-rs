@@ -17,6 +17,7 @@ pub use extended::{
 
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
+use crate::output::{prepare_output, OutputPolicy};
 
 /// Container file format for the output file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -264,12 +265,15 @@ impl Writer {
 
     /// Create a writer that will produce a file at `path` of type `file_type`.
     ///
-    /// If a file already exists at `path` it will be removed first
-    /// (`AVAssetWriter` refuses to overwrite).
+    /// Nothing at `path` is ever removed: if anything already exists there
+    /// this returns [`AVWriterError::OutputExists`]. Use
+    /// [`Writer::create_with_policy`] with [`OutputPolicy::ReplaceFile`] to
+    /// replace an existing regular file.
     ///
     /// # Errors
     ///
-    /// Returns [`AVWriterError::InvalidArgument`] if `path` contains an
+    /// Returns [`AVWriterError::OutputExists`] if `path` exists,
+    /// [`AVWriterError::InvalidArgument`] if `path` contains an
     /// interior NUL byte, or [`AVWriterError::WriterCreateFailed`] if
     /// `AVAssetWriter` rejects the destination URL.
     ///
@@ -279,6 +283,15 @@ impl Writer {
     /// interior NUL byte — this is structurally impossible for the
     /// hand-built constants in [`FileType`].
     pub fn create(path: impl AsRef<Path>, file_type: FileType) -> Result<Self, AVWriterError> {
+        Self::create_with_policy(path, file_type, OutputPolicy::FailIfExists)
+    }
+
+    #[allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
+    pub fn create_with_policy(
+        path: impl AsRef<Path>,
+        file_type: FileType,
+        policy: OutputPolicy,
+    ) -> Result<Self, AVWriterError> {
         let path_str = path
             .as_ref()
             .to_str()
@@ -286,6 +299,7 @@ impl Writer {
         let path_c = CString::new(path_str)
             .map_err(|e| AVWriterError::InvalidArgument(format!("path NUL byte: {e}")))?;
         let type_c = CString::new(file_type.as_str()).expect("file type strings are NUL-free");
+        prepare_output(path.as_ref(), policy, None)?;
 
         let mut err_msg: *mut c_char = ptr::null_mut();
         let ptr =

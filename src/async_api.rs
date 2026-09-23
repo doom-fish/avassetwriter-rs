@@ -308,7 +308,7 @@ extern "C" fn export_cb(result: *const c_void, error: *const i8, ctx: *mut c_voi
 
 /// Future returned by [`AsyncExportSession::export`].
 pub struct ExportFuture {
-    inner: AsyncCompletionFuture<()>,
+    inner: Result<AsyncCompletionFuture<()>, Option<AVWriterError>>,
 }
 
 impl core::fmt::Debug for ExportFuture {
@@ -321,9 +321,14 @@ impl Future for ExportFuture {
     type Output = Result<(), AVWriterError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.inner)
-            .poll(cx)
-            .map(|r| r.map_err(|msg| AVWriterError::InvalidState(format!("export: {msg}"))))
+        match &mut self.inner {
+            Ok(inner) => Pin::new(inner)
+                .poll(cx)
+                .map(|r| r.map_err(|msg| AVWriterError::InvalidState(format!("export: {msg}")))),
+            Err(error) => Poll::Ready(Err(error.take().unwrap_or_else(|| {
+                AVWriterError::InvalidState("export future polled after completion".into())
+            }))),
+        }
     }
 }
 
@@ -438,6 +443,11 @@ impl AsyncExportSession {
     /// `.cancelled` state.
     #[must_use]
     pub fn export(session: &ExportSession) -> ExportFuture {
+        if let Err(error) = session.prepare_output() {
+            return ExportFuture {
+                inner: Err(Some(error)),
+            };
+        }
         let ptr = session.as_raw_ptr();
         let (future, ctx) = AsyncCompletion::<()>::create();
         // SAFETY: `ptr` is a valid ARC-retained `AVAssetExportSession` pointer
@@ -448,7 +458,7 @@ impl AsyncExportSession {
         unsafe {
             ffi::av_export_session_export_async(ptr, export_cb as AsyncCb, ctx);
         }
-        ExportFuture { inner: future }
+        ExportFuture { inner: Ok(future) }
     }
 
     /// Asynchronously determine the file types compatible with this session.

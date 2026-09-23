@@ -53,6 +53,7 @@ pub mod export_session;
 pub mod ffi;
 pub mod media_processing;
 pub mod metadata;
+mod output;
 pub mod output_settings;
 pub mod time;
 pub(crate) mod utils;
@@ -89,6 +90,7 @@ pub use metadata::{
     MetadataItemValueRequest, MetadataSpecification, MetadataValue, MutableDateRangeMetadataGroup,
     TimedMetadataGroup,
 };
+pub use output::OutputPolicy;
 pub use output_settings::OutputSettingsAssistant;
 pub use time::{Time, TimeRange};
 pub use writer::{
@@ -134,6 +136,7 @@ pub mod prelude {
         MetadataItemValueRequest, MetadataSpecification, MetadataValue,
         MutableDateRangeMetadataGroup, TimedMetadataGroup,
     };
+    pub use crate::output::OutputPolicy;
     pub use crate::output_settings::OutputSettingsAssistant;
     pub use crate::time::{Time, TimeRange};
     pub use crate::writer::{

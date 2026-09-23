@@ -183,7 +183,7 @@ public func av_export_session_export(
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
-    guard let outputURL = session.outputURL else {
+    guard session.outputURL != nil else {
         outErrorMessage?.pointee = ffiString("export session outputURL must be set before export")
         return AVW_INVALID_STATE
     }
@@ -191,7 +191,6 @@ public func av_export_session_export(
         outErrorMessage?.pointee = ffiString("export session outputFileType must be set before export")
         return AVW_INVALID_STATE
     }
-    try? FileManager.default.removeItem(at: outputURL)
     let semaphore = DispatchSemaphore(value: 0)
     session.exportAsynchronously {
         semaphore.signal()
