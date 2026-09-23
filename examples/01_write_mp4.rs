@@ -11,6 +11,7 @@
 
 use std::path::PathBuf;
 
+use apple_cf::cm::CMTime;
 use apple_cf::iosurface::{IOSurface, IOSurfaceLockOptions};
 use avassetwriter::prelude::*;
 use videotoolbox::prelude::*;
@@ -46,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Pre-encode the first frame so we can use its CMSampleBuffer to seed the
     // AVAssetWriterInput format description.
     fill_surface(&surface, 0)?;
-    let first_encoded = encoder.encode(&surface, (0, fps))?;
+    let first_encoded = encoder.encode(&surface, CMTime::new(0, fps))?;
 
     let writer = Writer::create(&output, FileType::Mp4)?;
     let input_id = writer.add_video_input_from_sample(
@@ -65,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for i in 1..total_frames {
         fill_surface(&surface, i)?;
-        let encoded = encoder.encode(&surface, (i64::from(i), fps))?;
+        let encoded = encoder.encode(&surface, CMTime::new(i64::from(i), fps))?;
         let sb = encoded
             .cm_sample_buffer()
             .expect("encoded frame must have a sample buffer");

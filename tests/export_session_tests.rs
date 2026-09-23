@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
+use apple_cf::cm::CMTime;
 use apple_cf::iosurface::{IOSurface, IOSurfaceLockOptions};
 use avassetwriter::{
     AudioMix, Composition, CompositionTrackSegment, ExportPreset, ExportSession, ExportStatus,
@@ -488,7 +489,7 @@ fn write_test_asset(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     fill_surface(&surface, 0)?;
-    let first_frame = encoder.encode(&surface, (0, FPS))?;
+    let first_frame = encoder.encode(&surface, CMTime::new(0, FPS))?;
 
     let writer = Writer::create(path, FileType::Mp4)?;
     let input = writer.add_video_input_from_sample(
@@ -506,7 +507,7 @@ fn write_test_asset(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
 
     for frame_index in 1..TOTAL_FRAMES {
         fill_surface(&surface, frame_index)?;
-        let frame = encoder.encode(&surface, (i64::from(frame_index), FPS))?;
+        let frame = encoder.encode(&surface, CMTime::new(i64::from(frame_index), FPS))?;
         writer.append_sample(
             input,
             frame
