@@ -19,6 +19,7 @@
 // contains a raw pointer and is intentionally not Send.
 #![allow(clippy::future_not_send)]
 
+use apple_cf::cm::CMTime;
 use std::path::PathBuf;
 
 use avassetwriter::async_api::{AsyncExportSession, AsyncWriter, AsyncWriterInput};
@@ -44,7 +45,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
 
     let writer = Writer::create(&out_path, FileType::M4a)?;
     let audio_input = writer.add_audio_input_pcm(48_000.0, 1, 16)?;
-    writer.start_session((0, 48_000))?;
+    writer.start_session(CMTime::new(0, 48_000))?;
 
     println!("[1] Waiting for AsyncWriterInput::request_media_data_when_ready …");
     let ready_stream = AsyncWriterInput::request_media_data_when_ready(&writer, audio_input, 8)?;
@@ -52,7 +53,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("[1] Input ready — appending 1 second of silence …");
     let silence = vec![0_u8; 48_000 * 2];
-    writer.append_audio_pcm(audio_input, &silence, 48_000, (0, 48_000))?;
+    writer.append_audio_pcm(audio_input, &silence, 48_000, CMTime::new(0, 48_000))?;
     drop(ready_stream);
 
     println!("[2] Calling AsyncWriter::finish …");

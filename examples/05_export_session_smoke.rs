@@ -8,13 +8,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use apple_cf::cm::CMTime;
+use apple_cf::cm::{CMTime, CMTimeRange};
 use apple_cf::cv::CVPixelBuffer;
 use apple_cf::iosurface::{IOSurface, IOSurfaceLockOptions};
 use avassetwriter::{
-    AudioMix, ExportPreset, ExportSession, FileType, MetadataItem, MetadataItemFilter, Time,
-    TimeRange, TrackGroupOutputHandling, VideoComposition, VideoCompositionRequest,
-    VideoCompositor, VideoCompositorClass, Writer,
+    AudioMix, ExportPreset, ExportSession, FileType, MetadataItem, MetadataItemFilter,
+    TrackGroupOutputHandling, VideoComposition, VideoCompositionRequest, VideoCompositor,
+    VideoCompositorClass, Writer,
 };
 use videotoolbox::prelude::*;
 
@@ -64,9 +64,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     session.set_output_file_type(Some(output_type))?;
     session.set_output_path(Some(output.as_path()))?;
     session.set_should_optimize_for_network_use(true)?;
-    session.set_time_range(TimeRange::new(
-        Time::new(0, FPS),
-        Time::new(i64::from(TOTAL_FRAMES), FPS),
+    session.set_time_range(CMTimeRange::new(
+        CMTime::new(0, FPS),
+        CMTime::new(i64::from(TOTAL_FRAMES), FPS),
     ))?;
     session.set_metadata(&[MetadataItem::string(
         "mdta/com.apple.quicktime.title",
@@ -105,9 +105,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     session.set_output_file_type(Some(output_type))?;
     session.set_output_path(Some(output.as_path()))?;
     session.set_should_optimize_for_network_use(true)?;
-    session.set_time_range(TimeRange::new(
-        Time::new(0, FPS),
-        Time::new(i64::from(TOTAL_FRAMES), FPS),
+    session.set_time_range(CMTimeRange::new(
+        CMTime::new(0, FPS),
+        CMTime::new(i64::from(TOTAL_FRAMES), FPS),
     ))?;
     session.set_metadata(&[MetadataItem::string(
         "mdta/com.apple.quicktime.title",
@@ -259,7 +259,7 @@ fn write_test_asset(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
             .cm_sample_buffer()
             .expect("first encoded frame should have a CMSampleBuffer"),
     )?;
-    writer.start_session((0, FPS))?;
+    writer.start_session(CMTime::new(0, FPS))?;
     writer.append_sample(
         input,
         first_frame

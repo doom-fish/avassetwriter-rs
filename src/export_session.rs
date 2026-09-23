@@ -12,8 +12,8 @@ use crate::ffi;
 use crate::media_processing::{AudioMix, MetadataItemFilter, VideoComposition, VideoCompositor};
 use crate::metadata::MetadataItem;
 use crate::output::{prepare_output, OutputPolicy};
-use crate::time::{Time, TimeRange};
 use crate::writer::FileType;
+use apple_cf::cm::{CMTime, CMTimeRange};
 
 /// `AVAssetExportSession` preset identifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -195,7 +195,8 @@ struct ExportSessionInfoPayload {
     error_message: Option<String>,
     progress: f32,
     supported_file_types: Vec<String>,
-    time_range: TimeRange,
+    #[serde(with = "crate::time::range")]
+    time_range: CMTimeRange,
     file_length_limit: i64,
     can_perform_multiple_passes_over_source_media_data: bool,
     directory_for_temporary_files: Option<String>,
@@ -469,11 +470,11 @@ impl ExportSession {
         decode_file_types(&raw, "compatible export file types")
     }
 
-    pub fn time_range(&self) -> Result<TimeRange, AVWriterError> {
+    pub fn time_range(&self) -> Result<CMTimeRange, AVWriterError> {
         Ok(self.info()?.time_range)
     }
 
-    pub fn set_time_range(&self, range: TimeRange) -> Result<(), AVWriterError> {
+    pub fn set_time_range(&self, range: CMTimeRange) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_time_range(
@@ -508,7 +509,7 @@ impl ExportSession {
         Ok(())
     }
 
-    pub fn estimated_maximum_duration(&self) -> Result<Time, AVWriterError> {
+    pub fn estimated_maximum_duration(&self) -> Result<CMTime, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let ptr = unsafe {
             ffi::av_export_session_estimated_maximum_duration_json(self.ptr, &raw mut err_msg)
@@ -516,7 +517,8 @@ impl ExportSession {
         if ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
-        parse_json_ptr(ptr, "estimated maximum duration")
+        parse_json_ptr::<crate::time::TimeJson>(ptr, "estimated maximum duration")
+            .map(|time| time.0)
     }
 
     pub fn estimated_output_file_length(&self) -> Result<i64, AVWriterError> {
@@ -724,6 +726,7 @@ impl core::fmt::Debug for ExportSession {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ExportSession")
             .field("ptr", &self.ptr)
+            .field("output_policy", &self.output_policy.get())
             .finish()
     }
 }

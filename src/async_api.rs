@@ -32,17 +32,18 @@
 //!
 //! ```rust,no_run
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use apple_cf::cm::CMTime;
 //! use avassetwriter::{FileType, Writer};
 //! use avassetwriter::async_api::{AsyncWriter, AsyncWriterInput};
 //!
 //! pollster::block_on(async {
 //!     let writer = Writer::create("out.m4a", FileType::M4a)?;
 //!     let input = writer.add_audio_input_pcm(48_000.0, 1, 16)?;
-//!     writer.start_session((0, 48_000))?;
+//!     writer.start_session(CMTime::new(0, 48_000))?;
 //!     let ready = AsyncWriterInput::request_media_data_when_ready(&writer, input, 4)?;
 //!     let _ = ready.next().await;
 //!     let silence = vec![0_u8; 48_000 * 2];
-//!     writer.append_audio_pcm(input, &silence, 48_000, (0, 48_000))?;
+//!     writer.append_audio_pcm(input, &silence, 48_000, CMTime::new(0, 48_000))?;
 //!     drop(ready);
 //!     AsyncWriter::finish(writer).await?;
 //!     Ok::<_, Box<dyn std::error::Error>>(())
@@ -492,6 +493,7 @@ impl AsyncExportSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use apple_cf::cm::CMTime;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -584,7 +586,7 @@ mod tests {
     fn legacy_ready_subscribe_keeps_context_caller_owned() {
         let (writer, input, path) = create_audio_writer("legacy-ready-owned-by-caller");
         writer
-            .start_session((0, 48_000))
+            .start_session(CMTime::new(0, 48_000))
             .expect("start writing session");
         let calls = Arc::new(AtomicUsize::new(0));
         let context = Box::into_raw(Box::new(ReadyContext {
@@ -620,7 +622,7 @@ mod tests {
     fn owned_ready_subscribe_drops_context_once_after_teardown() {
         let (writer, input, path) = create_audio_writer("owned-ready-teardown");
         writer
-            .start_session((0, 48_000))
+            .start_session(CMTime::new(0, 48_000))
             .expect("start writing session");
         let calls = Arc::new(AtomicUsize::new(0));
         let drops = Arc::new(AtomicUsize::new(0));

@@ -90,8 +90,8 @@ Legend:
 | `outputFileType` | ✅ implemented | `OutputSettingsAssistant::output_file_type`. |
 | `sourceAudioFormat` | ✅ implemented | Get/set `CMFormatDescription` hint. |
 | `sourceVideoFormat` | ✅ implemented | Get/set `CMFormatDescription` hint. |
-| `sourceVideoAverageFrameDuration` | ✅ implemented | Get/set `Time`. |
-| `sourceVideoMinFrameDuration` | ✅ implemented | Get/set `Time`. |
+| `sourceVideoAverageFrameDuration` | ✅ implemented | Get/set `CMTime`. |
+| `sourceVideoMinFrameDuration` | ✅ implemented | Get/set `CMTime`. |
 
 ## AVAssetExportSession
 

@@ -5,7 +5,7 @@ use core::ptr;
 use std::ffi::CString;
 use std::path::Path;
 
-use apple_cf::cm::CMSampleBuffer;
+use apple_cf::cm::{CMSampleBuffer, CMTime};
 
 mod extended;
 
@@ -409,18 +409,25 @@ impl Writer {
     }
 
     /// Begin writing. Subsequent [`Writer::append_sample`] calls will produce
-    /// output starting at `source_time` (numerator, timescale) — typically
-    /// the presentation time of your first sample.
+    /// output starting at `source_time` — typically the presentation time of
+    /// your first sample.
     ///
     /// # Errors
     ///
-    /// Returns [`AVWriterError::StartFailed`] if `AVAssetWriter` rejects the
-    /// session start (usually because no inputs were added or one is
-    /// misconfigured).
-    pub fn start_session(&self, source_time: (i64, i32)) -> Result<(), AVWriterError> {
+    /// Returns [`AVWriterError::InvalidArgument`] unless `source_time` is
+    /// numeric with a positive timescale, or [`AVWriterError::StartFailed`] if
+    /// `AVAssetWriter` rejects the session start (usually because no inputs
+    /// were added or one is misconfigured).
+    pub fn start_session(&self, source_time: CMTime) -> Result<(), AVWriterError> {
+        let source_time = require_numeric(source_time, "start_session source time")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_start_session(self.ptr, source_time.0, source_time.1, &raw mut err_msg)
+            ffi::av_writer_start_session(
+                self.ptr,
+                source_time.value,
+                source_time.timescale,
+                &raw mut err_msg,
+            )
         };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(ffi::status::WRITER_CREATE_FAILED, err_msg) });
@@ -468,9 +475,9 @@ impl Writer {
     /// `channels` and `bits_per_sample` match the values passed to
     /// `add_audio_input_pcm`.
     ///
-    /// `pts` is `(value, timescale)` of the first frame; `timescale` typically
-    /// equals the configured `sample_rate` so each `value` increment moves
-    /// forward by one frame.
+    /// `pts` is the presentation time of the first frame; its `timescale`
+    /// typically equals the configured `sample_rate` so each `value` increment
+    /// moves forward by one frame.
     ///
     /// # Errors
     ///
@@ -482,8 +489,9 @@ impl Writer {
         input_id: InputId,
         pcm_bytes: &[u8],
         frame_count: usize,
-        pts: (i64, i32),
+        pts: CMTime,
     ) -> Result<(), AVWriterError> {
+        let pts = require_numeric(pts, "append_audio_pcm presentation time")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_append_audio_pcm(
@@ -492,8 +500,8 @@ impl Writer {
                 pcm_bytes.as_ptr(),
                 pcm_bytes.len(),
                 frame_count,
-                pts.0,
-                pts.1,
+                pts.value,
+                pts.timescale,
                 &raw mut err_msg,
             )
         };
@@ -560,7 +568,8 @@ impl Writer {
     /// Returns [`AVWriterError::InputNotReady`] when the writer is
     /// momentarily back-pressured — the caller should retry after a few ms.
     ///
-    /// `pts` is the presentation time as `(value, timescale)`.
+    /// `pts` is the presentation time; it must be numeric with a positive
+    /// timescale.
     ///
     /// # Errors
     ///
@@ -569,16 +578,17 @@ impl Writer {
         &self,
         input_id: InputId,
         pixel_buffer: &apple_cf::cv::CVPixelBuffer,
-        pts: (i64, i32),
+        pts: CMTime,
     ) -> Result<(), AVWriterError> {
+        let pts = require_numeric(pts, "append_pixel_buffer presentation time")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_append_pixel_buffer(
                 self.ptr,
                 input_id.0,
                 pixel_buffer.as_ptr(),
-                pts.0,
-                pts.1,
+                pts.value,
+                pts.timescale,
                 &raw mut err_msg,
             )
         };
@@ -636,6 +646,16 @@ impl Writer {
     }
 }
 
+fn require_numeric(time: CMTime, what: &str) -> Result<CMTime, AVWriterError> {
+    if crate::time::is_numeric(&time) {
+        Ok(time)
+    } else {
+        Err(AVWriterError::InvalidArgument(format!(
+            "{what} must be a numeric CMTime with a positive timescale"
+        )))
+    }
+}
+
 impl Drop for Writer {
     fn drop(&mut self) {
         if !self.ptr.is_null() {
@@ -682,11 +702,11 @@ mod tests {
             Err(AVWriterError::InvalidState(_))
         ));
         assert!(matches!(
-            writer.end_session(crate::Time::invalid()),
+            writer.end_session(CMTime::INVALID),
             Err(AVWriterError::InvalidArgument(_))
         ));
         assert!(matches!(
-            writer.end_session(crate::Time::new(0, 0)),
+            writer.end_session(CMTime::new(0, 0)),
             Err(AVWriterError::InvalidArgument(_))
         ));
 
@@ -711,14 +731,14 @@ mod tests {
                 .add_audio_input_pcm(48_000.0, 1, 16)
                 .expect("add audio input");
             writer
-                .start_session((0, 48_000))
+                .start_session(CMTime::new(0, 48_000))
                 .expect("start audio writer");
 
             match action {
                 "finish" => {
                     let silence = vec![0_u8; 960];
                     writer
-                        .append_audio_pcm(input, &silence, 480, (0, 48_000))
+                        .append_audio_pcm(input, &silence, 480, CMTime::new(0, 48_000))
                         .expect("append silence");
                     writer.finish().expect("finish audio writer");
                 }

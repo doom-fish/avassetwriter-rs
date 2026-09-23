@@ -10,13 +10,14 @@ use crate::bridge_support::{cstring_arg, parse_json_ptr, serialize_json};
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
 use crate::metadata::{KeyLoadStatus, KeyLoadStatusPayload, KeyValueStatus, MetadataItem};
-use crate::time::Time;
+use apple_cf::cm::CMTime;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AssetInfoPayload {
     url: Option<String>,
-    duration: Time,
+    #[serde(with = "crate::time")]
+    duration: CMTime,
 }
 
 /// Safe wrapper around `AVAsset` / `AVURLAsset` for file- and URL-backed assets.
@@ -55,7 +56,7 @@ impl Asset {
     }
 
     /// Asset duration.
-    pub fn duration(&self) -> Result<Time, AVWriterError> {
+    pub fn duration(&self) -> Result<CMTime, AVWriterError> {
         Ok(self.info()?.duration)
     }
 

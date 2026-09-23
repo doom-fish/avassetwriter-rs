@@ -21,7 +21,7 @@ use crate::bridge_support::{
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
 use crate::media_processing::MetadataItemFilter;
-use crate::time::TimeRange;
+use apple_cf::cm::CMTimeRange;
 
 /// A metadata value supported by the AVFoundation bridge payloads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -57,7 +57,8 @@ struct MetadataItemPropertiesPayload {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TimedMetadataGroupPropertiesPayload {
-    time_range: TimeRange,
+    #[serde(with = "crate::time::range")]
+    time_range: CMTimeRange,
     classifying_label: Option<String>,
     unique_id: Option<String>,
 }
@@ -624,7 +625,7 @@ impl MetadataGroup {
 /// Safe wrapper around `AVTimedMetadataGroup`.
 pub struct TimedMetadataGroup {
     items: Vec<MetadataItem>,
-    time_range: TimeRange,
+    time_range: CMTimeRange,
     classifying_label: Option<String>,
     unique_id: Option<String>,
     ptr: Cell<*mut c_void>,
@@ -680,7 +681,7 @@ crate::utils::retained::av_retained!(
 
 impl TimedMetadataGroup {
     #[must_use]
-    pub fn new(items: Vec<MetadataItem>, time_range: TimeRange) -> Self {
+    pub fn new(items: Vec<MetadataItem>, time_range: CMTimeRange) -> Self {
         Self {
             items,
             time_range,
@@ -696,7 +697,7 @@ impl TimedMetadataGroup {
     }
 
     #[must_use]
-    pub const fn time_range(&self) -> TimeRange {
+    pub const fn time_range(&self) -> CMTimeRange {
         self.time_range
     }
 
@@ -1234,7 +1235,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::time::Time;
+    use apple_cf::cm::CMTime;
 
     #[test]
     fn timed_group_materialization_and_clone_keep_lazy_item() {
@@ -1250,7 +1251,7 @@ mod tests {
         .expect("lazy metadata item should be created");
         let group = TimedMetadataGroup::new(
             vec![lazy.clone()],
-            TimeRange::new(Time::new(0, 600), Time::new(600, 600)),
+            CMTimeRange::new(CMTime::new(0, 600), CMTime::new(600, 600)),
         );
 
         group

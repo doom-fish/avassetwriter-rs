@@ -8,6 +8,7 @@
 
 #![allow(clippy::too_many_lines)]
 
+use apple_cf::cm::CMTime;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -30,11 +31,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("configure writer");
     writer.set_optimize_for_network_use(true);
     writer.set_directory_for_temporary_files(&temp_dir)?;
-    writer.set_movie_fragment_interval((1, 1))?;
-    writer.set_initial_movie_fragment_interval((1, 2))?;
+    writer.set_movie_fragment_interval(CMTime::new(1, 1))?;
+    writer.set_initial_movie_fragment_interval(CMTime::new(1, 2))?;
     writer.set_initial_movie_fragment_sequence_number(7)?;
     writer.set_produces_combinable_fragments(true)?;
-    writer.set_overall_duration_hint((120, 60))?;
+    writer.set_overall_duration_hint(CMTime::new(120, 60))?;
     writer.set_movie_time_scale(600)?;
     writer.set_metadata(&[MetadataItem::string(
         "mdta/com.apple.quicktime.title",
@@ -72,11 +73,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         writer.directory_for_temporary_files()?,
         Some(temp_dir.to_string_lossy().into_owned())
     );
-    assert_eq!(writer.movie_fragment_interval()?, Time::new(1, 1));
-    assert_eq!(writer.initial_movie_fragment_interval()?, Time::new(1, 2));
+    assert_eq!(writer.movie_fragment_interval()?, CMTime::new(1, 1));
+    assert_eq!(writer.initial_movie_fragment_interval()?, CMTime::new(1, 2));
     assert_eq!(writer.initial_movie_fragment_sequence_number()?, 7);
     assert!(writer.produces_combinable_fragments()?);
-    assert_eq!(writer.overall_duration_hint()?, Time::new(120, 60));
+    assert_eq!(writer.overall_duration_hint()?, CMTime::new(120, 60));
     assert_eq!(writer.movie_time_scale()?, 600);
     assert!(writer.available_media_types()?.contains(&MediaType::Video));
     assert_eq!(writer.inputs()?.len(), 4);
@@ -110,16 +111,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let segmented = Writer::create_segmented(FileType::Mp4, None, move |_| {
         *on_segment_count.lock().expect("segment mutex poisoned") += 1;
     })?;
-    segmented.set_preferred_output_segment_interval((2, 1))?;
-    segmented.set_initial_segment_start_time((0, 1))?;
+    segmented.set_preferred_output_segment_interval(CMTime::new(2, 1))?;
+    segmented.set_initial_segment_start_time(CMTime::new(0, 1))?;
     assert_eq!(segmented.status()?, WriterStatus::Unknown);
     assert_eq!(segmented.output_file_type()?, Some(FileType::Mp4));
     assert_eq!(segmented.output_file_type_profile()?, None);
     assert_eq!(
         segmented.preferred_output_segment_interval()?,
-        Time::new(2, 1)
+        CMTime::new(2, 1)
     );
-    assert_eq!(segmented.initial_segment_start_time()?, Time::new(0, 1));
+    assert_eq!(segmented.initial_segment_start_time()?, CMTime::new(0, 1));
     assert_eq!(*segment_count.lock().expect("segment mutex poisoned"), 0);
 
     println!(

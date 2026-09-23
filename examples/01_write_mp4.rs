@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .cm_sample_buffer()
             .expect("first frame must have a sample buffer"),
     )?;
-    writer.start_session((0, fps))?;
+    writer.start_session(CMTime::new(0, fps))?;
     writer.append_sample(
         input_id,
         first_encoded

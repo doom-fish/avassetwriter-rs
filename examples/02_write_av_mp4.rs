@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("first frame sample buffer"),
     )?;
     let audio_input = writer.add_audio_input_pcm(sample_rate, channels, bits_per_sample)?;
-    writer.start_session((0, video_fps))?;
+    writer.start_session(CMTime::new(0, video_fps))?;
 
     // 1. Write the video track
     writer.append_sample(
@@ -102,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         audio_input,
         pcm_bytes,
         total_audio_frames,
-        (0, sample_rate as i32),
+        CMTime::new(0, sample_rate as i32),
     )?;
     println!(
         "wrote {total_audio_frames} audio frames ({:.1}s @ {sample_rate} Hz stereo)",

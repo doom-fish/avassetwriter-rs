@@ -18,7 +18,7 @@ use crate::bridge_support::{
 };
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
-use crate::time::{Time, TimeRange};
+use apple_cf::cm::{CMTime, CMTimeRange};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -85,7 +85,8 @@ struct AudioMixInputParametersInfoPayload {
 struct AudioVolumeRampPayload {
     start_volume: f32,
     end_volume: f32,
-    time_range: TimeRange,
+    #[serde(with = "crate::time::range")]
+    time_range: CMTimeRange,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,7 +99,8 @@ struct SizePayload {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VideoCompositionInfoPayload {
-    frame_duration: Time,
+    #[serde(with = "crate::time")]
+    frame_duration: CMTime,
     render_size: SizePayload,
     render_scale: f32,
     instruction_count: usize,
@@ -132,7 +134,8 @@ struct AsynchronousVideoCompositionRequestPayload {
     wire_format_version: u32,
     #[serde(default)]
     generation: u64,
-    composition_time: Time,
+    #[serde(with = "crate::time")]
+    composition_time: CMTime,
     #[serde(rename = "sourceTrackIDs", alias = "sourceTrackIds")]
     source_track_ids: Vec<i32>,
     #[serde(
@@ -152,7 +155,8 @@ struct AsynchronousCIImageFilteringRequestPayload {
     wire_format_version: u32,
     #[serde(default)]
     generation: u64,
-    composition_time: Time,
+    #[serde(with = "crate::time")]
+    composition_time: CMTime,
     render_size: SizePayload,
     source_image_extent: RectPayload,
 }
@@ -195,7 +199,8 @@ pub struct ImageRect {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AsynchronousVideoCompositionRequest {
-    pub composition_time: Time,
+    #[serde(with = "crate::time")]
+    pub composition_time: CMTime,
     #[serde(rename = "sourceTrackIDs", alias = "sourceTrackIds")]
     pub source_track_ids: Vec<i32>,
     #[serde(
@@ -212,7 +217,8 @@ pub struct AsynchronousVideoCompositionRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AsynchronousCIImageFilteringRequest {
-    pub composition_time: Time,
+    #[serde(with = "crate::time")]
+    pub composition_time: CMTime,
     pub render_size: (f64, f64),
     pub source_image_extent: ImageRect,
 }
@@ -284,7 +290,7 @@ unsafe impl Send for VideoCompositionRequest {}
 
 impl VideoCompositionRequest {
     /// Return the requested composition time.
-    pub fn composition_time(&self) -> Result<Time, AVWriterError> {
+    pub fn composition_time(&self) -> Result<CMTime, AVWriterError> {
         let mut value = 0_i64;
         let mut scale = 0_i32;
         let mut kind = 0_i32;
@@ -627,7 +633,7 @@ impl core::fmt::Debug for MetadataItemFilter {
 pub struct AudioVolumeRamp {
     pub start_volume: f32,
     pub end_volume: f32,
-    pub time_range: TimeRange,
+    pub time_range: CMTimeRange,
 }
 
 /// Safe wrapper around `AVAudioMix`.
@@ -712,9 +718,8 @@ impl AudioMixInputParameters {
 
     pub fn volume_ramp_for_time(
         &self,
-        time: impl Into<Time>,
+        time: CMTime,
     ) -> Result<Option<AudioVolumeRamp>, AVWriterError> {
-        let time = time.into();
         let mut err_msg: *mut c_char = ptr::null_mut();
         let ptr = unsafe {
             ffi::av_audio_mix_input_parameters_volume_ramp_json(
@@ -837,8 +842,7 @@ impl MutableAudioMixInputParameters {
         Ok(())
     }
 
-    pub fn set_volume(&self, volume: f32, time: impl Into<Time>) -> Result<(), AVWriterError> {
-        let time = time.into();
+    pub fn set_volume(&self, volume: f32, time: CMTime) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
             ffi::av_audio_mix_input_parameters_set_volume(
@@ -860,7 +864,7 @@ impl MutableAudioMixInputParameters {
         &self,
         start_volume: f32,
         end_volume: f32,
-        time_range: TimeRange,
+        time_range: CMTimeRange,
     ) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
@@ -998,7 +1002,7 @@ impl VideoComposition {
     }
 
     /// Return the composition frame duration.
-    pub fn frame_duration(&self) -> Result<Time, AVWriterError> {
+    pub fn frame_duration(&self) -> Result<CMTime, AVWriterError> {
         Ok(self.info()?.frame_duration)
     }
 
@@ -1338,13 +1342,13 @@ fn validate_snapshot_header(
     Ok(())
 }
 
-fn time_from_ffi_parts(value: i64, scale: i32, kind: i32) -> Result<Time, AVWriterError> {
+fn time_from_ffi_parts(value: i64, scale: i32, kind: i32) -> Result<CMTime, AVWriterError> {
     match kind {
-        0 => Ok(Time::new(value, scale)),
-        1 => Ok(Time::invalid()),
-        2 => Ok(Time::indefinite()),
-        3 => Ok(Time::positive_infinity()),
-        4 => Ok(Time::negative_infinity()),
+        0 => Ok(CMTime::new(value, scale)),
+        1 => Ok(CMTime::INVALID),
+        2 => Ok(CMTime::indefinite()),
+        3 => Ok(CMTime::positive_infinity()),
+        4 => Ok(CMTime::negative_infinity()),
         other => Err(AVWriterError::InvalidState(format!(
             "swift bridge returned unknown time kind {other}"
         ))),
@@ -1444,7 +1448,7 @@ mod tests {
     #[test]
     fn public_snapshot_serializes_exact_id_keys() {
         let snapshot = AsynchronousVideoCompositionRequest {
-            composition_time: Time::new(0, 30),
+            composition_time: CMTime::new(0, 30),
             source_track_ids: vec![1],
             source_sample_data_track_ids: vec![2],
             render_size: (640.0, 480.0),

@@ -21,7 +21,7 @@
 //! use std::path::PathBuf;
 //!
 //! use avassetwriter::{FileType, Writer};
-//! use apple_cf::cm::CMSampleBuffer;
+//! use apple_cf::cm::{CMSampleBuffer, CMTime};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let sample: &CMSampleBuffer = unreachable!("doctest stub");
@@ -30,7 +30,7 @@
 //! let output = artifacts.join("out.mp4");
 //! let writer = Writer::create(&output, FileType::Mp4)?;
 //! let input_id = writer.add_video_input_from_sample(sample)?;
-//! writer.start_session((0, 60))?;
+//! writer.start_session(CMTime::new(0, 60))?;
 //! writer.append_sample(input_id, sample)?;
 //! writer.finish()?;
 //! # Ok(())
@@ -55,7 +55,7 @@ pub mod media_processing;
 pub mod metadata;
 mod output;
 pub mod output_settings;
-pub mod time;
+mod time;
 pub(crate) mod utils;
 pub mod writer;
 
@@ -92,7 +92,6 @@ pub use metadata::{
 };
 pub use output::OutputPolicy;
 pub use output_settings::OutputSettingsAssistant;
-pub use time::{Time, TimeRange};
 pub use writer::{
     FileType, FileTypeProfile, InputGroupInfo, InputId, InputMediaDataLocation,
     InputPassDescription, MediaType, SegmentOutput, SegmentReport, SegmentReportSampleInfo,
@@ -138,10 +137,10 @@ pub mod prelude {
     };
     pub use crate::output::OutputPolicy;
     pub use crate::output_settings::OutputSettingsAssistant;
-    pub use crate::time::{Time, TimeRange};
     pub use crate::writer::{
         FileType, FileTypeProfile, InputGroupInfo, InputId, InputMediaDataLocation,
         InputPassDescription, MediaType, TaggedPixelBuffer, TrackAssociationType, VideoPreset,
         Writer, WriterStatus,
     };
+    pub use apple_cf::cm::{CMTime, CMTimeRange};
 }

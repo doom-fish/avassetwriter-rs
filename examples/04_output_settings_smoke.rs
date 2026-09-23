@@ -1,6 +1,7 @@
+use apple_cf::cm::CMTime;
 use std::path::PathBuf;
 
-use avassetwriter::{FileType, OutputSettingsAssistant, Time, VideoPreset, Writer};
+use avassetwriter::{FileType, OutputSettingsAssistant, VideoPreset, Writer};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let artifacts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/example-artifacts");
@@ -13,8 +14,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let assistant = OutputSettingsAssistant::new(VideoPreset::Hd1280x720)?;
     assistant.set_source_audio_format(None)?;
     assistant.set_source_video_format(None)?;
-    assistant.set_source_video_average_frame_duration(Time::new(1, 30))?;
-    assistant.set_source_video_min_frame_duration(Time::new(1, 60))?;
+    assistant.set_source_video_average_frame_duration(CMTime::new(1, 30))?;
+    assistant.set_source_video_min_frame_duration(CMTime::new(1, 60))?;
 
     let output = artifacts.join("output-settings-smoke.mov");
     if output.exists() {

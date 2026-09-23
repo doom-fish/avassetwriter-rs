@@ -6,7 +6,7 @@ use serde_json::Value as JsonValue;
 
 use crate::error::AVWriterError;
 use crate::ffi;
-use crate::time::Time;
+use apple_cf::cm::CMTime;
 
 pub fn serialize_json<T: ?Sized + Serialize>(value: &T) -> Result<String, AVWriterError> {
     serde_json::to_string(value).map_err(|e| {
@@ -53,26 +53,32 @@ pub fn take_swift_string(ptr: *mut c_char) -> Option<String> {
     }
 }
 
-pub const fn time_kind(time: &Time) -> i32 {
-    match time {
-        Time::Numeric { .. } => 0,
-        Time::Invalid => 1,
-        Time::Indefinite => 2,
-        Time::PositiveInfinity => 3,
-        Time::NegativeInfinity => 4,
+pub const fn time_kind(time: &CMTime) -> i32 {
+    if time.is_indefinite() {
+        2
+    } else if time.is_positive_infinity() {
+        3
+    } else if time.is_negative_infinity() {
+        4
+    } else if crate::time::is_numeric(time) {
+        0
+    } else {
+        1
     }
 }
 
-pub const fn time_value(time: &Time) -> i64 {
-    match time {
-        Time::Numeric { value, .. } => *value,
-        Time::Invalid | Time::Indefinite | Time::PositiveInfinity | Time::NegativeInfinity => 0,
+pub const fn time_value(time: &CMTime) -> i64 {
+    if crate::time::is_numeric(time) {
+        time.value
+    } else {
+        0
     }
 }
 
-pub const fn time_scale(time: &Time) -> i32 {
-    match time {
-        Time::Numeric { timescale, .. } => *timescale,
-        Time::Invalid | Time::Indefinite | Time::PositiveInfinity | Time::NegativeInfinity => 0,
+pub const fn time_scale(time: &CMTime) -> i32 {
+    if crate::time::is_numeric(time) {
+        time.timescale
+    } else {
+        0
     }
 }

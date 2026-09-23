@@ -11,7 +11,7 @@ pub enum OutputPolicy {
     ReplaceFile,
 }
 
-pub(crate) fn prepare_output(
+pub fn prepare_output(
     path: &Path,
     policy: OutputPolicy,
     source: Option<&Path>,

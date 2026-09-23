@@ -12,8 +12,8 @@ use crate::bridge_support::{
 };
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
-use crate::time::Time;
 use crate::writer::{FileType, VideoPreset};
+use apple_cf::cm::CMTime;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,8 +21,10 @@ struct OutputSettingsAssistantInfoPayload {
     audio_settings_json: Option<String>,
     video_settings_json: Option<String>,
     output_file_type: Option<String>,
-    source_video_average_frame_duration: Time,
-    source_video_min_frame_duration: Time,
+    #[serde(with = "crate::time")]
+    source_video_average_frame_duration: CMTime,
+    #[serde(with = "crate::time")]
+    source_video_min_frame_duration: CMTime,
 }
 
 /// Safe wrapper around `AVOutputSettingsAssistant`.
@@ -139,16 +141,15 @@ impl OutputSettingsAssistant {
     }
 
     /// Return the configured source-video average frame duration.
-    pub fn source_video_average_frame_duration(&self) -> Result<Time, AVWriterError> {
+    pub fn source_video_average_frame_duration(&self) -> Result<CMTime, AVWriterError> {
         Ok(self.info()?.source_video_average_frame_duration)
     }
 
     /// Set the source-video average frame duration used for recommendations.
     pub fn set_source_video_average_frame_duration(
         &self,
-        duration: impl Into<Time>,
+        duration: CMTime,
     ) -> Result<(), AVWriterError> {
-        let duration = duration.into();
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
             ffi::av_output_settings_assistant_set_source_video_average_frame_duration(
@@ -166,16 +167,15 @@ impl OutputSettingsAssistant {
     }
 
     /// Return the configured source-video minimum frame duration.
-    pub fn source_video_min_frame_duration(&self) -> Result<Time, AVWriterError> {
+    pub fn source_video_min_frame_duration(&self) -> Result<CMTime, AVWriterError> {
         Ok(self.info()?.source_video_min_frame_duration)
     }
 
     /// Set the source-video minimum frame duration used for recommendations.
     pub fn set_source_video_min_frame_duration(
         &self,
-        duration: impl Into<Time>,
+        duration: CMTime,
     ) -> Result<(), AVWriterError> {
-        let duration = duration.into();
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
             ffi::av_output_settings_assistant_set_source_video_min_frame_duration(

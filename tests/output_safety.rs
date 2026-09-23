@@ -1,3 +1,4 @@
+use apple_cf::cm::CMTime;
 use std::path::{Path, PathBuf};
 
 use avassetwriter::{AVWriterError, ExportPreset, ExportSession, FileType, OutputPolicy, Writer};
@@ -13,8 +14,8 @@ fn scratch(name: &str) -> PathBuf {
 
 fn write_silence(writer: Writer) -> Result<(), AVWriterError> {
     let input = writer.add_audio_input_pcm(48_000.0, 1, 16)?;
-    writer.start_session((0, 48_000))?;
-    writer.append_audio_pcm(input, &[0_u8; 9_600], 4_800, (0, 48_000))?;
+    writer.start_session(CMTime::new(0, 48_000))?;
+    writer.append_audio_pcm(input, &[0_u8; 9_600], 4_800, CMTime::new(0, 48_000))?;
     writer.finish()
 }
 

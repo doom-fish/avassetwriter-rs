@@ -19,8 +19,8 @@ use crate::bridge_support::{
 };
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
-use crate::time::{Time, TimeRange};
 use crate::writer::MediaType;
+use apple_cf::cm::{CMTime, CMTimeRange};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,8 +43,10 @@ pub struct CompositionTransform {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompositionTimeMapping {
-    pub source: TimeRange,
-    pub target: TimeRange,
+    #[serde(with = "crate::time::range")]
+    pub source: CMTimeRange,
+    #[serde(with = "crate::time::range")]
+    pub target: CMTimeRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,7 +61,8 @@ pub struct FormatDescriptionSummary {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompositionInfo {
-    pub duration: Time,
+    #[serde(with = "crate::time")]
+    pub duration: CMTime,
     pub natural_size: CompositionSize,
     pub is_playable: bool,
     pub is_exportable: bool,
@@ -80,7 +83,8 @@ pub struct CompositionTrackInfo {
     pub is_enabled: bool,
     pub is_self_contained: bool,
     pub total_sample_data_length: i64,
-    pub time_range: TimeRange,
+    #[serde(with = "crate::time::range")]
+    pub time_range: CMTimeRange,
     pub natural_time_scale: i32,
     pub estimated_data_rate: f32,
     pub language_code: Option<String>,
@@ -90,7 +94,8 @@ pub struct CompositionTrackInfo {
     pub preferred_volume: f32,
     pub has_audio_sample_dependencies: bool,
     pub nominal_frame_rate: f32,
-    pub min_frame_duration: Time,
+    #[serde(with = "crate::time")]
+    pub min_frame_duration: CMTime,
     pub requires_frame_reordering: bool,
     pub segment_count: usize,
     pub format_description_count: usize,
@@ -123,7 +128,8 @@ pub struct CompositionTrackFormatDescriptionReplacementInfo {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CompositionInfoPayload {
-    duration: Time,
+    #[serde(with = "crate::time")]
+    duration: CMTime,
     natural_size: CompositionSize,
     is_playable: bool,
     is_exportable: bool,
@@ -144,7 +150,8 @@ struct CompositionTrackInfoPayload {
     is_enabled: bool,
     is_self_contained: bool,
     total_sample_data_length: i64,
-    time_range: TimeRange,
+    #[serde(with = "crate::time::range")]
+    time_range: CMTimeRange,
     natural_time_scale: i32,
     estimated_data_rate: f32,
     language_code: Option<String>,
@@ -154,7 +161,8 @@ struct CompositionTrackInfoPayload {
     preferred_volume: f32,
     has_audio_sample_dependencies: bool,
     nominal_frame_rate: f32,
-    min_frame_duration: Time,
+    #[serde(with = "crate::time")]
+    min_frame_duration: CMTime,
     requires_frame_reordering: bool,
     segment_count: usize,
     format_description_count: usize,
@@ -247,7 +255,7 @@ impl Composition {
         decode_composition_info(self.info_payload()?)
     }
 
-    pub fn duration(&self) -> Result<Time, AVWriterError> {
+    pub fn duration(&self) -> Result<CMTime, AVWriterError> {
         Ok(self.snapshot()?.duration)
     }
 
@@ -404,7 +412,7 @@ impl CompositionTrack {
         Ok(self.snapshot()?.total_sample_data_length)
     }
 
-    pub fn time_range(&self) -> Result<TimeRange, AVWriterError> {
+    pub fn time_range(&self) -> Result<CMTimeRange, AVWriterError> {
         Ok(self.snapshot()?.time_range)
     }
 
@@ -445,7 +453,7 @@ impl CompositionTrack {
         Ok(self.snapshot()?.nominal_frame_rate)
     }
 
-    pub fn min_frame_duration(&self) -> Result<Time, AVWriterError> {
+    pub fn min_frame_duration(&self) -> Result<CMTime, AVWriterError> {
         Ok(self.snapshot()?.min_frame_duration)
     }
 
@@ -471,9 +479,8 @@ impl CompositionTrack {
 
     pub fn segment_for_track_time(
         &self,
-        track_time: impl Into<Time>,
+        track_time: CMTime,
     ) -> Result<Option<CompositionTrackSegment>, AVWriterError> {
-        let track_time = track_time.into();
         Ok(CompositionTrackSegment::from_raw(unsafe {
             ffi::av_composition_track_segment_for_track_time(
                 self.ptr,
@@ -499,9 +506,8 @@ impl CompositionTrack {
 
     pub fn sample_presentation_time_for_track_time(
         &self,
-        track_time: impl Into<Time>,
-    ) -> Result<Time, AVWriterError> {
-        let track_time = track_time.into();
+        track_time: CMTime,
+    ) -> Result<CMTime, AVWriterError> {
         let ptr = unsafe {
             ffi::av_composition_track_sample_presentation_time_json(
                 self.ptr,
@@ -510,7 +516,8 @@ impl CompositionTrack {
                 time_kind(&track_time),
             )
         };
-        parse_json_ptr(ptr, "composition track sample presentation time")
+        parse_json_ptr::<crate::time::TimeJson>(ptr, "composition track sample presentation time")
+            .map(|time| time.0)
     }
 
     pub fn format_description_count(&self) -> usize {
@@ -593,8 +600,8 @@ impl CompositionTrackSegment {
     pub fn from_source_file_path(
         path: impl AsRef<Path>,
         track_id: i32,
-        source_time_range: TimeRange,
-        target_time_range: TimeRange,
+        source_time_range: CMTimeRange,
+        target_time_range: CMTimeRange,
     ) -> Result<Self, AVWriterError> {
         let path = path
             .as_ref()
@@ -606,8 +613,8 @@ impl CompositionTrackSegment {
     pub fn from_source_url(
         url: impl AsRef<str>,
         track_id: i32,
-        source_time_range: TimeRange,
-        target_time_range: TimeRange,
+        source_time_range: CMTimeRange,
+        target_time_range: CMTimeRange,
     ) -> Result<Self, AVWriterError> {
         Self::from_raw_url(
             url.as_ref(),
@@ -618,7 +625,7 @@ impl CompositionTrackSegment {
         )
     }
 
-    pub fn empty(time_range: TimeRange) -> Result<Self, AVWriterError> {
+    pub fn empty(time_range: CMTimeRange) -> Result<Self, AVWriterError> {
         let ptr = unsafe {
             ffi::av_composition_track_segment_create_empty(
                 time_value(&time_range.start),
@@ -666,8 +673,8 @@ impl CompositionTrackSegment {
         url: &str,
         is_file_url: bool,
         track_id: i32,
-        source_time_range: TimeRange,
-        target_time_range: TimeRange,
+        source_time_range: CMTimeRange,
+        target_time_range: CMTimeRange,
     ) -> Result<Self, AVWriterError> {
         let url_c = cstring_arg(url, "segment source URL")?;
         let mut err_msg: *mut c_char = ptr::null_mut();

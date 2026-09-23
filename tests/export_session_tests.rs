@@ -9,11 +9,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
-use apple_cf::cm::CMTime;
+use apple_cf::cm::{CMTime, CMTimeRange};
 use apple_cf::iosurface::{IOSurface, IOSurfaceLockOptions};
 use avassetwriter::{
     AudioMix, Composition, CompositionTrackSegment, ExportPreset, ExportSession, ExportStatus,
-    FileType, MediaType, MetadataItem, MetadataItemFilter, MetadataItemFilterKind, Time, TimeRange,
+    FileType, MediaType, MetadataItem, MetadataItemFilter, MetadataItemFilterKind,
     TrackGroupOutputHandling, VideoComposition, VideoCompositionRequest, VideoCompositor,
     VideoCompositorClass, Writer,
 };
@@ -85,9 +85,9 @@ fn export_session_smoke() -> Result<(), Box<dyn std::error::Error>> {
     session.set_output_file_type(Some(output_type))?;
     session.set_output_path(Some(output.as_path()))?;
     session.set_should_optimize_for_network_use(true)?;
-    session.set_time_range(TimeRange::new(
-        Time::new(0, FPS),
-        Time::new(i64::from(TOTAL_FRAMES), FPS),
+    session.set_time_range(CMTimeRange::new(
+        CMTime::new(0, FPS),
+        CMTime::new(i64::from(TOTAL_FRAMES), FPS),
     ))?;
     session.set_metadata(&[MetadataItem::string(
         "mdta/com.apple.quicktime.title",
@@ -140,9 +140,9 @@ fn export_session_smoke() -> Result<(), Box<dyn std::error::Error>> {
     session.set_output_file_type(Some(output_type))?;
     session.set_output_path(Some(output.as_path()))?;
     session.set_should_optimize_for_network_use(true)?;
-    session.set_time_range(TimeRange::new(
-        Time::new(0, FPS),
-        Time::new(i64::from(TOTAL_FRAMES), FPS),
+    session.set_time_range(CMTimeRange::new(
+        CMTime::new(0, FPS),
+        CMTime::new(i64::from(TOTAL_FRAMES), FPS),
     ))?;
     session.set_metadata(&[MetadataItem::string(
         "mdta/com.apple.quicktime.title",
@@ -235,7 +235,7 @@ fn composition_smoke() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let segment = track
-        .segment_for_track_time(Time::new(0, FPS))?
+        .segment_for_track_time(CMTime::new(0, FPS))?
         .expect("composition track should vend a segment at t=0");
     assert!(!segment.is_empty()?);
     assert!(segment.source_url()?.is_some());
@@ -250,8 +250,8 @@ fn composition_smoke() -> Result<(), Box<dyn std::error::Error>> {
     let constructed_segment = CompositionTrackSegment::from_source_file_path(
         &source,
         source_track_id,
-        TimeRange::new(Time::new(0, FPS), Time::new(1, FPS)),
-        TimeRange::new(Time::new(0, FPS), Time::new(1, FPS)),
+        CMTimeRange::new(CMTime::new(0, FPS), CMTime::new(1, FPS)),
+        CMTimeRange::new(CMTime::new(0, FPS), CMTime::new(1, FPS)),
     )?;
     assert!(!constructed_segment.is_empty()?);
     assert_eq!(
@@ -260,12 +260,12 @@ fn composition_smoke() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let empty_segment =
-        CompositionTrackSegment::empty(TimeRange::new(Time::new(1, FPS), Time::new(1, FPS)))?;
+        CompositionTrackSegment::empty(CMTimeRange::new(CMTime::new(1, FPS), CMTime::new(1, FPS)))?;
     assert!(empty_segment.is_empty()?);
     assert!(empty_segment.source_url()?.is_none());
 
-    let sample_time = track.sample_presentation_time_for_track_time(Time::new(0, FPS))?;
-    assert!(sample_time.as_numeric().is_some());
+    let sample_time = track.sample_presentation_time_for_track_time(CMTime::new(0, FPS))?;
+    assert!(sample_time.is_numeric());
 
     Ok(())
 }
@@ -497,7 +497,7 @@ fn write_test_asset(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
             .cm_sample_buffer()
             .expect("first encoded frame should have a CMSampleBuffer"),
     )?;
-    writer.start_session((0, FPS))?;
+    writer.start_session(CMTime::new(0, FPS))?;
     writer.append_sample(
         input,
         first_frame

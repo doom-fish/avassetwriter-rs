@@ -1,6 +1,7 @@
+use apple_cf::cm::CMTime;
 use std::path::PathBuf;
 
-use avassetwriter::{FileType, MediaType, OutputSettingsAssistant, Time, VideoPreset, Writer};
+use avassetwriter::{FileType, MediaType, OutputSettingsAssistant, VideoPreset, Writer};
 
 fn artifacts_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-artifacts")
@@ -17,16 +18,16 @@ fn output_settings_assistant_smoke() -> Result<(), Box<dyn std::error::Error>> {
 
     assistant.set_source_audio_format(None)?;
     assistant.set_source_video_format(None)?;
-    assistant.set_source_video_average_frame_duration(Time::new(1, 30))?;
-    assistant.set_source_video_min_frame_duration(Time::new(1, 60))?;
+    assistant.set_source_video_average_frame_duration(CMTime::new(1, 30))?;
+    assistant.set_source_video_min_frame_duration(CMTime::new(1, 60))?;
 
     assert_eq!(
         assistant.source_video_average_frame_duration()?,
-        Time::new(1, 30)
+        CMTime::new(1, 30)
     );
     assert_eq!(
         assistant.source_video_min_frame_duration()?,
-        Time::new(1, 60)
+        CMTime::new(1, 60)
     );
     Ok(())
 }

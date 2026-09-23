@@ -18,7 +18,7 @@ use crate::bridge_support::{
 };
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
-use crate::time::{Time, TimeRange};
+use apple_cf::cm::{CMTime, CMTimeRange};
 
 fn missing_payload(what: &str) -> AVWriterError {
     AVWriterError::InvalidState(format!("swift bridge returned no {what} payload"))
@@ -397,7 +397,8 @@ impl CaptionRubySpan {
 #[serde(rename_all = "camelCase")]
 pub struct Caption {
     pub text: String,
-    pub time_range: TimeRange,
+    #[serde(with = "crate::time::range")]
+    pub time_range: CMTimeRange,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<CaptionRegion>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -410,7 +411,7 @@ pub struct Caption {
 
 impl Caption {
     #[must_use]
-    pub fn new(text: impl Into<String>, time_range: TimeRange) -> Self {
+    pub fn new(text: impl Into<String>, time_range: CMTimeRange) -> Self {
         Self {
             text: text.into(),
             time_range,
@@ -454,7 +455,7 @@ pub struct MutableCaption {
 
 impl MutableCaption {
     #[must_use]
-    pub fn new(text: impl Into<String>, time_range: TimeRange) -> Self {
+    pub fn new(text: impl Into<String>, time_range: CMTimeRange) -> Self {
         Self {
             caption: Caption::new(text, time_range),
         }
@@ -464,7 +465,7 @@ impl MutableCaption {
         self.caption.text = text.into();
     }
 
-    pub fn set_time_range(&mut self, time_range: TimeRange) {
+    pub fn set_time_range(&mut self, time_range: CMTimeRange) {
         self.caption.time_range = time_range;
     }
 
@@ -506,12 +507,13 @@ impl MutableCaption {
 #[serde(rename_all = "camelCase")]
 pub struct CaptionGroup {
     pub captions: Vec<Caption>,
-    pub time_range: TimeRange,
+    #[serde(with = "crate::time::range")]
+    pub time_range: CMTimeRange,
 }
 
 impl CaptionGroup {
     #[must_use]
-    pub fn new(captions: Vec<Caption>, time_range: TimeRange) -> Self {
+    pub fn new(captions: Vec<Caption>, time_range: CMTimeRange) -> Self {
         Self {
             captions,
             time_range,
@@ -519,7 +521,7 @@ impl CaptionGroup {
     }
 
     #[must_use]
-    pub fn empty(time_range: TimeRange) -> Self {
+    pub fn empty(time_range: CMTimeRange) -> Self {
         Self {
             captions: Vec::new(),
             time_range,
@@ -553,7 +555,8 @@ impl CaptionBounds {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptionRendererScene {
-    pub time_range: TimeRange,
+    #[serde(with = "crate::time::range")]
+    pub time_range: CMTimeRange,
     pub has_active_captions: bool,
     pub needs_periodic_refresh: bool,
 }
@@ -564,7 +567,8 @@ pub struct CaptionRendererScene {
 pub struct CaptionConversionSettings {
     pub media_subtype: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub time_code_frame_duration: Option<Time>,
+    #[serde(with = "crate::time::optional")]
+    pub time_code_frame_duration: Option<CMTime>,
     #[serde(default)]
     pub use_drop_frame_time_code: bool,
 }
@@ -611,9 +615,11 @@ impl CaptionConversionValidatorStatus {
 pub struct CaptionConversionAdjustment {
     pub adjustment_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub start_time_offset: Option<Time>,
+    #[serde(with = "crate::time::optional")]
+    pub start_time_offset: Option<CMTime>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub duration_offset: Option<Time>,
+    #[serde(with = "crate::time::optional")]
+    pub duration_offset: Option<CMTime>,
 }
 
 impl CaptionConversionAdjustment {
@@ -632,8 +638,10 @@ impl CaptionConversionAdjustment {
 #[serde(rename_all = "camelCase")]
 pub struct CaptionConversionTimeRangeAdjustment {
     pub adjustment_type: String,
-    pub start_time_offset: Time,
-    pub duration_offset: Time,
+    #[serde(with = "crate::time")]
+    pub start_time_offset: CMTime,
+    #[serde(with = "crate::time")]
+    pub duration_offset: CMTime,
 }
 
 /// One validator warning.
@@ -669,7 +677,8 @@ struct CaptionRendererInfoPayload {
 struct CaptionConversionValidatorInfoPayload {
     status: i32,
     captions: Vec<Caption>,
-    time_range: TimeRange,
+    #[serde(with = "crate::time::range")]
+    time_range: CMTimeRange,
     warnings: Vec<CaptionConversionWarning>,
 }
 
@@ -701,9 +710,8 @@ impl CaptionGrouper {
 
     pub fn flush_added_captions_up_to_time(
         &self,
-        up_to_time: impl Into<Time>,
+        up_to_time: CMTime,
     ) -> Result<Vec<CaptionGroup>, AVWriterError> {
-        let up_to_time = up_to_time.into();
         let mut err_msg: *mut c_char = ptr::null_mut();
         let ptr = unsafe {
             ffi::av_caption_grouper_flush_groups_json(
@@ -873,7 +881,7 @@ impl CaptionRenderer {
 
     pub fn caption_scene_changes(
         &self,
-        considered_time_range: TimeRange,
+        considered_time_range: CMTimeRange,
     ) -> Result<Vec<CaptionRendererScene>, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let ptr = unsafe {
@@ -930,7 +938,7 @@ unsafe impl Send for CaptionConversionValidator {}
 impl CaptionConversionValidator {
     pub fn new(
         captions: &[Caption],
-        time_range: TimeRange,
+        time_range: CMTimeRange,
         settings: &CaptionConversionSettings,
     ) -> Result<Self, AVWriterError> {
         let captions_json = serialize_json(captions)?;
@@ -970,7 +978,7 @@ impl CaptionConversionValidator {
         Ok(self.info()?.captions)
     }
 
-    pub fn time_range(&self) -> Result<TimeRange, AVWriterError> {
+    pub fn time_range(&self) -> Result<CMTimeRange, AVWriterError> {
         Ok(self.info()?.time_range)
     }
 

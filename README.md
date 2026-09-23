@@ -29,16 +29,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let writer = Writer::create(&output, FileType::Mp4)?;
 
     // Video: seed format from first encoded frame, then push every frame.
-    let first = encoder.encode(&surface, (0, 30))?;
+    let first = encoder.encode(&surface, CMTime::new(0, 30))?;
     let video = writer.add_video_input_from_sample(first.cm_sample_buffer().unwrap())?;
 
     // Audio: 48 kHz stereo i16 PCM → AAC 128 kbps.
     let audio = writer.add_audio_input_pcm(48_000.0, 2, 16)?;
 
-    writer.start_session((0, 30))?;
+    writer.start_session(CMTime::new(0, 30))?;
     writer.append_sample(video, first.cm_sample_buffer().unwrap())?;
     for i in 1..30 {
-        let frame = encoder.encode(&surface, (i64::from(i), 30))?;
+        let frame = encoder.encode(&surface, CMTime::new(i64::from(i), 30))?;
         writer.append_sample(video, frame.cm_sample_buffer().unwrap())?;
     }
 
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pcm_bytes: &[u8] = unsafe {
         std::slice::from_raw_parts(pcm.as_ptr().cast::<u8>(), std::mem::size_of_val(&pcm[..]))
     };
-    writer.append_audio_pcm(audio, pcm_bytes, 48_000, (0, 48_000))?;
+    writer.append_audio_pcm(audio, pcm_bytes, 48_000, CMTime::new(0, 48_000))?;
 
     writer.finish()?;
     Ok(())
@@ -75,6 +75,7 @@ stream:
 | `AsyncExportSession::compatible_file_types(session)` | `AVAssetExportSession.determineCompatibleFileTypesWithCompletionHandler:` |
 
 ```rust,no_run
+use apple_cf::cm::CMTime;
 use avassetwriter::{FileType, Writer};
 use avassetwriter::async_api::{AsyncWriter, AsyncWriterInput};
 
@@ -82,11 +83,11 @@ use avassetwriter::async_api::{AsyncWriter, AsyncWriterInput};
 pollster::block_on(async {
     let writer = Writer::create("out.m4a", FileType::M4a)?;
     let input = writer.add_audio_input_pcm(48_000.0, 1, 16)?;
-    writer.start_session((0, 48_000))?;
+    writer.start_session(CMTime::new(0, 48_000))?;
     let ready = AsyncWriterInput::request_media_data_when_ready(&writer, input, 4)?;
     let _ = ready.next().await;
     let silence = vec![0_u8; 48_000 * 2];
-    writer.append_audio_pcm(input, &silence, 48_000, (0, 48_000))?;
+    writer.append_audio_pcm(input, &silence, 48_000, CMTime::new(0, 48_000))?;
     drop(ready);
     AsyncWriter::finish(writer).await?;
     Ok::<_, Box<dyn std::error::Error>>(())

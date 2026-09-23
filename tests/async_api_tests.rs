@@ -7,6 +7,7 @@
 //! cargo test --test async_api_tests --features async
 //! ```
 
+use apple_cf::cm::CMTime;
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -34,7 +35,7 @@ fn async_writer_finish_happy_path() {
     // A writer with no inputs will still start successfully and finishWriting
     // will complete, though the output file may not contain any media tracks.
     writer
-        .start_session((0, 600))
+        .start_session(CMTime::new(0, 600))
         .expect("start_session failed");
     let result = pollster::block_on(AsyncWriter::finish(writer));
     assert!(
@@ -77,7 +78,7 @@ fn async_writer_input_ready_stream_happy_path() {
         .add_audio_input_pcm(48_000.0, 1, 16)
         .expect("add_audio_input_pcm failed");
     writer
-        .start_session((0, 48_000))
+        .start_session(CMTime::new(0, 48_000))
         .expect("start_session failed");
 
     let stream = AsyncWriterInput::request_media_data_when_ready(&writer, input, 4)
@@ -99,7 +100,7 @@ fn async_writer_input_ready_stream_happy_path() {
 
     let silence = vec![0_u8; 48_000 * 2];
     writer
-        .append_audio_pcm(input, &silence, 48_000, (0, 48_000))
+        .append_audio_pcm(input, &silence, 48_000, CMTime::new(0, 48_000))
         .expect("append_audio_pcm failed");
     drop(stream);
     pollster::block_on(AsyncWriter::finish(writer)).expect("finish failed");
@@ -118,7 +119,7 @@ fn async_compatible_file_types_happy_path() {
     let _ = std::fs::remove_file(&src);
     let writer = Writer::create(&src, FileType::Mp4).expect("Writer::create failed");
     writer
-        .start_session((0, 600))
+        .start_session(CMTime::new(0, 600))
         .expect("start_session failed");
     pollster::block_on(AsyncWriter::finish(writer)).expect("finish failed");
 
@@ -148,7 +149,7 @@ fn async_export_happy_path() {
     // Create minimal source file (properly started+finished).
     let writer = Writer::create(&src, FileType::Mp4).expect("Writer::create failed");
     writer
-        .start_session((0, 600))
+        .start_session(CMTime::new(0, 600))
         .expect("start_session failed");
     pollster::block_on(AsyncWriter::finish(writer)).expect("finish failed");
 
@@ -185,7 +186,7 @@ fn async_export_error_path_missing_output() {
     // Create minimal source file.
     let writer = Writer::create(&src, FileType::Mp4).expect("Writer::create failed");
     writer
-        .start_session((0, 600))
+        .start_session(CMTime::new(0, 600))
         .expect("start_session failed");
     pollster::block_on(AsyncWriter::finish(writer)).expect("finish failed");
 

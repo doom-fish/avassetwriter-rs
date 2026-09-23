@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use super::{FileType, InputId, Writer};
+use crate::bridge_support::{time_kind, time_scale, time_value};
 use crate::callbacks::{
     pass_description_callback_drop, pass_description_callback_trampoline, ready_callback_drop,
     ready_callback_trampoline, segment_callback_drop, segment_callback_trampoline,
@@ -26,7 +27,7 @@ use crate::caption::{Caption, CaptionGroup};
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
 use crate::metadata::{MetadataItem, MetadataSpecification, TimedMetadataGroup};
-use crate::time::{Time, TimeRange};
+use apple_cf::cm::{CMTime, CMTimeRange};
 
 /// `AVFileTypeProfile`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -199,7 +200,8 @@ impl TrackAssociationType {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InputPassDescription {
-    pub source_time_ranges: Vec<TimeRange>,
+    #[serde(with = "crate::time::ranges")]
+    pub source_time_ranges: Vec<CMTimeRange>,
 }
 
 /// `AVAssetSegmentType`.
@@ -227,7 +229,8 @@ impl SegmentType {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SegmentReportSampleInfo {
-    pub presentation_time_stamp: Time,
+    #[serde(with = "crate::time")]
+    pub presentation_time_stamp: CMTime,
     pub offset: i64,
     pub length: i64,
     pub is_sync_sample: bool,
@@ -239,8 +242,10 @@ pub struct SegmentReportSampleInfo {
 pub struct SegmentTrackReport {
     pub track_id: i32,
     pub media_type: MediaType,
-    pub earliest_presentation_time_stamp: Time,
-    pub duration: Time,
+    #[serde(with = "crate::time")]
+    pub earliest_presentation_time_stamp: CMTime,
+    #[serde(with = "crate::time")]
+    pub duration: CMTime,
     pub first_video_sample_information: Option<SegmentReportSampleInfo>,
 }
 
@@ -293,14 +298,19 @@ struct WriterInfoPayload {
     directory_for_temporary_files: Option<String>,
     inputs: Vec<i32>,
     input_groups: Vec<InputGroupPayload>,
-    movie_fragment_interval: Time,
-    initial_movie_fragment_interval: Time,
+    #[serde(with = "crate::time")]
+    movie_fragment_interval: CMTime,
+    #[serde(with = "crate::time")]
+    initial_movie_fragment_interval: CMTime,
     initial_movie_fragment_sequence_number: i64,
     produces_combinable_fragments: bool,
-    overall_duration_hint: Time,
+    #[serde(with = "crate::time")]
+    overall_duration_hint: CMTime,
     movie_time_scale: i32,
-    preferred_output_segment_interval: Time,
-    initial_segment_start_time: Time,
+    #[serde(with = "crate::time")]
+    preferred_output_segment_interval: CMTime,
+    #[serde(with = "crate::time")]
+    initial_segment_start_time: CMTime,
     output_file_type_profile: Option<String>,
 }
 
@@ -334,7 +344,8 @@ struct InputInfoPayload {
     preferred_volume: f32,
     marks_output_track_as_enabled: bool,
     media_time_scale: i32,
-    preferred_media_chunk_duration: Time,
+    #[serde(with = "crate::time")]
+    preferred_media_chunk_duration: CMTime,
     preferred_media_chunk_alignment: i64,
     sample_reference_base_url: Option<String>,
     media_data_location: Option<String>,
@@ -629,21 +640,22 @@ impl Writer {
     /// This may flush segmented output. It returns
     /// [`AVWriterError::InvalidState`] when called from inside a writer
     /// callback because the native operation can wait for delegate delivery.
-    pub fn end_session(&self, end_time: impl Into<Time>) -> Result<(), AVWriterError> {
-        let time = end_time.into();
-        let Some((value, scale)) = time.as_numeric() else {
+    pub fn end_session(&self, end_time: CMTime) -> Result<(), AVWriterError> {
+        if !crate::time::is_numeric(&end_time) {
             return Err(AVWriterError::InvalidArgument(
-                "end_session requires a numeric time".into(),
-            ));
-        };
-        if scale <= 0 {
-            return Err(AVWriterError::InvalidArgument(
-                "end_session timescale must be positive".into(),
+                "end_session requires a numeric time with a positive timescale".into(),
             ));
         }
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status =
-            unsafe { ffi::av_writer_end_session(self.ptr, value, scale, 0, &raw mut err_msg) };
+        let status = unsafe {
+            ffi::av_writer_end_session(
+                self.ptr,
+                end_time.value,
+                end_time.timescale,
+                0,
+                &raw mut err_msg,
+            )
+        };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -767,9 +779,8 @@ impl Writer {
         &self,
         input_id: InputId,
         buffers: &[TaggedPixelBuffer<'_>],
-        presentation_time: impl Into<Time>,
+        presentation_time: CMTime,
     ) -> Result<(), AVWriterError> {
-        let time = presentation_time.into();
         let pixel_buffers: Vec<*mut c_void> = buffers
             .iter()
             .map(|entry| entry.pixel_buffer.as_ptr())
@@ -783,9 +794,9 @@ impl Writer {
                 pixel_buffers.as_ptr(),
                 layer_ids.as_ptr(),
                 buffers.len(),
-                time_value(&time),
-                time_scale(&time),
-                time_kind(&time),
+                time_value(&presentation_time),
+                time_scale(&presentation_time),
+                time_kind(&presentation_time),
                 &raw mut err_msg,
             )
         };
@@ -1210,16 +1221,15 @@ impl Writer {
     pub fn input_preferred_media_chunk_duration(
         &self,
         input_id: InputId,
-    ) -> Result<Time, AVWriterError> {
+    ) -> Result<CMTime, AVWriterError> {
         Ok(self.input_info(input_id)?.preferred_media_chunk_duration)
     }
 
     pub fn set_input_preferred_media_chunk_duration(
         &self,
         input_id: InputId,
-        duration: impl Into<Time>,
+        duration: CMTime,
     ) -> Result<(), AVWriterError> {
-        let duration = duration.into();
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_set_preferred_media_chunk_duration(
@@ -1447,29 +1457,23 @@ impl Writer {
         Ok(())
     }
 
-    pub fn movie_fragment_interval(&self) -> Result<Time, AVWriterError> {
+    pub fn movie_fragment_interval(&self) -> Result<CMTime, AVWriterError> {
         Ok(self.writer_info()?.movie_fragment_interval)
     }
 
-    pub fn set_movie_fragment_interval(
-        &self,
-        interval: impl Into<Time>,
-    ) -> Result<(), AVWriterError> {
-        self.set_writer_time(ffi::av_writer_set_movie_fragment_interval, interval.into())
+    pub fn set_movie_fragment_interval(&self, interval: CMTime) -> Result<(), AVWriterError> {
+        self.set_writer_time(ffi::av_writer_set_movie_fragment_interval, interval)
     }
 
-    pub fn initial_movie_fragment_interval(&self) -> Result<Time, AVWriterError> {
+    pub fn initial_movie_fragment_interval(&self) -> Result<CMTime, AVWriterError> {
         Ok(self.writer_info()?.initial_movie_fragment_interval)
     }
 
     pub fn set_initial_movie_fragment_interval(
         &self,
-        interval: impl Into<Time>,
+        interval: CMTime,
     ) -> Result<(), AVWriterError> {
-        self.set_writer_time(
-            ffi::av_writer_set_initial_movie_fragment_interval,
-            interval.into(),
-        )
+        self.set_writer_time(ffi::av_writer_set_initial_movie_fragment_interval, interval)
     }
 
     pub fn initial_movie_fragment_sequence_number(&self) -> Result<i64, AVWriterError> {
@@ -1509,12 +1513,12 @@ impl Writer {
         Ok(())
     }
 
-    pub fn overall_duration_hint(&self) -> Result<Time, AVWriterError> {
+    pub fn overall_duration_hint(&self) -> Result<CMTime, AVWriterError> {
         Ok(self.writer_info()?.overall_duration_hint)
     }
 
-    pub fn set_overall_duration_hint(&self, hint: impl Into<Time>) -> Result<(), AVWriterError> {
-        self.set_writer_time(ffi::av_writer_set_overall_duration_hint, hint.into())
+    pub fn set_overall_duration_hint(&self, hint: CMTime) -> Result<(), AVWriterError> {
+        self.set_writer_time(ffi::av_writer_set_overall_duration_hint, hint)
     }
 
     pub fn movie_time_scale(&self) -> Result<i32, AVWriterError> {
@@ -1532,32 +1536,26 @@ impl Writer {
         Ok(())
     }
 
-    pub fn preferred_output_segment_interval(&self) -> Result<Time, AVWriterError> {
+    pub fn preferred_output_segment_interval(&self) -> Result<CMTime, AVWriterError> {
         Ok(self.writer_info()?.preferred_output_segment_interval)
     }
 
     pub fn set_preferred_output_segment_interval(
         &self,
-        interval: impl Into<Time>,
+        interval: CMTime,
     ) -> Result<(), AVWriterError> {
         self.set_writer_time(
             ffi::av_writer_set_preferred_output_segment_interval,
-            interval.into(),
+            interval,
         )
     }
 
-    pub fn initial_segment_start_time(&self) -> Result<Time, AVWriterError> {
+    pub fn initial_segment_start_time(&self) -> Result<CMTime, AVWriterError> {
         Ok(self.writer_info()?.initial_segment_start_time)
     }
 
-    pub fn set_initial_segment_start_time(
-        &self,
-        start_time: impl Into<Time>,
-    ) -> Result<(), AVWriterError> {
-        self.set_writer_time(
-            ffi::av_writer_set_initial_segment_start_time,
-            start_time.into(),
-        )
+    pub fn set_initial_segment_start_time(&self, start_time: CMTime) -> Result<(), AVWriterError> {
+        self.set_writer_time(ffi::av_writer_set_initial_segment_start_time, start_time)
     }
 
     pub fn output_file_type_profile(&self) -> Result<Option<FileTypeProfile>, AVWriterError> {
@@ -1596,13 +1594,13 @@ impl Writer {
     ///
     /// The framework only permits explicit flushing when
     /// [`Writer::preferred_output_segment_interval`] is
-    /// [`Time::Indefinite`]. Writers configured for automatic numeric
+    /// [`CMTime::indefinite`]. Writers configured for automatic numeric
     /// intervals should use [`Writer::end_session`] or [`Writer::finish`].
     ///
     /// Returns [`AVWriterError::InvalidState`] when called from inside a
     /// writer callback because the native flush can wait for delegate delivery.
     pub fn flush_segment(&self) -> Result<(), AVWriterError> {
-        if self.preferred_output_segment_interval()? != Time::indefinite() {
+        if !self.preferred_output_segment_interval()?.is_indefinite() {
             return Err(AVWriterError::InvalidState(
                 "flush_segment requires an indefinite preferred output segment interval".into(),
             ));
@@ -1628,7 +1626,7 @@ impl Writer {
     fn set_writer_time(
         &self,
         func: unsafe extern "C" fn(*mut c_void, i64, i32, i32, *mut *mut c_char) -> i32,
-        time: Time,
+        time: CMTime,
     ) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
@@ -1712,29 +1710,5 @@ fn take_swift_string(ptr: *mut c_char) -> Option<String> {
         let string = std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned();
         ffi::avw_string_free(ptr);
         Some(string)
-    }
-}
-
-const fn time_kind(time: &Time) -> i32 {
-    match time {
-        Time::Numeric { .. } => 0,
-        Time::Invalid => 1,
-        Time::Indefinite => 2,
-        Time::PositiveInfinity => 3,
-        Time::NegativeInfinity => 4,
-    }
-}
-
-const fn time_value(time: &Time) -> i64 {
-    match time {
-        Time::Numeric { value, .. } => *value,
-        Time::Invalid | Time::Indefinite | Time::PositiveInfinity | Time::NegativeInfinity => 0,
-    }
-}
-
-const fn time_scale(time: &Time) -> i32 {
-    match time {
-        Time::Numeric { timescale, .. } => *timescale,
-        Time::Invalid | Time::Indefinite | Time::PositiveInfinity | Time::NegativeInfinity => 0,
     }
 }
