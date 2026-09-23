@@ -15,6 +15,9 @@ public func av_writer_set_movie_fragment_interval(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
+    if let status = wrapper.configurationStatus("movieFragmentInterval", outErrorMessage) {
+        return status
+    }
     wrapper.writer.movieFragmentInterval = cmTime(value: intervalValue, timescale: intervalScale, kind: intervalKind)
     return AVW_OK
 }
@@ -33,6 +36,9 @@ public func av_writer_set_initial_movie_fragment_interval(
     }
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
+    if let status = wrapper.configurationStatus("initialMovieFragmentInterval", outErrorMessage) {
+        return status
+    }
     wrapper.writer.initialMovieFragmentInterval = cmTime(value: intervalValue, timescale: intervalScale, kind: intervalKind)
     return AVW_OK
 }
@@ -45,6 +51,13 @@ public func av_writer_set_initial_movie_fragment_sequence_number(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
+    if let status = wrapper.configurationStatus("initialMovieFragmentSequenceNumber", outErrorMessage) {
+        return status
+    }
+    guard sequenceNumber >= 1 else {
+        outErrorMessage?.pointee = ffiString("initialMovieFragmentSequenceNumber must be at least 1")
+        return AVW_INVALID_ARGUMENT
+    }
     wrapper.writer.initialMovieFragmentSequenceNumber = Int(sequenceNumber)
     return AVW_OK
 }
@@ -57,6 +70,9 @@ public func av_writer_set_produces_combinable_fragments(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
+    if let status = wrapper.configurationStatus("producesCombinableFragments", outErrorMessage) {
+        return status
+    }
     wrapper.writer.producesCombinableFragments = enabled
     return AVW_OK
 }
@@ -71,7 +87,15 @@ public func av_writer_set_overall_duration_hint(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    wrapper.writer.overallDurationHint = cmTime(value: hintValue, timescale: hintScale, kind: hintKind)
+    if let status = wrapper.configurationStatus("overallDurationHint", outErrorMessage) {
+        return status
+    }
+    let hint = cmTime(value: hintValue, timescale: hintScale, kind: hintKind)
+    guard !hint.isValid || (hint.isNumeric && hint >= .zero) else {
+        outErrorMessage?.pointee = ffiString("overallDurationHint must be invalid or a non-negative numeric time")
+        return AVW_INVALID_ARGUMENT
+    }
+    wrapper.writer.overallDurationHint = hint
     return AVW_OK
 }
 
@@ -83,6 +107,13 @@ public func av_writer_set_movie_time_scale(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
+    if let status = wrapper.configurationStatus("movieTimeScale", outErrorMessage) {
+        return status
+    }
+    guard movieTimeScale >= 0 else {
+        outErrorMessage?.pointee = ffiString("movieTimeScale must not be negative")
+        return AVW_INVALID_ARGUMENT
+    }
     wrapper.writer.movieTimeScale = movieTimeScale
     return AVW_OK
 }
@@ -97,7 +128,17 @@ public func av_writer_set_preferred_output_segment_interval(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    wrapper.writer.preferredOutputSegmentInterval = cmTime(value: intervalValue, timescale: intervalScale, kind: intervalKind)
+    if let status = wrapper.configurationStatus("preferredOutputSegmentInterval", outErrorMessage) {
+        return status
+    }
+    let interval = cmTime(value: intervalValue, timescale: intervalScale, kind: intervalKind)
+    guard !interval.isValid || interval.isIndefinite || (interval.isNumeric && interval > .zero) else {
+        outErrorMessage?.pointee = ffiString(
+            "preferredOutputSegmentInterval must be invalid, indefinite or a positive numeric time"
+        )
+        return AVW_INVALID_ARGUMENT
+    }
+    wrapper.writer.preferredOutputSegmentInterval = interval
     return AVW_OK
 }
 
@@ -111,6 +152,9 @@ public func av_writer_set_initial_segment_start_time(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
+    if let status = wrapper.configurationStatus("initialSegmentStartTime", outErrorMessage) {
+        return status
+    }
     wrapper.writer.initialSegmentStartTime = cmTime(value: startValue, timescale: startScale, kind: startKind)
     return AVW_OK
 }
@@ -123,6 +167,9 @@ public func av_writer_set_output_file_type_profile(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
+    if let status = wrapper.configurationStatus("outputFileTypeProfile", outErrorMessage) {
+        return status
+    }
     wrapper.writer.outputFileTypeProfile = decodeFileTypeProfile(profile.map(String.init(cString:)))
     return AVW_OK
 }
@@ -142,6 +189,10 @@ public func av_writer_flush_segment(
         outErrorMessage?.pointee = ffiString(
             "flush_segment requires preferred_output_segment_interval to be indefinite"
         )
+        return AVW_INVALID_STATE
+    }
+    guard wrapper.segmentDelegate != nil else {
+        outErrorMessage?.pointee = ffiString("flush_segment requires a writer created for segmented output")
         return AVW_INVALID_STATE
     }
     guard wrapper.runBlockingNativeOperation({

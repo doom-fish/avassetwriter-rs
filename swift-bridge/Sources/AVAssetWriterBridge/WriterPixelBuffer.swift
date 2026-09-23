@@ -1,3 +1,4 @@
+import AVAssetWriterObjCBridge
 import AVFoundation
 import CoreMedia
 import CoreVideo
@@ -24,32 +25,48 @@ public func av_writer_add_video_input_pixel_buffer(
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
 
+    if let status = wrapper.configurationStatus("inputs", outErrorMessage) {
+        return status
+    }
+    guard width > 0, height > 0 else {
+        outErrorMessage?.pointee = ffiString("width and height must be positive (got \(width)x\(height))")
+        return AVW_INVALID_ARGUMENT
+    }
     let outputSettings: [String: Any] = [
         AVVideoCodecKey: AVVideoCodecType.h264,
         AVVideoWidthKey: width,
         AVVideoHeightKey: height,
     ]
-    let input = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
+    guard let input = wrapper.makeInput(
+        mediaType: .video,
+        outputSettings: outputSettings,
+        sourceFormatHint: nil,
+        outErrorMessage
+    ) else {
+        return AVW_INVALID_ARGUMENT
+    }
     input.expectsMediaDataInRealTime = true
 
-    let pba = AVAssetWriterInputPixelBufferAdaptor(
-        assetWriterInput: input,
-        sourcePixelBufferAttributes: [
+    var message: NSString?
+    guard let pba = AVWXMakePixelBufferAdaptor(
+        input,
+        [
             kCVPixelBufferPixelFormatTypeKey as String: pixelFormatType,
             kCVPixelBufferWidthKey as String: width,
             kCVPixelBufferHeightKey as String: height,
-        ]
-    )
-
-    if !wrapper.writer.canAdd(input) {
-        outErrorMessage?.pointee = ffiString("writer cannot add pixel-buffer video input")
-        return AVW_INVALID_STATE
+        ],
+        &message
+    ) else {
+        outErrorMessage?.pointee = ffiString((message as String?) ?? "pixel buffer adaptor rejected the input")
+        return AVW_INVALID_ARGUMENT
     }
-    wrapper.writer.add(input)
 
-    let id = Int32(wrapper.inputs.count)
-    wrapper.inputs.append(input)
+    let id = wrapper.addInput(input, outErrorMessage)
+    guard id >= 0 else {
+        return id
+    }
     wrapper.pixelBufferAdaptors[id] = pba
+    wrapper.adaptedInputIds.insert(id)
     return id
 }
 
@@ -70,14 +87,19 @@ public func av_writer_append_pixel_buffer(
         outErrorMessage?.pointee = ffiString("input id \(inputId) has no pixel buffer adaptor")
         return AVW_INVALID_ARGUMENT
     }
+    if let status = wrapper.appendStatus(inputId, outErrorMessage) {
+        return status
+    }
+    guard ptsTimescale > 0 else {
+        outErrorMessage?.pointee = ffiString("presentation time must have a positive timescale")
+        return AVW_INVALID_ARGUMENT
+    }
     if !pba.assetWriterInput.isReadyForMoreMediaData {
         return AVW_INPUT_NOT_READY
     }
     let pixelBuffer = Unmanaged<CVPixelBuffer>.fromOpaque(pixelBufferPtr).takeUnretainedValue()
     let pts = CMTime(value: ptsValue, timescale: ptsTimescale)
-    if pba.append(pixelBuffer, withPresentationTime: pts) {
-        return AVW_OK
-    }
-    outErrorMessage?.pointee = ffiString("pixel buffer adaptor append failed")
-    return AVW_APPEND_FAILED
+    var message: NSString?
+    let result = AVWXAppendPixelBuffer(pba, pixelBuffer, pts, &message)
+    return wrapper.appendOutcome(result, message, "pixel buffer adaptor append", outErrorMessage)
 }

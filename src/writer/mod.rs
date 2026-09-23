@@ -415,7 +415,8 @@ impl Writer {
     /// # Errors
     ///
     /// Returns [`AVWriterError::InvalidArgument`] unless `source_time` is
-    /// numeric with a positive timescale, or [`AVWriterError::StartFailed`] if
+    /// numeric with a positive timescale, [`AVWriterError::InvalidState`] if a
+    /// session was already started, or [`AVWriterError::StartFailed`] if
     /// `AVAssetWriter` rejects the session start (usually because no inputs
     /// were added or one is misconfigured).
     pub fn start_session(&self, source_time: CMTime) -> Result<(), AVWriterError> {
@@ -430,7 +431,7 @@ impl Writer {
             )
         };
         if status != ffi::status::OK {
-            return Err(unsafe { from_swift(ffi::status::WRITER_CREATE_FAILED, err_msg) });
+            return Err(unsafe { from_swift(status, err_msg) });
         }
         Ok(())
     }
@@ -601,16 +602,32 @@ impl Writer {
     /// Set `AVAssetWriter.shouldOptimizeForNetworkUse` — adds the
     /// moov atom at the start of the file so HTTP players can start
     /// playback immediately.
-    pub fn set_optimize_for_network_use(&self, enabled: bool) {
-        unsafe { ffi::av_writer_set_should_optimize_for_network_use(self.ptr, enabled) };
+    #[allow(clippy::missing_errors_doc)]
+    pub fn set_optimize_for_network_use(&self, enabled: bool) -> Result<(), AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let status = unsafe {
+            ffi::av_writer_set_should_optimize_for_network_use(self.ptr, enabled, &raw mut err_msg)
+        };
+        if status != ffi::status::OK {
+            return Err(unsafe { from_swift(status, err_msg) });
+        }
+        Ok(())
     }
 
     /// Set `AVAssetWriter.movieFragmentInterval` (seconds, or `0` to
     /// disable). Producing fragmented files yields safer recordings
     /// — if your process crashes mid-record the file is still
     /// playable up to the last fragment boundary.
-    pub fn set_movie_fragment_interval_seconds(&self, seconds: f64) {
-        unsafe { ffi::av_writer_set_movie_fragment_interval_seconds(self.ptr, seconds) };
+    #[allow(clippy::missing_errors_doc)]
+    pub fn set_movie_fragment_interval_seconds(&self, seconds: f64) -> Result<(), AVWriterError> {
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let status = unsafe {
+            ffi::av_writer_set_movie_fragment_interval_seconds(self.ptr, seconds, &raw mut err_msg)
+        };
+        if status != ffi::status::OK {
+            return Err(unsafe { from_swift(status, err_msg) });
+        }
+        Ok(())
     }
 
     /// Group inputs as mutually exclusive — e.g. multiple audio

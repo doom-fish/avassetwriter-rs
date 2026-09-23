@@ -763,7 +763,12 @@ public func av_audio_mix_input_parameters_set_volume(
         outErrorMessage?.pointee = ffiString("audio mix input parameters are not mutable")
         return AVW_INVALID_STATE
     }
-    parameters.setVolume(volume, at: cmTime(value: timeValue, timescale: timeScale, kind: timeKind))
+    let time = cmTime(value: timeValue, timescale: timeScale, kind: timeKind)
+    guard time.isNumeric else {
+        outErrorMessage?.pointee = ffiString("volume time must be numeric")
+        return AVW_INVALID_ARGUMENT
+    }
+    parameters.setVolume(volume, at: time)
     return AVW_OK
 }
 
@@ -784,14 +789,15 @@ public func av_audio_mix_input_parameters_set_volume_ramp(
         outErrorMessage?.pointee = ffiString("audio mix input parameters are not mutable")
         return AVW_INVALID_STATE
     }
-    parameters.setVolumeRamp(
-        fromStartVolume: startVolume,
-        toEndVolume: endVolume,
-        timeRange: CMTimeRange(
-            start: cmTime(value: startValue, timescale: startScale, kind: startKind),
-            duration: cmTime(value: durationValue, timescale: durationScale, kind: durationKind)
-        )
+    let timeRange = CMTimeRange(
+        start: cmTime(value: startValue, timescale: startScale, kind: startKind),
+        duration: cmTime(value: durationValue, timescale: durationScale, kind: durationKind)
     )
+    guard timeRange.start.isNumeric, timeRange.duration.isNumeric else {
+        outErrorMessage?.pointee = ffiString("volume ramp start and duration must be numeric")
+        return AVW_INVALID_ARGUMENT
+    }
+    parameters.setVolumeRamp(fromStartVolume: startVolume, toEndVolume: endVolume, timeRange: timeRange)
     return AVW_OK
 }
 

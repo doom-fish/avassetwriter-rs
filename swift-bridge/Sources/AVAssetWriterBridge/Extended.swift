@@ -1,3 +1,4 @@
+import AVAssetWriterObjCBridge
 import AVFoundation
 import CoreMedia
 import CoreVideo
@@ -111,6 +112,9 @@ public func av_writer_set_metadata_items(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
+    if let status = wrapper.configurationStatus("metadata", outErrorMessage) {
+        return status
+    }
     do {
         wrapper.writer.metadata = try metadataItems(from: itemPointers, count: itemCount)
         return AVW_OK
@@ -128,6 +132,9 @@ public func av_writer_set_metadata_json(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
+    if let status = wrapper.configurationStatus("metadata", outErrorMessage) {
+        return status
+    }
     do {
         let payload = try decodeJson(metadataJson, as: [MetadataItemPayload].self)
         wrapper.writer.metadata = try payload.map(avMetadataItem)
@@ -146,6 +153,9 @@ public func av_writer_set_directory_for_temporary_files(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
+    if let status = wrapper.configurationStatus("directoryForTemporaryFiles", outErrorMessage) {
+        return status
+    }
     wrapper.writer.directoryForTemporaryFiles = URL(fileURLWithPath: String(cString: directoryPath))
     return AVW_OK
 }
@@ -191,22 +201,16 @@ public func av_writer_add_input_json(
     }
     do {
         let outputSettings = try jsonObjectFromCString(outputSettingsJson) as? [String: Any]
-        let input: AVAssetWriterInput
-        if let sourceFormatHintPtr {
-            let sourceFormatHint = Unmanaged<CMFormatDescription>.fromOpaque(sourceFormatHintPtr).takeUnretainedValue()
-            input = AVAssetWriterInput(mediaType: mediaType, outputSettings: outputSettings, sourceFormatHint: sourceFormatHint)
-        } else {
-            input = AVAssetWriterInput(mediaType: mediaType, outputSettings: outputSettings)
+        let sourceFormatHint = sourceFormatHintPtr.map {
+            Unmanaged<CMFormatDescription>.fromOpaque($0).takeUnretainedValue()
         }
-        input.expectsMediaDataInRealTime = expectsMediaDataInRealTime
-        if !wrapper.writer.canAdd(input) {
-            outErrorMessage?.pointee = ffiString("writer cannot add input (status=\(wrapper.writer.status.rawValue))")
-            return AVW_INVALID_STATE
-        }
-        wrapper.writer.add(input)
-        let id = Int32(wrapper.inputs.count)
-        wrapper.inputs.append(input)
-        return id
+        return wrapper.addInput(
+            mediaType: mediaType,
+            outputSettings: outputSettings,
+            sourceFormatHint: sourceFormatHint,
+            expectsMediaDataInRealTime: expectsMediaDataInRealTime,
+            outErrorMessage
+        )
     } catch {
         outErrorMessage?.pointee = ffiString(error.localizedDescription)
         return AVW_INVALID_ARGUMENT
@@ -226,16 +230,16 @@ public func av_writer_add_audio_input_from_sample(
         outErrorMessage?.pointee = ffiString("sample buffer has no format description")
         return AVW_INVALID_ARGUMENT
     }
-    let input = AVAssetWriterInput(mediaType: .audio, outputSettings: nil, sourceFormatHint: format)
-    input.expectsMediaDataInRealTime = true
-    if !wrapper.writer.canAdd(input) {
-        outErrorMessage?.pointee = ffiString("writer cannot add audio input (status=\(wrapper.writer.status.rawValue))")
-        return AVW_INVALID_STATE
+    if let status = formatHintStatus(format, expected: .audio, outErrorMessage) {
+        return status
     }
-    wrapper.writer.add(input)
-    let id = Int32(wrapper.inputs.count)
-    wrapper.inputs.append(input)
-    return id
+    return wrapper.addInput(
+        mediaType: .audio,
+        outputSettings: nil,
+        sourceFormatHint: format,
+        expectsMediaDataInRealTime: true,
+        outErrorMessage
+    )
 }
 
 @_cdecl("av_writer_add_metadata_input_from_specifications_json")
@@ -247,19 +251,32 @@ public func av_writer_add_metadata_input_from_specifications_json(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
+    if let status = wrapper.configurationStatus("inputs", outErrorMessage) {
+        return status
+    }
     do {
         let specifications = try decodeJson(specificationsJson, as: [MetadataSpecificationPayload].self)
         let formatDescription = try metadataFormatDescription(from: specifications)
-        let input = AVAssetWriterInput(mediaType: .metadata, outputSettings: nil, sourceFormatHint: formatDescription)
-        input.expectsMediaDataInRealTime = expectsMediaDataInRealTime
-        if !wrapper.writer.canAdd(input) {
-            outErrorMessage?.pointee = ffiString("writer cannot add metadata input (status=\(wrapper.writer.status.rawValue))")
-            return AVW_INVALID_STATE
+        guard let input = wrapper.makeInput(
+            mediaType: .metadata,
+            outputSettings: nil,
+            sourceFormatHint: formatDescription,
+            outErrorMessage
+        ) else {
+            return AVW_INVALID_ARGUMENT
         }
-        wrapper.writer.add(input)
-        let inputId = Int32(wrapper.inputs.count)
-        wrapper.inputs.append(input)
-        wrapper.metadataAdaptors[inputId] = AVAssetWriterInputMetadataAdaptor(assetWriterInput: input)
+        input.expectsMediaDataInRealTime = expectsMediaDataInRealTime
+        var message: NSString?
+        guard let adaptor = AVWXMakeMetadataAdaptor(input, &message) else {
+            outErrorMessage?.pointee = ffiString((message as String?) ?? "metadata adaptor rejected the input")
+            return AVW_INVALID_ARGUMENT
+        }
+        let inputId = wrapper.addInput(input, outErrorMessage)
+        guard inputId >= 0 else {
+            return inputId
+        }
+        wrapper.metadataAdaptors[inputId] = adaptor
+        wrapper.adaptedInputIds.insert(inputId)
         return inputId
     } catch {
         outErrorMessage?.pointee = ffiString(error.localizedDescription)
@@ -277,8 +294,12 @@ public func av_writer_end_session(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard wrapper.writer.status == .writing else {
-        outErrorMessage?.pointee = ffiString("end_session requires a writing session")
+    guard wrapper.writer.status == .writing, wrapper.sessionStarted else {
+        outErrorMessage?.pointee = ffiString("end_session requires a started sample-writing session")
+        return AVW_INVALID_STATE
+    }
+    guard !wrapper.sessionEnded else {
+        outErrorMessage?.pointee = ffiString("the sample-writing session has already ended")
         return AVW_INVALID_STATE
     }
     guard timeKind == 0, timeScale > 0 else {
@@ -296,6 +317,7 @@ public func av_writer_end_session(
         )
         return AVW_INVALID_STATE
     }
+    wrapper.sessionEnded = true
     return AVW_OK
 }
 

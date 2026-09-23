@@ -14,7 +14,12 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "AVAssetWriterObjCBridge",
+            path: "Sources/AVAssetWriterObjCBridge",
+            publicHeadersPath: "include"),
+        .target(
             name: "AVAssetWriterBridge",
+            dependencies: ["AVAssetWriterObjCBridge"],
             path: "Sources/AVAssetWriterBridge")
     ]
 )

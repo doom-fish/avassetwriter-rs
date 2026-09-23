@@ -612,10 +612,10 @@ impl Writer {
         expects_media_data_in_real_time: bool,
     ) -> Result<InputId, AVWriterError> {
         match media_type {
-            MediaType::Text | MediaType::ClosedCaption | MediaType::Subtitle => {}
+            MediaType::Text | MediaType::ClosedCaption => {}
             _ => {
                 return Err(AVWriterError::InvalidArgument(
-                    "caption inputs must use text, closed_caption, or subtitle media types".into(),
+                    "caption inputs must use text or closed_caption media types".into(),
                 ))
             }
         }
@@ -724,7 +724,12 @@ impl Writer {
         &self,
         input_id: InputId,
     ) -> Result<Option<CVPixelBufferPool>, AVWriterError> {
-        let ptr = unsafe { ffi::av_writer_pixel_buffer_pool(self.ptr, input_id.0) };
+        let mut err_msg: *mut c_char = ptr::null_mut();
+        let ptr =
+            unsafe { ffi::av_writer_pixel_buffer_pool(self.ptr, input_id.0, &raw mut err_msg) };
+        if !err_msg.is_null() {
+            return Err(unsafe { from_swift(ffi::status::INVALID_ARGUMENT, err_msg) });
+        }
         // SAFETY: the Swift bridge returns a +1 retained CVPixelBufferPool.
         Ok(unsafe { CVPixelBufferPool::from_raw(ptr) })
     }

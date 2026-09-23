@@ -419,8 +419,13 @@ public func av_export_session_set_audio_mix(
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
+    guard audioMixPtr == nil || !session.audioTrackGroupHandling.contains(.preserveAlternateTracks) else {
+        outErrorMessage?.pointee = ffiString(
+            "an audio mix cannot be combined with preserve-alternate-tracks audio track group handling"
+        )
+        return AVW_INVALID_STATE
+    }
     session.audioMix = audioMixPtr.map { Unmanaged<AVAudioMix>.fromOpaque($0).takeUnretainedValue() }
-    _ = outErrorMessage
     return AVW_OK
 }
 
@@ -494,7 +499,17 @@ public func av_export_session_set_audio_track_group_handling(
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
-    session.audioTrackGroupHandling = AVAssetTrackGroupOutputHandling(rawValue: UInt(handlingRaw))
-    _ = outErrorMessage
+    guard let raw = UInt(exactly: handlingRaw) else {
+        outErrorMessage?.pointee = ffiString("audio track group handling \(handlingRaw) is out of range")
+        return AVW_INVALID_ARGUMENT
+    }
+    let handling = AVAssetTrackGroupOutputHandling(rawValue: raw)
+    guard session.audioMix == nil || !handling.contains(.preserveAlternateTracks) else {
+        outErrorMessage?.pointee = ffiString(
+            "preserve-alternate-tracks audio track group handling cannot be combined with an audio mix"
+        )
+        return AVW_INVALID_STATE
+    }
+    session.audioTrackGroupHandling = handling
     return AVW_OK
 }

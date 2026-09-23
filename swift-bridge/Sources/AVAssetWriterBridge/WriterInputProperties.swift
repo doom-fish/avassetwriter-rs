@@ -1,3 +1,4 @@
+import AVAssetWriterObjCBridge
 import AVFoundation
 import CoreMedia
 import CoreVideo
@@ -40,9 +41,8 @@ public func av_writer_set_input_metadata_json(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
-        return AVW_INVALID_ARGUMENT
+    if let status = wrapper.inputSetterStatus(inputId, "metadata", outErrorMessage) {
+        return status
     }
     do {
         let payload = try decodeJson(metadataJson, as: [MetadataItemPayload].self)
@@ -79,9 +79,8 @@ public func av_writer_set_input_metadata_items(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
-        return AVW_INVALID_ARGUMENT
+    if let status = wrapper.inputSetterStatus(inputId, "metadata", outErrorMessage) {
+        return status
     }
     do {
         wrapper.inputs[Int(inputId)].metadata = try metadataItems(
@@ -104,9 +103,8 @@ public func av_writer_input_set_expects_media_data_in_real_time(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
-        return AVW_INVALID_ARGUMENT
+    if let status = wrapper.inputSetterStatus(inputId, "expectsMediaDataInRealTime", outErrorMessage) {
+        return status
     }
     wrapper.inputs[Int(inputId)].expectsMediaDataInRealTime = expectsMediaDataInRealTime
     return AVW_OK
@@ -205,11 +203,18 @@ public func av_writer_input_set_language_code(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
+    if let status = wrapper.inputSetterStatus(inputId, "languageCode", outErrorMessage) {
+        return status
+    }
+    var message: NSString?
+    guard AVWXSetLanguageCode(
+        wrapper.inputs[Int(inputId)],
+        languageCode.map(String.init(cString:)),
+        &message
+    ) else {
+        outErrorMessage?.pointee = ffiString((message as String?) ?? "invalid ISO 639-2/T language code")
         return AVW_INVALID_ARGUMENT
     }
-    wrapper.inputs[Int(inputId)].languageCode = languageCode.map(String.init(cString:))
     return AVW_OK
 }
 
@@ -222,11 +227,18 @@ public func av_writer_input_set_extended_language_tag(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
+    if let status = wrapper.inputSetterStatus(inputId, "extendedLanguageTag", outErrorMessage) {
+        return status
+    }
+    var message: NSString?
+    guard AVWXSetExtendedLanguageTag(
+        wrapper.inputs[Int(inputId)],
+        extendedLanguageTag.map(String.init(cString:)),
+        &message
+    ) else {
+        outErrorMessage?.pointee = ffiString((message as String?) ?? "invalid BCP 47 language tag")
         return AVW_INVALID_ARGUMENT
     }
-    wrapper.inputs[Int(inputId)].extendedLanguageTag = extendedLanguageTag.map(String.init(cString:))
     return AVW_OK
 }
 
@@ -240,9 +252,8 @@ public func av_writer_input_set_natural_size(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
-        return AVW_INVALID_ARGUMENT
+    if let status = wrapper.inputSetterStatus(inputId, "naturalSize", outErrorMessage) {
+        return status
     }
     wrapper.inputs[Int(inputId)].naturalSize = CGSize(width: width, height: height)
     return AVW_OK
@@ -262,9 +273,8 @@ public func av_writer_input_set_transform(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
-        return AVW_INVALID_ARGUMENT
+    if let status = wrapper.inputSetterStatus(inputId, "transform", outErrorMessage) {
+        return status
     }
     wrapper.inputs[Int(inputId)].transform = CGAffineTransform(a: a, b: b, c: c, d: d, tx: tx, ty: ty)
     return AVW_OK
@@ -279,9 +289,8 @@ public func av_writer_input_set_preferred_volume(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
-        return AVW_INVALID_ARGUMENT
+    if let status = wrapper.inputSetterStatus(inputId, "preferredVolume", outErrorMessage) {
+        return status
     }
     wrapper.inputs[Int(inputId)].preferredVolume = preferredVolume
     return AVW_OK
@@ -296,11 +305,17 @@ public func av_writer_input_set_marks_output_track_as_enabled(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
-        return AVW_INVALID_ARGUMENT
+    if let status = wrapper.inputSetterStatus(inputId, "marksOutputTrackAsEnabled", outErrorMessage) {
+        return status
     }
-    wrapper.inputs[Int(inputId)].marksOutputTrackAsEnabled = enabled
+    let input = wrapper.inputs[Int(inputId)]
+    guard !wrapper.inputGroups.contains(where: { group in group.inputs.contains { $0 === input } }) else {
+        outErrorMessage?.pointee = ffiString(
+            "marksOutputTrackAsEnabled is managed by the input group containing input \(inputId)"
+        )
+        return AVW_INVALID_STATE
+    }
+    input.marksOutputTrackAsEnabled = enabled
     return AVW_OK
 }
 
@@ -313,11 +328,19 @@ public func av_writer_input_set_media_time_scale(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
+    if let status = wrapper.inputSetterStatus(inputId, "mediaTimeScale", outErrorMessage) {
+        return status
+    }
+    let input = wrapper.inputs[Int(inputId)]
+    guard input.mediaType != .audio else {
+        outErrorMessage?.pointee = ffiString("mediaTimeScale cannot be set on an audio input")
         return AVW_INVALID_ARGUMENT
     }
-    wrapper.inputs[Int(inputId)].mediaTimeScale = mediaTimeScale
+    guard mediaTimeScale >= 0 else {
+        outErrorMessage?.pointee = ffiString("mediaTimeScale must not be negative")
+        return AVW_INVALID_ARGUMENT
+    }
+    input.mediaTimeScale = mediaTimeScale
     return AVW_OK
 }
 
@@ -332,11 +355,15 @@ public func av_writer_input_set_preferred_media_chunk_duration(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
+    if let status = wrapper.inputSetterStatus(inputId, "preferredMediaChunkDuration", outErrorMessage) {
+        return status
+    }
+    let duration = cmTime(value: durationValue, timescale: durationScale, kind: durationKind)
+    guard duration.isNumeric, duration > .zero else {
+        outErrorMessage?.pointee = ffiString("preferredMediaChunkDuration must be a positive numeric time")
         return AVW_INVALID_ARGUMENT
     }
-    wrapper.inputs[Int(inputId)].preferredMediaChunkDuration = cmTime(value: durationValue, timescale: durationScale, kind: durationKind)
+    wrapper.inputs[Int(inputId)].preferredMediaChunkDuration = duration
     return AVW_OK
 }
 
@@ -349,11 +376,14 @@ public func av_writer_input_set_preferred_media_chunk_alignment(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
+    if let status = wrapper.inputSetterStatus(inputId, "preferredMediaChunkAlignment", outErrorMessage) {
+        return status
+    }
+    guard alignment >= 0, let value = Int(exactly: alignment) else {
+        outErrorMessage?.pointee = ffiString("preferredMediaChunkAlignment must not be negative")
         return AVW_INVALID_ARGUMENT
     }
-    wrapper.inputs[Int(inputId)].preferredMediaChunkAlignment = Int(alignment)
+    wrapper.inputs[Int(inputId)].preferredMediaChunkAlignment = value
     return AVW_OK
 }
 
@@ -366,13 +396,19 @@ public func av_writer_input_set_sample_reference_base_url(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
+    if let status = wrapper.inputSetterStatus(inputId, "sampleReferenceBaseURL", outErrorMessage) {
+        return status
+    }
+    guard let sampleReferenceBaseURL else {
+        wrapper.inputs[Int(inputId)].sampleReferenceBaseURL = nil
+        return AVW_OK
+    }
+    let raw = String(cString: sampleReferenceBaseURL)
+    guard let url = URL(string: raw) else {
+        outErrorMessage?.pointee = ffiString("sample reference base URL is not a valid URL: \(raw)")
         return AVW_INVALID_ARGUMENT
     }
-    wrapper.inputs[Int(inputId)].sampleReferenceBaseURL = sampleReferenceBaseURL.map {
-        URL(string: String(cString: $0))
-    } ?? nil
+    wrapper.inputs[Int(inputId)].sampleReferenceBaseURL = url
     return AVW_OK
 }
 
@@ -385,9 +421,8 @@ public func av_writer_input_set_media_data_location(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
-        return AVW_INVALID_ARGUMENT
+    if let status = wrapper.inputSetterStatus(inputId, "mediaDataLocation", outErrorMessage) {
+        return status
     }
     let raw = String(cString: location)
     guard let decoded = decodeMediaDataLocation(raw) else {
@@ -413,7 +448,18 @@ public func av_writer_input_can_add_track_association(
         return AVW_INVALID_ARGUMENT
     }
     let type = decodeTrackAssociationType(String(cString: associationType))
-    return wrapper.inputs[Int(inputId)].canAddTrackAssociation(withTrackOf: wrapper.inputs[Int(otherInputId)], type: type) ? 1 : 0
+    var message: NSString?
+    let result = AVWXCanAddTrackAssociation(
+        wrapper.inputs[Int(inputId)],
+        wrapper.inputs[Int(otherInputId)],
+        type,
+        &message
+    )
+    guard result >= 0 else {
+        outErrorMessage?.pointee = ffiString((message as String?) ?? "track association check raised")
+        return AVW_INVALID_ARGUMENT
+    }
+    return Int32(result)
 }
 
 @_cdecl("av_writer_input_add_track_association")
@@ -430,7 +476,19 @@ public func av_writer_input_add_track_association(
         outErrorMessage?.pointee = ffiString("input id out of range")
         return AVW_INVALID_ARGUMENT
     }
-    wrapper.inputs[Int(inputId)].addTrackAssociation(withTrackOf: wrapper.inputs[Int(otherInputId)], type: decodeTrackAssociationType(String(cString: associationType)))
+    if let status = wrapper.configurationStatus("track associations", outErrorMessage) {
+        return status
+    }
+    var message: NSString?
+    guard AVWXAddTrackAssociation(
+        wrapper.inputs[Int(inputId)],
+        wrapper.inputs[Int(otherInputId)],
+        decodeTrackAssociationType(String(cString: associationType)),
+        &message
+    ) else {
+        outErrorMessage?.pointee = ffiString((message as String?) ?? "cannot add track association")
+        return AVW_INVALID_ARGUMENT
+    }
     return AVW_OK
 }
 
@@ -443,9 +501,8 @@ public func av_writer_input_set_performs_multi_pass_encoding_if_supported(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
-        return AVW_INVALID_ARGUMENT
+    if let status = wrapper.inputSetterStatus(inputId, "performsMultiPassEncodingIfSupported", outErrorMessage) {
+        return status
     }
     wrapper.inputs[Int(inputId)].performsMultiPassEncodingIfSupported = enabled
     return AVW_OK

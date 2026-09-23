@@ -60,6 +60,7 @@ pub(crate) unsafe fn from_swift(status: i32, error_str: *mut core::ffi::c_char) 
     };
     match status {
         ffi::status::WRITER_CREATE_FAILED => AVWriterError::WriterCreateFailed(message),
+        ffi::status::START_FAILED => AVWriterError::StartFailed(message),
         ffi::status::APPEND_FAILED => AVWriterError::AppendFailed(message),
         ffi::status::FINISH_FAILED => AVWriterError::FinishFailed(message),
         ffi::status::INPUT_NOT_READY => AVWriterError::InputNotReady,

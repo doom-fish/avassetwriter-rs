@@ -66,13 +66,20 @@ fn extract_objc_surface(source: &str) -> BTreeSet<String> {
     out
 }
 
-fn read_our_swift_bridge() -> String {
-    let bridge_dir =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("swift-bridge/Sources/AVAssetWriterBridge");
-    let mut paths: Vec<PathBuf> = std::fs::read_dir(&bridge_dir)
-        .unwrap_or_else(|e| panic!("can't read {}: {e}", bridge_dir.display()))
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "swift"))
+fn read_our_bridge_sources() -> String {
+    let sources = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("swift-bridge/Sources");
+    let mut paths: Vec<PathBuf> = ["AVAssetWriterBridge", "AVAssetWriterObjCBridge"]
+        .iter()
+        .flat_map(|target| {
+            let dir = sources.join(target);
+            std::fs::read_dir(&dir)
+                .unwrap_or_else(|e| panic!("can't read {}: {e}", dir.display()))
+                .map(|entry| entry.unwrap().path())
+        })
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|ext| ext == "swift" || ext == "m")
+        })
         .collect();
     paths.sort();
     paths
@@ -179,7 +186,7 @@ fn av_asset_export_session_intentionally_omitted() -> BTreeSet<String> {
 
 // ---- Test cases ----
 
-/// Obj-C method-name → Swift-name overrides for cases where Swift's
+/// Obj-C method-name → bridge-source overrides for cases where Swift's
 /// importer drops the leading-keyword argument noun (e.g.
 /// `appendSampleBuffer:` → `append(_:)`).
 #[allow(clippy::too_many_lines)]
@@ -209,24 +216,39 @@ fn objc_to_swift_aliases() -> std::collections::BTreeMap<&'static str, Vec<&'sta
         ("initWithInputs", vec!["AVAssetWriterInputGroup(inputs:"]),
         (
             "assetWriterInputWithMediaType",
-            vec!["AVAssetWriterInput(mediaType:"],
+            vec![
+                "AVAssetWriterInput(mediaType:",
+                "[[AVAssetWriterInput alloc]",
+            ],
         ),
         ("initWithMediaType", vec!["AVAssetWriterInput(mediaType:"]),
         (
             "assetWriterInputPixelBufferAdaptorWithAssetWriterInput",
-            vec!["AVAssetWriterInputPixelBufferAdaptor("],
+            vec![
+                "AVAssetWriterInputPixelBufferAdaptor(",
+                "[[AVAssetWriterInputPixelBufferAdaptor alloc]",
+            ],
         ),
         (
             "assetWriterInputTaggedPixelBufferGroupAdaptorWithAssetWriterInput",
-            vec!["AVAssetWriterInputTaggedPixelBufferGroupAdaptor("],
+            vec![
+                "AVAssetWriterInputTaggedPixelBufferGroupAdaptor(",
+                "[[AVAssetWriterInputTaggedPixelBufferGroupAdaptor alloc]",
+            ],
         ),
         (
             "assetWriterInputMetadataAdaptorWithAssetWriterInput",
-            vec!["AVAssetWriterInputMetadataAdaptor(assetWriterInput:"],
+            vec![
+                "AVAssetWriterInputMetadataAdaptor(assetWriterInput:",
+                "[[AVAssetWriterInputMetadataAdaptor alloc]",
+            ],
         ),
         (
             "assetWriterInputCaptionAdaptorWithAssetWriterInput",
-            vec!["AVAssetWriterInputCaptionAdaptor(assetWriterInput:"],
+            vec![
+                "AVAssetWriterInputCaptionAdaptor(assetWriterInput:",
+                "[[AVAssetWriterInputCaptionAdaptor alloc]",
+            ],
         ),
         (
             "initWithAssetWriterInput",
@@ -319,7 +341,7 @@ fn objc_to_swift_aliases() -> std::collections::BTreeMap<&'static str, Vec<&'sta
 
 #[test]
 fn ownership_sensitive_bridge_paths_are_present() {
-    let bridge = read_our_swift_bridge();
+    let bridge = read_our_bridge_sources();
     for symbol in [
         "CallbackLifetimeBox",
         "av_writer_input_remove_callbacks",
@@ -383,7 +405,7 @@ fn av_asset_writer_coverage() {
     let header =
         sdk.join("System/Library/Frameworks/AVFoundation.framework/Headers/AVAssetWriter.h");
     let apple = extract_objc_surface(&read_file(&header));
-    let bridge = read_our_swift_bridge();
+    let bridge = read_our_bridge_sources();
     let aliases = objc_to_swift_aliases();
 
     let referenced: BTreeSet<String> = apple
@@ -421,7 +443,7 @@ fn av_asset_writer_input_coverage() {
     let header =
         sdk.join("System/Library/Frameworks/AVFoundation.framework/Headers/AVAssetWriterInput.h");
     let apple = extract_objc_surface(&read_file(&header));
-    let bridge = read_our_swift_bridge();
+    let bridge = read_our_bridge_sources();
     let aliases = objc_to_swift_aliases();
 
     let referenced: BTreeSet<String> = apple
@@ -460,7 +482,7 @@ fn av_file_type_coverage() {
         &read_file(&header),
     );
 
-    let bridge = read_our_swift_bridge();
+    let bridge = read_our_bridge_sources();
     let supported: [(&str, &str); 25] = [
         ("AVFileTypeQuickTimeMovie", "AVFileType.mov"),
         ("AVFileTypeMPEG4", "AVFileType.mp4"),
@@ -514,7 +536,7 @@ fn av_output_settings_assistant_coverage() {
         "System/Library/Frameworks/AVFoundation.framework/Headers/AVOutputSettingsAssistant.h",
     );
     let apple = extract_objc_surface(&read_file(&header));
-    let bridge = read_our_swift_bridge();
+    let bridge = read_our_bridge_sources();
     let aliases = objc_to_swift_aliases();
 
     let referenced: BTreeSet<String> = apple
@@ -549,7 +571,7 @@ fn av_asset_export_session_coverage() {
     let header =
         sdk.join("System/Library/Frameworks/AVFoundation.framework/Headers/AVAssetExportSession.h");
     let apple = extract_objc_surface(&read_file(&header));
-    let bridge = read_our_swift_bridge();
+    let bridge = read_our_bridge_sources();
     let aliases = objc_to_swift_aliases();
 
     let referenced: BTreeSet<String> = apple
@@ -589,7 +611,7 @@ fn av_output_settings_preset_coverage() {
         &read_file(&header),
     );
 
-    let bridge = read_our_swift_bridge();
+    let bridge = read_our_bridge_sources();
     let supported = [
         ("AVOutputSettingsPreset640x480", ".preset640x480"),
         ("AVOutputSettingsPreset960x540", ".preset960x540"),
@@ -639,7 +661,7 @@ fn av_asset_export_preset_coverage() {
         &read_file(&header),
     );
 
-    let bridge = read_our_swift_bridge();
+    let bridge = read_our_bridge_sources();
     let referenced: BTreeSet<String> = apple
         .iter()
         .filter(|symbol| bridge.contains(symbol.as_str()))
@@ -663,7 +685,7 @@ fn av_audio_settings_keys_coverage() {
         &read_file(&header),
     );
 
-    let bridge = read_our_swift_bridge();
+    let bridge = read_our_bridge_sources();
     let our_keys: BTreeSet<String> = apple
         .iter()
         .filter(|name| {

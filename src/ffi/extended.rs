@@ -106,7 +106,11 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> i32;
 
-    pub fn av_writer_pixel_buffer_pool(writer: *mut c_void, input_id: i32) -> *mut c_void;
+    pub fn av_writer_pixel_buffer_pool(
+        writer: *mut c_void,
+        input_id: i32,
+        out_error_message: *mut *mut c_char,
+    ) -> *mut c_void;
 
     pub fn av_writer_attach_tagged_pixel_buffer_group_adaptor_json(
         writer: *mut c_void,

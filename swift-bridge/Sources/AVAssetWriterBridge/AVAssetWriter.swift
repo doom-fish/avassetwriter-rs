@@ -13,6 +13,7 @@
 // The CMSampleBufferRef we accept comes verbatim from videotoolbox-rs's
 // EncodedFrame::cm_sample_buffer_ptr — no reconstruction needed.
 
+import AVAssetWriterObjCBridge
 import AVFoundation
 import CoreMedia
 import Foundation
@@ -26,6 +27,7 @@ let AVW_INPUT_NOT_READY: Int32 = -3
 let AVW_APPEND_FAILED: Int32 = -4
 let AVW_FINISH_FAILED: Int32 = -5
 let AVW_INVALID_STATE: Int32 = -6
+let AVW_START_FAILED: Int32 = -7
 
 // MARK: - String helpers
 
@@ -65,6 +67,9 @@ final class Writer {
     var segmentCallbackBox: SegmentCallbackBox? = nil
     var segmentDelegate: AnyObject? = nil
     var lastError: String? = nil
+    var sessionStarted = false
+    var sessionEnded = false
+    var adaptedInputIds: Set<Int32> = []
     private var finishedInputIds: Set<Int32> = []
     private let gate = NSRecursiveLock()
     private let blockingOperationCondition = NSCondition()
@@ -316,14 +321,15 @@ public func av_writer_create(
     }
 
     let url = URL(fileURLWithPath: pathStr)
-    do {
-        let writer = try AVAssetWriter(outputURL: url, fileType: avFileType)
-        let wrapper = Writer(writer: writer)
-        return Unmanaged.passRetained(wrapper).toOpaque()
-    } catch {
-        outErrorMessage?.pointee = ffiString("AVAssetWriter init failed: \(error.localizedDescription)")
+    var message: NSString?
+    guard let writer = AVWXMakeWriter(url, avFileType, &message) else {
+        outErrorMessage?.pointee = ffiString(
+            "AVAssetWriter init failed: \((message as String?) ?? "unknown error")"
+        )
         return nil
     }
+    let wrapper = Writer(writer: writer)
+    return Unmanaged.passRetained(wrapper).toOpaque()
 }
 
 @_cdecl("av_writer_release")
@@ -357,19 +363,16 @@ public func av_writer_add_video_input_from_sample(
         outErrorMessage?.pointee = ffiString("sample buffer has no format description")
         return AVW_INVALID_ARGUMENT
     }
-
-    let input = AVAssetWriterInput(mediaType: .video, outputSettings: nil, sourceFormatHint: format)
-    input.expectsMediaDataInRealTime = true
-
-    if !wrapper.writer.canAdd(input) {
-        outErrorMessage?.pointee = ffiString("writer cannot add video input (status=\(wrapper.writer.status.rawValue))")
-        return AVW_INVALID_STATE
+    if let status = formatHintStatus(format, expected: .video, outErrorMessage) {
+        return status
     }
-    wrapper.writer.add(input)
-
-    let id = Int32(wrapper.inputs.count)
-    wrapper.inputs.append(input)
-    return id
+    return wrapper.addInput(
+        mediaType: .video,
+        outputSettings: nil,
+        sourceFormatHint: format,
+        expectsMediaDataInRealTime: true,
+        outErrorMessage
+    )
 }
 
 /// Add an audio input that will mux raw little-endian signed-integer linear
@@ -401,6 +404,10 @@ public func av_writer_add_audio_input_pcm(
         outErrorMessage?.pointee = ffiString("bitsPerSample must be 16 or 32 (got \(bitsPerSample))")
         return AVW_INVALID_ARGUMENT
     }
+    guard sampleRate.isFinite, sampleRate > 0 else {
+        outErrorMessage?.pointee = ffiString("sampleRate must be positive and finite (got \(sampleRate))")
+        return AVW_INVALID_ARGUMENT
+    }
 
     // outputSettings tells AVAssetWriter the *destination* encoding. For
     // .mp4 / .m4v containers we ask it to transcode to AAC at 128 kbps,
@@ -413,19 +420,16 @@ public func av_writer_add_audio_input_pcm(
         AVEncoderBitRateKey: 128_000,
     ]
 
-    let input = AVAssetWriterInput(mediaType: .audio, outputSettings: outputSettings)
-    input.expectsMediaDataInRealTime = true
-
-    if !wrapper.writer.canAdd(input) {
-        outErrorMessage?.pointee = ffiString(
-            "writer cannot add audio input (status=\(wrapper.writer.status.rawValue))"
-        )
-        return AVW_INVALID_STATE
+    let id = wrapper.addInput(
+        mediaType: .audio,
+        outputSettings: outputSettings,
+        sourceFormatHint: nil,
+        expectsMediaDataInRealTime: true,
+        outErrorMessage
+    )
+    guard id >= 0 else {
+        return id
     }
-    wrapper.writer.add(input)
-
-    let id = Int32(wrapper.inputs.count)
-    wrapper.inputs.append(input)
     // Stash the source format so append_audio_pcm can rebuild a sample
     // buffer with the same format description on every push.
     wrapper.audioFormats[id] = AudioFormat(
@@ -456,12 +460,19 @@ public func av_writer_append_audio_pcm(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0 && Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
-        return AVW_INVALID_ARGUMENT
+    if let status = wrapper.appendStatus(inputId, outErrorMessage) {
+        return status
     }
     guard let fmt = wrapper.audioFormats[inputId] else {
         outErrorMessage?.pointee = ffiString("input \(inputId) is not an audio input")
+        return AVW_INVALID_ARGUMENT
+    }
+    let bytesPerFrame = fmt.channels * fmt.bitsPerSample / 8
+    let (expectedByteCount, overflow) = frameCount.multipliedReportingOverflow(by: bytesPerFrame)
+    guard frameCount > 0, !overflow, expectedByteCount == pcmByteCount else {
+        outErrorMessage?.pointee = ffiString(
+            "pcm byte count \(pcmByteCount) does not match \(frameCount) frames of \(bytesPerFrame) bytes"
+        )
         return AVW_INVALID_ARGUMENT
     }
     let input = wrapper.inputs[Int(inputId)]
@@ -544,13 +555,9 @@ public func av_writer_append_audio_pcm(
         return AVW_APPEND_FAILED
     }
 
-    if !input.append(sampleBuffer) {
-        let msg = wrapper.writer.error?.localizedDescription
-            ?? "audio append() returned false (status=\(wrapper.writer.status.rawValue))"
-        outErrorMessage?.pointee = ffiString(msg)
-        return AVW_APPEND_FAILED
-    }
-    return AVW_OK
+    var message: NSString?
+    let result = AVWXAppendSampleBuffer(input, sampleBuffer, &message)
+    return wrapper.appendOutcome(result, message, "audio append()", outErrorMessage)
 }
 
 // MARK: - Start / append / finish
@@ -566,13 +573,24 @@ public func av_writer_start_session(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
+    guard wrapper.writer.status == .unknown, !wrapper.sessionStarted else {
+        outErrorMessage?.pointee = ffiString(
+            "start_session can only be called once, before writing starts (status=\(wrapper.writer.status.rawValue))"
+        )
+        return AVW_INVALID_STATE
+    }
+    guard sourceTimeScale > 0 else {
+        outErrorMessage?.pointee = ffiString("start_session requires a positive timescale")
+        return AVW_INVALID_ARGUMENT
+    }
     if !wrapper.writer.startWriting() {
         let msg = wrapper.writer.error?.localizedDescription ?? "startWriting() returned false"
         outErrorMessage?.pointee = ffiString(msg)
-        return AVW_WRITER_CREATE_FAILED
+        return AVW_START_FAILED
     }
     let t = CMTime(value: sourceTimeValue, timescale: sourceTimeScale)
     wrapper.writer.startSession(atSourceTime: t)
+    wrapper.sessionStarted = true
     return AVW_OK
 }
 
@@ -588,23 +606,27 @@ public func av_writer_append_sample(
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    guard inputId >= 0 && Int(inputId) < wrapper.inputs.count else {
-        outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
+    if let status = wrapper.appendStatus(inputId, outErrorMessage) {
+        return status
+    }
+    guard wrapper.captionAdaptors[inputId] == nil else {
+        outErrorMessage?.pointee = ffiString(
+            "input \(inputId) has a caption adaptor; append captions instead of sample buffers"
+        )
         return AVW_INVALID_ARGUMENT
     }
     let input = wrapper.inputs[Int(inputId)]
     let sampleBuffer = Unmanaged<CMSampleBuffer>.fromOpaque(sampleBufferPtr).takeUnretainedValue()
+    if let status = sampleMediaTypeStatus(sampleBuffer, input, outErrorMessage) {
+        return status
+    }
 
     if !input.isReadyForMoreMediaData {
         return AVW_INPUT_NOT_READY
     }
-    if !input.append(sampleBuffer) {
-        let msg = wrapper.writer.error?.localizedDescription
-            ?? "append() returned false (status=\(wrapper.writer.status.rawValue))"
-        outErrorMessage?.pointee = ffiString(msg)
-        return AVW_APPEND_FAILED
-    }
-    return AVW_OK
+    var message: NSString?
+    let result = AVWXAppendSampleBuffer(input, sampleBuffer, &message)
+    return wrapper.appendOutcome(result, message, "append()", outErrorMessage)
 }
 
 /// Finalise the file. Marks all inputs as finished, blocks until the

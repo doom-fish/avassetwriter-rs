@@ -1,3 +1,4 @@
+import AVAssetWriterObjCBridge
 import AVFoundation
 import CoreGraphics
 import CoreMedia
@@ -241,7 +242,10 @@ private func encodeCaptionRegionScroll(_ scroll: AVCaptionRegion.Scroll) -> Capt
     }
 }
 
-private func captionRegion(from payload: CaptionRegionPayload) -> AVCaptionRegion {
+private func captionRegion(from payload: CaptionRegionPayload) throws -> AVCaptionRegion {
+    guard payload.size.width.units == payload.size.height.units else {
+        throw BridgeError.message("caption region width and height must use the same units")
+    }
     let region = payload.identifier.map(AVMutableCaptionRegion.init(identifier:)) ?? AVMutableCaptionRegion()
     region.origin = avCaptionPoint(from: payload.origin)
     region.size = avCaptionSize(from: payload.size)
@@ -451,10 +455,13 @@ private func encodeCaptionConversionValidatorInfoPayload(
     )
 }
 
-func caption(from payload: CaptionPayload) -> AVCaption {
+func caption(from payload: CaptionPayload) throws -> AVCaption {
     let caption = AVMutableCaption(payload.text, timeRange: cmTimeRange(from: payload.timeRange))
     if let region = payload.region {
-        caption.region = captionRegion(from: region)
+        var message: NSString?
+        guard AVWXSetCaptionRegion(caption, try captionRegion(from: region), &message) else {
+            throw BridgeError.message((message as String?) ?? "caption region was rejected")
+        }
     }
     if let textAlignment = payload.textAlignment {
         caption.textAlignment = avCaptionTextAlignment(from: textAlignment)
@@ -462,7 +469,13 @@ func caption(from payload: CaptionPayload) -> AVCaption {
     if let animation = payload.animation {
         caption.animation = avCaptionAnimation(from: animation)
     }
+    let textLength = (payload.text as NSString).length
     for rubySpan in payload.rubySpans ?? [] {
+        guard rubySpan.start >= 0, rubySpan.length >= 0, rubySpan.start <= textLength - rubySpan.length else {
+            throw BridgeError.message(
+                "ruby span \(rubySpan.start)+\(rubySpan.length) is outside the caption text (\(textLength) UTF-16 units)"
+            )
+        }
         caption.setRuby(captionRuby(from: rubySpan.ruby), in: NSRange(location: rubySpan.start, length: rubySpan.length))
     }
     return caption
@@ -479,8 +492,16 @@ func encodeCaption(_ caption: AVCaption) -> CaptionPayload {
     )
 }
 
-func captionGroup(from payload: CaptionGroupPayload) -> AVCaptionGroup {
-    AVCaptionGroup(captions: payload.captions.map(caption(from:)), timeRange: cmTimeRange(from: payload.timeRange))
+func captionGroup(from payload: CaptionGroupPayload) throws -> AVCaptionGroup {
+    var message: NSString?
+    guard let group = AVWXMakeCaptionGroup(
+        try payload.captions.map(caption(from:)),
+        cmTimeRange(from: payload.timeRange),
+        &message
+    ) else {
+        throw BridgeError.message((message as String?) ?? "caption group was rejected")
+    }
+    return group
 }
 
 func encodeCaptionGroup(_ group: AVCaptionGroup) -> CaptionGroupPayload {
@@ -535,7 +556,7 @@ public func av_caption_grouper_add_caption_json(
     let grouper = Unmanaged<AVCaptionGrouper>.fromOpaque(grouperPtr).takeUnretainedValue()
     do {
         let payload = try decodeJson(captionJson, as: CaptionPayload.self)
-        grouper.add(caption(from: payload))
+        try grouper.add(caption(from: payload))
         return AVW_OK
     } catch {
         outErrorMessage?.pointee = ffiString(error.localizedDescription)
@@ -574,9 +595,14 @@ public func av_caption_format_conformer_create(
 ) -> UnsafeMutableRawPointer? {
     do {
         let settings = try decodeJson(settingsJson, as: CaptionConversionSettingsPayload.self)
-        return Unmanaged.passRetained(
-            AVCaptionFormatConformer(conversionSettings: captionConversionSettings(from: settings))
-        ).toOpaque()
+        var message: NSString?
+        guard let conformer = AVWXMakeCaptionFormatConformer(captionConversionSettings(from: settings), &message) else {
+            outErrorMessage?.pointee = ffiString(
+                (message as String?) ?? "caption format conformer rejected its conversion settings"
+            )
+            return nil
+        }
+        return Unmanaged.passRetained(conformer).toOpaque()
     } catch {
         outErrorMessage?.pointee = ffiString(error.localizedDescription)
         return nil
@@ -714,14 +740,21 @@ public func av_caption_conversion_validator_create(
     do {
         let captions = try decodeJson(captionsJson, as: [CaptionPayload].self).map(caption(from:))
         let settings = try decodeJson(settingsJson, as: CaptionConversionSettingsPayload.self)
-        let validator = AVCaptionConversionValidator(
-            captions: captions,
-            timeRange: CMTimeRange(
+        var message: NSString?
+        guard let validator = AVWXMakeCaptionConversionValidator(
+            captions,
+            CMTimeRange(
                 start: cmTime(value: startValue, timescale: startScale, kind: startKind),
                 duration: cmTime(value: durationValue, timescale: durationScale, kind: durationKind)
             ),
-            conversionSettings: captionConversionSettings(from: settings)
-        )
+            captionConversionSettings(from: settings),
+            &message
+        ) else {
+            outErrorMessage?.pointee = ffiString(
+                (message as String?) ?? "caption conversion validator rejected its conversion settings"
+            )
+            return nil
+        }
         return Unmanaged.passRetained(validator).toOpaque()
     } catch {
         outErrorMessage?.pointee = ffiString(error.localizedDescription)

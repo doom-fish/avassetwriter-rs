@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("create writer");
     let writer = Writer::create(&output, FileType::Mov)?;
     println!("configure writer");
-    writer.set_optimize_for_network_use(true);
+    writer.set_optimize_for_network_use(true)?;
     writer.set_directory_for_temporary_files(&temp_dir)?;
     writer.set_movie_fragment_interval(CMTime::new(1, 1))?;
     writer.set_initial_movie_fragment_interval(CMTime::new(1, 2))?;

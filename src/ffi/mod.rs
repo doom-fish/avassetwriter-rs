@@ -49,9 +49,14 @@ extern "C" {
     pub fn av_writer_set_should_optimize_for_network_use(
         writer: *mut c_void,
         should_optimize: bool,
-    );
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
 
-    pub fn av_writer_set_movie_fragment_interval_seconds(writer: *mut c_void, seconds: f64);
+    pub fn av_writer_set_movie_fragment_interval_seconds(
+        writer: *mut c_void,
+        seconds: f64,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
 
     pub fn av_writer_add_input_group(
         writer: *mut c_void,
@@ -122,4 +127,5 @@ pub mod status {
     pub const APPEND_FAILED: i32 = -4;
     pub const FINISH_FAILED: i32 = -5;
     pub const INVALID_STATE: i32 = -6;
+    pub const START_FAILED: i32 = -7;
 }
