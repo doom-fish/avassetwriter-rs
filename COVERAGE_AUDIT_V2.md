@@ -6,6 +6,11 @@ GAPS: 0
 EXEMPT: 4
 COVERAGE_PCT: 100.0
 
+What the percentage measures: top-level declarations in the writer/export
+headers, not their methods or properties. Member-level gaps are tracked in
+`COVERAGE.md`. The `AVAssetReader` family is outside these headers and is not
+wrapped, so this number says nothing about reading.
+
 Methodology: Per-header enumeration of Objective-C public interfaces, protocols, enums, and exported constants. Symbols flagged as `API_UNAVAILABLE(watchos)` or unavailable on macOS are filtered out. Deprecated-in-Swift adaptors (AVAssetWriterInputPixelBufferAdaptor, AVAssetWriterInputTaggedPixelBufferGroupAdaptor, AVAssetWriterInputMetadataAdaptor, AVAssetWriterInputCaptionAdaptor) are re-validated against the MacOSX26.2.sdk headers and retained in EXEMPT with their `API_DEPRECATED` attributes. No new symbols were added in 26.2 relative to the v1 audit baseline.
 
 ## 🟢 VERIFIED
@@ -84,7 +89,7 @@ None.
 | `AVAssetWriterInputCaptionAdaptor` | interface | `AVAssetWriterInput.h` | Deprecated in Swift in favor of `AVAssetWriter.inputCaptionReceiver(...)`; crate still wraps the legacy caption adaptor path. | `API_DEPRECATED("Use AVAssetWriter.inputCaptionReceiver(for:) instead", macos(12.0, API_TO_BE_DEPRECATED), ...)` |
 
 ## Summary
-The avassetwriter crate maintains 100% coverage of all non-deprecated public AVFoundation writer/export symbols across MacOSX26.2.sdk. All four deprecated adaptor classes are explicitly exempted because they carry `API_DEPRECATED` attributes in the Swift availability section of the headers and the crate intentionally maintains backward compatibility for client code using the legacy adaptor path. No gaps or regressions detected.
+The avassetwriter crate wraps every counted top-level declaration in the writer/export headers of MacOSX26.2.sdk; this is a declaration-level count, and `AVAssetReader` is not covered. All four deprecated adaptor classes are explicitly exempted because they carry `API_DEPRECATED` attributes in the Swift availability section of the headers and the crate intentionally maintains backward compatibility for client code using the legacy adaptor path. No gaps were found among the counted declarations.
 
 The live Rust compositor currently covers retained 32-bit BGRA SDR
 pixel/sample-buffer requests. Tagged buffers, wide-color/HDR source frames, and

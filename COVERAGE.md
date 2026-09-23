@@ -11,6 +11,15 @@ Audited against the current macOS SDK returned by `xcrun --sdk macosx --show-sdk
 - `AVAudioSettings.h`
 - `AVAssetTrack.h`
 
+Out of scope: the `AVAssetReader` family (`AVAssetReader`, its track,
+audio-mix, video-composition and sample-reference outputs, and
+`AVAssetReaderOutputMetadataAdaptor`) is not wrapped at all. This crate writes
+and exports media; it cannot read samples back out of an asset.
+
+Every Objective-C exception condition documented for a wrapped call is either
+checked before the call or caught in the bridge's Objective-C target, so misuse
+returns an `AVWriterError` instead of aborting the process.
+
 Legend:
 
 - ✅ implemented
@@ -22,12 +31,12 @@ Legend:
 | Apple API row | Status | Notes |
 | --- | --- | --- |
 | `assetWriterWithURL:fileType:error:` | ⏭️ skipped | Deprecated factory; safe Rust surface uses designated init wrapper `Writer::create`. |
-| `initWithURL:fileType:error:` | ✅ implemented | `Writer::create(path, file_type)`. |
+| `initWithURL:fileType:error:` | ✅ implemented | `Writer::create(path, file_type)` refuses an existing path; `Writer::create_with_policy` with `OutputPolicy::ReplaceFile` replaces only a regular file. |
 | `initWithContentType:` | ✅ implemented | `Writer::create_segmented(...)` uses the content-type initializer for segmented output. |
 | `canApplyOutputSettings:forMediaType:` | ✅ implemented | `Writer::can_apply_output_settings`. |
 | `canAddInput:` / `addInput:` | ✅ implemented | Covered by sample-buffer, PCM, generic JSON, metadata, caption, and pixel-buffer input constructors. |
 | `canAddInputGroup:` / `addInputGroup:` | ✅ implemented | `Writer::add_input_group`. |
-| `startWriting` / `startSessionAtSourceTime:` | ✅ implemented | `Writer::start_session`. |
+| `startWriting` / `startSessionAtSourceTime:` | ✅ implemented | `Writer::start_session`; one session per writer, so a second call returns `InvalidState`. |
 | `endSessionAtSourceTime:` | ✅ implemented | `Writer::end_session` uses a split-phase native call that blocks unrelated threads while admitting delegate-originated reentrancy. |
 | `finishWritingWithCompletionHandler:` | ✅ implemented | `Writer::finish` uses a split-phase finish so the recursive writer gate is not held while native completion/callback work runs. |
 | `cancelWriting` | ✅ implemented | `Writer::cancel` detaches callback ownership without freeing in-flight userdata. |
@@ -103,7 +112,7 @@ Legend:
 | `exportSessionWithAsset:presetName:` / `initWithAsset:presetName:` | ✅ implemented | `ExportSession::new` creates an internal `AVURLAsset`-backed session. |
 | `presetName` | ✅ implemented | `ExportSession::preset_name`. |
 | `asset` | ✅ implemented | `Asset` now exposes URL-backed `AVAsset` loading, duration/metadata readback, and per-key status inspection. |
-| `outputFileType` / `outputURL` | ✅ implemented | `ExportSession::{output_file_type,set_output_file_type,output_path,set_output_path}`. |
+| `outputFileType` / `outputURL` | ✅ implemented | `ExportSession::{output_file_type,set_output_file_type,output_path,set_output_path}`; an existing output is refused unless `set_output_policy(OutputPolicy::ReplaceFile)` allows replacing a regular file. |
 | `shouldOptimizeForNetworkUse` | ✅ implemented | Getter + setter. |
 | `allowsParallelizedExport` | ✅ implemented | Getter + setter (setter reports unsupported runtimes on macOS < 14). |
 | `status` / `error` / `progress` | ✅ implemented | `ExportStatus`, error string, and progress readback. |
@@ -146,3 +155,4 @@ Legend:
 2. `MetadataItemFilter` and `AudioMix` remain focused interop wrappers. `VideoComposition` now supports live Rust request processing, but the bundled compositor is intentionally limited to 32-bit BGRA SDR frames; tagged buffers, wide-color/HDR sources, and direct Rust `CIImage` processing remain explicit gaps.
 3. Deprecated `AVAssetExportSession.maxDuration` / `estimatedOutputFileLength` remain skipped in favor of the modern async estimate APIs.
 4. `AVVideoSettings` constants are currently exposed as JSON dictionaries rather than as a dedicated typed Rust wrapper.
+5. The `AVAssetReader` family is out of scope and not wrapped.

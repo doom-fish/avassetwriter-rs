@@ -10,6 +10,11 @@ GAPS: 0
 EXEMPT: 4
 COVERAGE_PCT: 100.0%
 
+What the percentage measures: top-level declarations in the eight headers
+listed above, not their methods or properties. Member-level gaps are tracked in
+`COVERAGE.md`. The `AVAssetReader` family is outside these headers and is not
+wrapped, so this number says nothing about reading.
+
 ## 🟢 VERIFIED
 | Symbol | Kind | Header | Wrapped by |
 | --- | --- | --- | --- |

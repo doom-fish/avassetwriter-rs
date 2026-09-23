@@ -2,7 +2,7 @@
 
 Safe Rust bindings for Apple's [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter), [AVOutputSettingsAssistant](https://developer.apple.com/documentation/avfoundation/avoutputsettingsassistant), and [AVAssetExportSession](https://developer.apple.com/documentation/avfoundation/avassetexportsession) — covering writer configuration/readback, audio/video/metadata inputs, pixel-buffer/metadata/caption/tagged-buffer adaptors, output-settings recommendations, export preset discovery, compatibility checks, export-session media-processing objects, and file export on macOS.
 
-> **Status:** The current release substantially covers the public writer, output-settings, export-session, metadata, and custom video-composition surface used by real muxing and transcode pipelines.
+> **Status:** The current release substantially covers the public writer, output-settings, export-session, metadata, and custom video-composition surface used by real muxing and transcode pipelines. It does not wrap `AVAssetReader` or its outputs: the crate writes and exports media, but cannot read samples back out of an asset. Requires macOS 13 or later.
 
 Designed to compose with [`videotoolbox`](https://github.com/doom-fish/videotoolbox-rs): hand the `CMSampleBuffer` straight from the encoder to the muxer for video, push interleaved PCM bytes for audio, or build pixel-buffer / metadata-driven pipelines directly.
 
@@ -52,6 +52,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+## Output paths
+
+`Writer::create` never touches an existing path: it returns
+`AVWriterError::OutputExists` instead. To replace an earlier output, use
+`Writer::create_with_policy(path, file_type, OutputPolicy::ReplaceFile)`.
+`ReplaceFile` removes only a regular file; directories and symlinks are always
+refused. `ExportSession::set_output_policy` applies the same rules to exports,
+and an export never replaces its own source asset.
+
+## Errors instead of exceptions
+
+`AVFoundation` raises Objective-C exceptions for many kinds of misuse, and an
+uncaught exception aborts the process. The bridge checks every documented
+precondition first. Where only `AVFoundation` can judge a value (output settings,
+language codes, caption groups and regions, adaptor attachment), the call runs
+inside an Objective-C `@try` and the exception reason comes back as an error.
+Misuse such as calling `start_session` twice, configuring the writer after
+writing starts, or appending outside the session returns
+`AVWriterError::InvalidState`. Invalid values, such as a sample whose media
+type doesn't match its input or a non-numeric presentation time, return
+`AVWriterError::InvalidArgument`.
+
+All times and ranges are `apple_cf::cm::CMTime` / `CMTimeRange`, re-exported
+from the prelude.
 
 ## Async API
 
@@ -205,7 +230,7 @@ See [`COVERAGE.md`](COVERAGE.md) for the current Apple-SDK audit, including impl
 
 ## Surface highlights
 
-- `Writer::create` + `Writer::create_segmented`
+- `Writer::create` / `Writer::create_with_policy` + `Writer::create_segmented`
 - Writer readback/configuration: status, error, output path/type, metadata, temp directory, fragment settings, duration hints, time scale, combinable fragments
 - Inputs: sample-buffer video/audio, PCM audio, generic inputs, metadata inputs, caption/text inputs, pixel-buffer inputs, tagged-pixel-buffer-group inputs, multi-input groups
 - Adaptors: pixel-buffer, tagged-pixel-buffer-group, metadata, caption
