@@ -85,7 +85,7 @@ pub(crate) unsafe extern "C" fn ready_callback_trampoline(userdata: *mut c_void)
     let Some(mut callback) = try_lock_callback("ready_callback_trampoline", &state.callback) else {
         return;
     };
-    catch_callback_panic("ready_callback_trampoline", || callback());
+    catch_callback_panic("ready_callback_trampoline", &mut *callback);
 }
 
 pub(crate) unsafe extern "C" fn ready_callback_drop(userdata: *mut c_void) {
@@ -225,9 +225,10 @@ mod tests {
         let state = Box::new(ReadyCallbackState::new({
             let calls = Arc::clone(&calls);
             move || {
-                if calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                    panic!("first invocation");
-                }
+                assert!(
+                    calls.fetch_add(1, Ordering::SeqCst) != 0,
+                    "first invocation"
+                );
             }
         }));
         let userdata = Box::into_raw(state).cast::<c_void>();

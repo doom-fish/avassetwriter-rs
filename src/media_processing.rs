@@ -219,6 +219,7 @@ pub struct AsynchronousCIImageFilteringRequest {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Operations supported by the Rust callback compositor.
+#[allow(clippy::struct_excessive_bools)]
 pub struct RustVideoCompositorCapabilities {
     /// Requests can return retained source `CVPixelBuffer` values.
     pub source_pixel_buffers: bool,
@@ -289,13 +290,17 @@ impl VideoCompositionRequest {
         let mut kind = 0_i32;
         unsafe {
             ffi::av_video_composition_request_composition_time(
-                self.ptr, &mut value, &mut scale, &mut kind,
+                self.ptr,
+                &raw mut value,
+                &raw mut scale,
+                &raw mut kind,
             );
         }
         time_from_ffi_parts(value, scale, kind)
     }
 
     /// Return the native render-context size.
+    #[must_use]
     pub fn render_size(&self) -> (f64, f64) {
         let mut width = 0.0;
         let mut height = 0.0;
@@ -303,15 +308,16 @@ impl VideoCompositionRequest {
         unsafe {
             ffi::av_video_composition_request_render_info(
                 self.ptr,
-                &mut width,
-                &mut height,
-                &mut scale,
+                &raw mut width,
+                &raw mut height,
+                &raw mut scale,
             );
         }
         (width, height)
     }
 
     /// Return the native render scale.
+    #[must_use]
     pub fn render_scale(&self) -> f32 {
         let mut width = 0.0;
         let mut height = 0.0;
@@ -319,9 +325,9 @@ impl VideoCompositionRequest {
         unsafe {
             ffi::av_video_composition_request_render_info(
                 self.ptr,
-                &mut width,
-                &mut height,
-                &mut scale,
+                &raw mut width,
+                &raw mut height,
+                &raw mut scale,
             );
         }
         scale
@@ -334,7 +340,11 @@ impl VideoCompositionRequest {
         for index in 0..count {
             let mut track_id = 0;
             let found = unsafe {
-                ffi::av_video_composition_request_source_track_id_at(self.ptr, index, &mut track_id)
+                ffi::av_video_composition_request_source_track_id_at(
+                    self.ptr,
+                    index,
+                    &raw mut track_id,
+                )
             };
             if !found {
                 return Err(AVWriterError::InvalidState(
@@ -358,7 +368,7 @@ impl VideoCompositionRequest {
                 ffi::av_video_composition_request_source_sample_data_track_id_at(
                     self.ptr,
                     index,
-                    &mut track_id,
+                    &raw mut track_id,
                 )
             };
             if !found {
@@ -375,7 +385,11 @@ impl VideoCompositionRequest {
     pub fn source_frame(&self, track_id: i32) -> Result<Option<CVPixelBuffer>, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let frame = unsafe {
-            ffi::av_video_composition_request_copy_source_frame(self.ptr, track_id, &mut err_msg)
+            ffi::av_video_composition_request_copy_source_frame(
+                self.ptr,
+                track_id,
+                &raw mut err_msg,
+            )
         };
         if frame.is_null() {
             return if err_msg.is_null() {
@@ -400,7 +414,7 @@ impl VideoCompositionRequest {
             ffi::av_video_composition_request_copy_source_sample_buffer(
                 self.ptr,
                 track_id,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if sample.is_null() {
@@ -420,7 +434,7 @@ impl VideoCompositionRequest {
     pub fn new_output_pixel_buffer(&self) -> Result<CVPixelBuffer, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let frame = unsafe {
-            ffi::av_video_composition_request_new_output_pixel_buffer(self.ptr, &mut err_msg)
+            ffi::av_video_composition_request_new_output_pixel_buffer(self.ptr, &raw mut err_msg)
         };
         if frame.is_null() {
             return Err(if err_msg.is_null() {
@@ -442,7 +456,7 @@ impl VideoCompositionRequest {
             ffi::av_video_composition_request_finish_with_frame(
                 self.ptr,
                 frame.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -460,7 +474,7 @@ impl VideoCompositionRequest {
             ffi::av_video_composition_request_finish_with_error(
                 self.ptr,
                 message_c.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -473,7 +487,8 @@ impl VideoCompositionRequest {
     pub fn cancel(mut self) -> Result<(), AVWriterError> {
         self.begin_terminal_action()?;
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status = unsafe { ffi::av_video_composition_request_cancel(self.ptr, &mut err_msg) };
+        let status =
+            unsafe { ffi::av_video_composition_request_cancel(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -506,7 +521,7 @@ impl Drop for VideoCompositionRequest {
         if self.completion_state.begin_drop_cancel() {
             let mut err_msg: *mut c_char = ptr::null_mut();
             unsafe {
-                ffi::av_video_composition_request_cancel(self.ptr, &mut err_msg);
+                ffi::av_video_composition_request_cancel(self.ptr, &raw mut err_msg);
             }
             let _ = take_swift_string(err_msg);
         }
@@ -707,7 +722,7 @@ impl AudioMixInputParameters {
                 time_value(&time),
                 time_scale(&time),
                 time_kind(&time),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if ptr.is_null() {
@@ -790,7 +805,7 @@ impl MutableAudioMixInputParameters {
             ffi::av_audio_mix_input_parameters_set_track_id(
                 self.parameters.ptr,
                 track_id,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -813,7 +828,7 @@ impl MutableAudioMixInputParameters {
                 algorithm_c
                     .as_ref()
                     .map_or(ptr::null(), |value| value.as_ptr()),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -832,7 +847,7 @@ impl MutableAudioMixInputParameters {
                 time_value(&time),
                 time_scale(&time),
                 time_kind(&time),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -859,7 +874,7 @@ impl MutableAudioMixInputParameters {
                 time_value(&time_range.duration),
                 time_scale(&time_range.duration),
                 time_kind(&time_range.duration),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -909,7 +924,7 @@ impl MutableAudioMix {
                 self.mix.ptr,
                 raw_parameters.as_ptr(),
                 raw_parameters.len(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1037,7 +1052,7 @@ impl VideoComposition {
             ffi::av_video_composition_set_custom_video_compositor_class(
                 self.ptr,
                 class_c.as_ref().map_or(ptr::null(), |value| value.as_ptr()),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1048,7 +1063,7 @@ impl VideoComposition {
 
     /// Install a retained Rust request handler and route every instruction through it.
     ///
-    /// AVFoundation may invoke the handler concurrently. Each request can be
+    /// `AVFoundation` may invoke the handler concurrently. Each request can be
     /// completed synchronously or moved to a worker thread. Dropping a pending
     /// request cancels it exactly once. The current implementation accepts
     /// 32-bit BGRA SDR frames; query [`Self::rust_video_compositor_capabilities`]
@@ -1068,7 +1083,7 @@ impl VideoComposition {
                 Some(video_composition_request_trampoline),
                 userdata,
                 Some(video_composition_handler_drop),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1085,7 +1100,7 @@ impl VideoComposition {
     pub fn clear_rust_video_compositor(&self) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status =
-            unsafe { ffi::av_video_composition_clear_rust_compositor(self.ptr, &mut err_msg) };
+            unsafe { ffi::av_video_composition_clear_rust_compositor(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -1366,7 +1381,7 @@ mod tests {
         fn copy(&self) -> Option<(u64, String)> {
             self.entry
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone()
         }
 
@@ -1374,11 +1389,12 @@ mod tests {
             let mut entry = self
                 .entry
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if entry.as_ref().map(|value| value.0) != Some(generation) {
                 return false;
             }
             *entry = None;
+            drop(entry);
             self.acknowledgments.fetch_add(1, Ordering::SeqCst);
             true
         }

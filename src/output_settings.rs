@@ -56,8 +56,9 @@ impl OutputSettingsAssistant {
     pub fn new(preset: VideoPreset) -> Result<Self, AVWriterError> {
         let preset_c = cstring_arg(preset.as_str(), "output settings preset")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr =
-            unsafe { ffi::av_output_settings_assistant_create(preset_c.as_ptr(), &mut err_msg) };
+        let ptr = unsafe {
+            ffi::av_output_settings_assistant_create(preset_c.as_ptr(), &raw mut err_msg)
+        };
         if ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
@@ -102,7 +103,7 @@ impl OutputSettingsAssistant {
             ffi::av_output_settings_assistant_set_source_audio_format(
                 self.ptr,
                 format.map_or(ptr::null_mut(), CMFormatDescription::as_ptr),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -128,7 +129,7 @@ impl OutputSettingsAssistant {
             ffi::av_output_settings_assistant_set_source_video_format(
                 self.ptr,
                 format.map_or(ptr::null_mut(), CMFormatDescription::as_ptr),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -155,7 +156,7 @@ impl OutputSettingsAssistant {
                 time_value(&duration),
                 time_scale(&duration),
                 time_kind(&duration),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -182,7 +183,7 @@ impl OutputSettingsAssistant {
                 time_value(&duration),
                 time_scale(&duration),
                 time_kind(&duration),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {

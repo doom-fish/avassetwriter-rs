@@ -328,7 +328,7 @@ fn rust_video_compositor_finishes_requests_from_worker_threads(
     session.set_video_composition(Some(&composition))?;
 
     if let Err(error) = session.export() {
-        let handler_errors = handler_errors.lock().expect("handler error lock");
+        let handler_errors = handler_errors.lock().expect("handler error lock").clone();
         return Err(std::io::Error::other(format!(
             "export failed: {error}; handler errors: {handler_errors:?}"
         ))

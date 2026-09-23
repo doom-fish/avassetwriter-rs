@@ -377,7 +377,7 @@ impl Writer {
                 Some(segment_callback_trampoline),
                 userdata,
                 Some(segment_callback_drop),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if ptr.is_null() {
@@ -418,7 +418,7 @@ impl Writer {
 
     pub fn metadata(&self) -> Result<Vec<MetadataItem>, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let array = unsafe { ffi::av_writer_metadata(self.ptr, &mut err_msg) };
+        let array = unsafe { ffi::av_writer_metadata(self.ptr, &raw mut err_msg) };
         if array.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
@@ -433,7 +433,7 @@ impl Writer {
                 self.ptr,
                 item_ptrs.as_ptr(),
                 item_ptrs.len(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -464,7 +464,7 @@ impl Writer {
             ffi::av_writer_set_directory_for_temporary_files(
                 self.ptr,
                 path_c.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -513,7 +513,7 @@ impl Writer {
                 settings_c
                     .as_ref()
                     .map_or(ptr::null(), |value| value.as_ptr()),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         match result {
@@ -546,7 +546,7 @@ impl Writer {
                     .map_or(ptr::null(), |value| value.as_ptr()),
                 source_format_hint.map_or(ptr::null_mut(), CMFormatDescription::as_ptr),
                 expects_media_data_in_real_time,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if result < 0 {
@@ -564,7 +564,7 @@ impl Writer {
             ffi::av_writer_add_audio_input_from_sample(
                 self.ptr,
                 sample_buffer.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if result < 0 {
@@ -586,7 +586,7 @@ impl Writer {
                 self.ptr,
                 payload_c.as_ptr(),
                 expects_media_data_in_real_time,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if result < 0 {
@@ -615,7 +615,7 @@ impl Writer {
                 self.ptr,
                 media_type_c.as_ptr(),
                 expects_media_data_in_real_time,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if result < 0 {
@@ -642,7 +642,8 @@ impl Writer {
             ));
         }
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status = unsafe { ffi::av_writer_end_session(self.ptr, value, scale, 0, &mut err_msg) };
+        let status =
+            unsafe { ffi::av_writer_end_session(self.ptr, value, scale, 0, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -651,7 +652,7 @@ impl Writer {
 
     pub fn cancel(self) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status = unsafe { ffi::av_writer_cancel(self.ptr, &mut err_msg) };
+        let status = unsafe { ffi::av_writer_cancel(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -663,7 +664,7 @@ impl Writer {
     /// The writer remains usable, but subsequent segment data is discarded.
     pub fn remove_segment_callback(&self) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status = unsafe { ffi::av_writer_remove_segment_callback(self.ptr, &mut err_msg) };
+        let status = unsafe { ffi::av_writer_remove_segment_callback(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -688,7 +689,7 @@ impl Writer {
                 self.ptr,
                 input_id.0,
                 attrs_c.as_ref().map_or(ptr::null(), |value| value.as_ptr()),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -734,7 +735,7 @@ impl Writer {
                 self.ptr,
                 input_id.0,
                 attrs_c.as_ref().map_or(ptr::null(), |value| value.as_ptr()),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -785,7 +786,7 @@ impl Writer {
                 time_value(&time),
                 time_scale(&time),
                 time_kind(&time),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         match status {
@@ -797,8 +798,9 @@ impl Writer {
 
     pub fn attach_metadata_adaptor(&self, input_id: InputId) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status =
-            unsafe { ffi::av_writer_attach_metadata_adaptor(self.ptr, input_id.0, &mut err_msg) };
+        let status = unsafe {
+            ffi::av_writer_attach_metadata_adaptor(self.ptr, input_id.0, &raw mut err_msg)
+        };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -820,7 +822,7 @@ impl Writer {
                 self.ptr,
                 input_id.0,
                 group.as_ptr()?,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         match status {
@@ -832,8 +834,9 @@ impl Writer {
 
     pub fn attach_caption_adaptor(&self, input_id: InputId) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status =
-            unsafe { ffi::av_writer_attach_caption_adaptor(self.ptr, input_id.0, &mut err_msg) };
+        let status = unsafe {
+            ffi::av_writer_attach_caption_adaptor(self.ptr, input_id.0, &raw mut err_msg)
+        };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -857,7 +860,7 @@ impl Writer {
                 self.ptr,
                 input_id.0,
                 payload_c.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         match status {
@@ -880,7 +883,7 @@ impl Writer {
                 self.ptr,
                 input_id.0,
                 payload_c.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         match status {
@@ -912,7 +915,8 @@ impl Writer {
 
     pub fn input_metadata(&self, input_id: InputId) -> Result<Vec<MetadataItem>, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let array = unsafe { ffi::av_writer_input_metadata(self.ptr, input_id.0, &mut err_msg) };
+        let array =
+            unsafe { ffi::av_writer_input_metadata(self.ptr, input_id.0, &raw mut err_msg) };
         if array.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
@@ -932,7 +936,7 @@ impl Writer {
                 input_id.0,
                 item_ptrs.as_ptr(),
                 item_ptrs.len(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -966,7 +970,7 @@ impl Writer {
                 self.ptr,
                 input_id.0,
                 expects_media_data_in_real_time,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -991,7 +995,7 @@ impl Writer {
                 Some(ready_callback_trampoline),
                 userdata,
                 Some(ready_callback_drop),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1007,8 +1011,9 @@ impl Writer {
     /// framework does not expose independent cancellation for these blocks.
     pub fn remove_input_callbacks(&self, input_id: InputId) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status =
-            unsafe { ffi::av_writer_input_remove_callbacks(self.ptr, input_id.0, &mut err_msg) };
+        let status = unsafe {
+            ffi::av_writer_input_remove_callbacks(self.ptr, input_id.0, &raw mut err_msg)
+        };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -1017,8 +1022,9 @@ impl Writer {
 
     pub fn mark_input_as_finished(&self, input_id: InputId) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status =
-            unsafe { ffi::av_writer_input_mark_as_finished(self.ptr, input_id.0, &mut err_msg) };
+        let status = unsafe {
+            ffi::av_writer_input_mark_as_finished(self.ptr, input_id.0, &raw mut err_msg)
+        };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -1075,7 +1081,13 @@ impl Writer {
     ) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_input_set_natural_size(self.ptr, input_id.0, width, height, &mut err_msg)
+            ffi::av_writer_input_set_natural_size(
+                self.ptr,
+                input_id.0,
+                width,
+                height,
+                &raw mut err_msg,
+            )
         };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -1111,7 +1123,7 @@ impl Writer {
                 transform[3],
                 transform[4],
                 transform[5],
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1135,7 +1147,7 @@ impl Writer {
                 self.ptr,
                 input_id.0,
                 preferred_volume,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1162,7 +1174,7 @@ impl Writer {
                 self.ptr,
                 input_id.0,
                 enabled,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1186,7 +1198,7 @@ impl Writer {
                 self.ptr,
                 input_id.0,
                 media_time_scale,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1216,7 +1228,7 @@ impl Writer {
                 time_value(&duration),
                 time_scale(&duration),
                 time_kind(&duration),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1243,7 +1255,7 @@ impl Writer {
                 self.ptr,
                 input_id.0,
                 alignment,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1295,7 +1307,7 @@ impl Writer {
                 self.ptr,
                 input_id.0,
                 location_c.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1318,7 +1330,7 @@ impl Writer {
                 input_id.0,
                 other_input_id.0,
                 association_type_c.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         match status {
@@ -1342,7 +1354,7 @@ impl Writer {
                 input_id.0,
                 other_input_id.0,
                 association_type_c.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1371,7 +1383,7 @@ impl Writer {
                 self.ptr,
                 input_id.0,
                 enabled,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1410,7 +1422,7 @@ impl Writer {
                 Some(pass_description_callback_trampoline),
                 userdata,
                 Some(pass_description_callback_drop),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1423,7 +1435,11 @@ impl Writer {
     pub fn mark_current_pass_as_finished(&self, input_id: InputId) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_input_mark_current_pass_as_finished(self.ptr, input_id.0, &mut err_msg)
+            ffi::av_writer_input_mark_current_pass_as_finished(
+                self.ptr,
+                input_id.0,
+                &raw mut err_msg,
+            )
         };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -1469,7 +1485,7 @@ impl Writer {
             ffi::av_writer_set_initial_movie_fragment_sequence_number(
                 self.ptr,
                 sequence_number,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1485,7 +1501,7 @@ impl Writer {
     pub fn set_produces_combinable_fragments(&self, enabled: bool) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_set_produces_combinable_fragments(self.ptr, enabled, &mut err_msg)
+            ffi::av_writer_set_produces_combinable_fragments(self.ptr, enabled, &raw mut err_msg)
         };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -1508,7 +1524,7 @@ impl Writer {
     pub fn set_movie_time_scale(&self, movie_time_scale: i32) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_set_movie_time_scale(self.ptr, movie_time_scale, &mut err_msg)
+            ffi::av_writer_set_movie_time_scale(self.ptr, movie_time_scale, &raw mut err_msg)
         };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -1567,7 +1583,7 @@ impl Writer {
                 profile_c
                     .as_ref()
                     .map_or(ptr::null(), |value| value.as_ptr()),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1592,7 +1608,7 @@ impl Writer {
             ));
         }
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status = unsafe { ffi::av_writer_flush_segment(self.ptr, &mut err_msg) };
+        let status = unsafe { ffi::av_writer_flush_segment(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -1621,7 +1637,7 @@ impl Writer {
                 time_value(&time),
                 time_scale(&time),
                 time_kind(&time),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1644,7 +1660,7 @@ impl Writer {
                 self.ptr,
                 input_id.0,
                 value_c.as_ref().map_or(ptr::null(), |raw| raw.as_ptr()),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {

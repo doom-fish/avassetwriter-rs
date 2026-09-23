@@ -62,7 +62,7 @@ impl Asset {
     /// Static metadata attached to the asset.
     pub fn metadata(&self) -> Result<Vec<MetadataItem>, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let array = unsafe { ffi::av_asset_metadata(self.ptr, &mut err_msg) };
+        let array = unsafe { ffi::av_asset_metadata(self.ptr, &raw mut err_msg) };
         if array.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
@@ -78,7 +78,8 @@ impl Asset {
     pub fn status_of_value(&self, key: &str) -> Result<KeyValueStatus, AVWriterError> {
         let key_c = cstring_arg(key, "asset key")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let raw = unsafe { ffi::av_asset_status_of_value(self.ptr, key_c.as_ptr(), &mut err_msg) };
+        let raw =
+            unsafe { ffi::av_asset_status_of_value(self.ptr, key_c.as_ptr(), &raw mut err_msg) };
         if raw < 0 {
             return Err(unsafe { from_swift(raw, err_msg) });
         }
@@ -102,7 +103,7 @@ impl Asset {
         let payload_c = cstring_arg(&payload, "asset keys json")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let statuses_ptr = unsafe {
-            ffi::av_asset_load_values_json(self.ptr, payload_c.as_ptr(), 30, &mut err_msg)
+            ffi::av_asset_load_values_json(self.ptr, payload_c.as_ptr(), 30, &raw mut err_msg)
         };
         if statuses_ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
@@ -140,7 +141,7 @@ impl Asset {
                 url_c.as_ptr(),
                 is_file_url,
                 prefer_precise_duration_and_timing,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         Self::from_raw(ptr)
@@ -149,7 +150,7 @@ impl Asset {
 
     fn info(&self) -> Result<AssetInfoPayload, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr = unsafe { ffi::av_asset_info_json(self.ptr, &mut err_msg) };
+        let ptr = unsafe { ffi::av_asset_info_json(self.ptr, &raw mut err_msg) };
         if ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }

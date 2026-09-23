@@ -288,7 +288,8 @@ impl Writer {
         let type_c = CString::new(file_type.as_str()).expect("file type strings are NUL-free");
 
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr = unsafe { ffi::av_writer_create(path_c.as_ptr(), type_c.as_ptr(), &mut err_msg) };
+        let ptr =
+            unsafe { ffi::av_writer_create(path_c.as_ptr(), type_c.as_ptr(), &raw mut err_msg) };
         if ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::WRITER_CREATE_FAILED, err_msg) });
         }
@@ -317,7 +318,7 @@ impl Writer {
             ffi::av_writer_add_video_input_from_sample(
                 self.ptr,
                 sample_buffer.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if result < 0 {
@@ -344,7 +345,11 @@ impl Writer {
         })?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let result = unsafe {
-            ffi::av_writer_add_video_input_from_preset(self.ptr, preset_c.as_ptr(), &mut err_msg)
+            ffi::av_writer_add_video_input_from_preset(
+                self.ptr,
+                preset_c.as_ptr(),
+                &raw mut err_msg,
+            )
         };
         if result < 0 {
             return Err(unsafe { from_swift(result, err_msg) });
@@ -380,7 +385,7 @@ impl Writer {
                 sample_rate,
                 channels,
                 bits_per_sample,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if result < 0 {
@@ -401,7 +406,7 @@ impl Writer {
     pub fn start_session(&self, source_time: (i64, i32)) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_start_session(self.ptr, source_time.0, source_time.1, &mut err_msg)
+            ffi::av_writer_start_session(self.ptr, source_time.0, source_time.1, &raw mut err_msg)
         };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(ffi::status::WRITER_CREATE_FAILED, err_msg) });
@@ -427,7 +432,12 @@ impl Writer {
     ) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_append_sample(self.ptr, input_id.0, sample_buffer.as_ptr(), &mut err_msg)
+            ffi::av_writer_append_sample(
+                self.ptr,
+                input_id.0,
+                sample_buffer.as_ptr(),
+                &raw mut err_msg,
+            )
         };
         match status {
             ffi::status::OK => Ok(()),
@@ -470,7 +480,7 @@ impl Writer {
                 frame_count,
                 pts.0,
                 pts.1,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         match status {
@@ -491,7 +501,7 @@ impl Writer {
     /// callback because blocking there could prevent native completion.
     pub fn finish(self) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status = unsafe { ffi::av_writer_finish(self.ptr, &mut err_msg) };
+        let status = unsafe { ffi::av_writer_finish(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -523,7 +533,7 @@ impl Writer {
                 width,
                 height,
                 pixel_format_type,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if id < 0 {
@@ -555,7 +565,7 @@ impl Writer {
                 pixel_buffer.as_ptr(),
                 pts.0,
                 pts.1,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -597,7 +607,13 @@ impl Writer {
         let default = default_id.map_or(-1, |i| i.0);
         let mut err_msg: *mut c_char = ptr::null_mut();
         let ok = unsafe {
-            ffi::av_writer_add_input_group(self.ptr, ids.as_ptr(), ids.len(), default, &mut err_msg)
+            ffi::av_writer_add_input_group(
+                self.ptr,
+                ids.as_ptr(),
+                ids.len(),
+                default,
+                &raw mut err_msg,
+            )
         };
         if !ok {
             return Err(unsafe { from_swift(ffi::status::INVALID_ARGUMENT, err_msg) });

@@ -195,7 +195,8 @@ impl CaptionRegion {
     fn from_predefined(kind: &str) -> Result<Self, AVWriterError> {
         let kind_c = cstring_arg(kind, "caption region kind")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr = unsafe { ffi::av_caption_region_predefined_json(kind_c.as_ptr(), &mut err_msg) };
+        let ptr =
+            unsafe { ffi::av_caption_region_predefined_json(kind_c.as_ptr(), &raw mut err_msg) };
         if ptr.is_null() {
             return if err_msg.is_null() {
                 Err(missing_payload("caption region"))
@@ -690,7 +691,7 @@ impl CaptionGrouper {
         let payload_c = cstring_arg(&payload, "caption json")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_caption_grouper_add_caption_json(self.ptr, payload_c.as_ptr(), &mut err_msg)
+            ffi::av_caption_grouper_add_caption_json(self.ptr, payload_c.as_ptr(), &raw mut err_msg)
         };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -710,7 +711,7 @@ impl CaptionGrouper {
                 time_value(&up_to_time),
                 time_scale(&up_to_time),
                 time_kind(&up_to_time),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if ptr.is_null() {
@@ -756,8 +757,9 @@ impl CaptionFormatConformer {
         let payload = serialize_json(settings)?;
         let payload_c = cstring_arg(&payload, "caption conversion settings json")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr =
-            unsafe { ffi::av_caption_format_conformer_create(payload_c.as_ptr(), &mut err_msg) };
+        let ptr = unsafe {
+            ffi::av_caption_format_conformer_create(payload_c.as_ptr(), &raw mut err_msg)
+        };
         if ptr.is_null() {
             return if err_msg.is_null() {
                 Err(missing_payload("caption format conformer"))
@@ -787,7 +789,7 @@ impl CaptionFormatConformer {
             ffi::av_caption_format_conformer_conformed_caption_json(
                 self.ptr,
                 payload_c.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if ptr.is_null() {
@@ -841,7 +843,11 @@ impl CaptionRenderer {
         let payload_c = cstring_arg(&payload, "captions json")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_caption_renderer_set_captions_json(self.ptr, payload_c.as_ptr(), &mut err_msg)
+            ffi::av_caption_renderer_set_captions_json(
+                self.ptr,
+                payload_c.as_ptr(),
+                &raw mut err_msg,
+            )
         };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -879,7 +885,7 @@ impl CaptionRenderer {
                 time_value(&considered_time_range.duration),
                 time_scale(&considered_time_range.duration),
                 time_kind(&considered_time_range.duration),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if ptr.is_null() {
@@ -942,7 +948,7 @@ impl CaptionConversionValidator {
                 time_scale(&time_range.duration),
                 time_kind(&time_range.duration),
                 settings_c.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if ptr.is_null() {
@@ -975,7 +981,7 @@ impl CaptionConversionValidator {
     pub fn validate(&self) -> Result<Vec<CaptionConversionWarning>, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status =
-            unsafe { ffi::av_caption_conversion_validator_validate(self.ptr, &mut err_msg) };
+            unsafe { ffi::av_caption_conversion_validator_validate(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }

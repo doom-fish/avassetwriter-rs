@@ -232,7 +232,8 @@ impl Composition {
 
     pub fn from_asset(asset: &Asset) -> Result<Self, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr = unsafe { ffi::av_composition_create_from_asset(asset.as_ptr(), &mut err_msg) };
+        let ptr =
+            unsafe { ffi::av_composition_create_from_asset(asset.as_ptr(), &raw mut err_msg) };
         Self::from_raw(ptr)
             .ok_or_else(|| unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) })
     }
@@ -687,7 +688,7 @@ impl CompositionTrackSegment {
                 time_value(&target_time_range.duration),
                 time_scale(&target_time_range.duration),
                 time_kind(&target_time_range.duration),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         Self::from_raw(ptr)

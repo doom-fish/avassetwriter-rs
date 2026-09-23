@@ -228,7 +228,7 @@ impl InputMediaDataReadyStream {
                 input_media_data_ready_cb as ReadyStreamCb,
                 sender_raw.cast::<c_void>(),
                 Some(input_media_data_ready_drop),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if bridge_ptr.is_null() {
@@ -556,7 +556,7 @@ mod tests {
                 input.raw(),
                 ready_callback,
                 context.cast(),
-                &mut error,
+                &raw mut error,
             )
         };
 
@@ -589,7 +589,7 @@ mod tests {
                 input.raw(),
                 ready_callback,
                 context.cast(),
-                &mut error,
+                &raw mut error,
             )
         };
         assert!(!handle.is_null(), "legacy subscribe failed");
@@ -627,7 +627,7 @@ mod tests {
                 ready_callback,
                 context.cast(),
                 Some(ready_context_drop),
-                &mut error,
+                &raw mut error,
             )
         };
         assert!(!handle.is_null(), "owned subscribe failed");

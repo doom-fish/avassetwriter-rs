@@ -270,7 +270,7 @@ impl ExportSession {
                 file_type_c
                     .as_ref()
                     .map_or(ptr::null(), |value| value.as_ptr()),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         match result {
@@ -286,7 +286,7 @@ impl ExportSession {
         let preset_c = cstring_arg(preset.as_str(), "export preset")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let ptr = unsafe {
-            ffi::av_export_session_create(path_c.as_ptr(), preset_c.as_ptr(), &mut err_msg)
+            ffi::av_export_session_create(path_c.as_ptr(), preset_c.as_ptr(), &raw mut err_msg)
         };
         if ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
@@ -324,7 +324,7 @@ impl ExportSession {
                 file_type_c
                     .as_ref()
                     .map_or(ptr::null(), |value| value.as_ptr()),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -346,7 +346,7 @@ impl ExportSession {
             ffi::av_export_session_set_output_path(
                 self.ptr,
                 path_c.as_ref().map_or(ptr::null(), |value| value.as_ptr()),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -365,7 +365,7 @@ impl ExportSession {
             ffi::av_export_session_set_should_optimize_for_network_use(
                 self.ptr,
                 enabled,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -381,7 +381,11 @@ impl ExportSession {
     pub fn set_allows_parallelized_export(&self, enabled: bool) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ffi::av_export_session_set_allows_parallelized_export(self.ptr, enabled, &mut err_msg)
+            ffi::av_export_session_set_allows_parallelized_export(
+                self.ptr,
+                enabled,
+                &raw mut err_msg,
+            )
         };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -404,7 +408,7 @@ impl ExportSession {
     /// Start the export and block until completion.
     pub fn export(&self) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status = unsafe { ffi::av_export_session_export(self.ptr, &mut err_msg) };
+        let status = unsafe { ffi::av_export_session_export(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -414,7 +418,7 @@ impl ExportSession {
     /// Cancel a running export.
     pub fn cancel(&self) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status = unsafe { ffi::av_export_session_cancel(self.ptr, &mut err_msg) };
+        let status = unsafe { ffi::av_export_session_cancel(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -449,7 +453,7 @@ impl ExportSession {
                 time_value(&range.duration),
                 time_scale(&range.duration),
                 time_kind(&range.duration),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -464,8 +468,9 @@ impl ExportSession {
 
     pub fn set_file_length_limit(&self, limit: i64) -> Result<(), AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let status =
-            unsafe { ffi::av_export_session_set_file_length_limit(self.ptr, limit, &mut err_msg) };
+        let status = unsafe {
+            ffi::av_export_session_set_file_length_limit(self.ptr, limit, &raw mut err_msg)
+        };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
         }
@@ -475,7 +480,7 @@ impl ExportSession {
     pub fn estimated_maximum_duration(&self) -> Result<Time, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let ptr = unsafe {
-            ffi::av_export_session_estimated_maximum_duration_json(self.ptr, &mut err_msg)
+            ffi::av_export_session_estimated_maximum_duration_json(self.ptr, &raw mut err_msg)
         };
         if ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
@@ -485,8 +490,9 @@ impl ExportSession {
 
     pub fn estimated_output_file_length(&self) -> Result<i64, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let result =
-            unsafe { ffi::av_export_session_estimated_output_file_length(self.ptr, &mut err_msg) };
+        let result = unsafe {
+            ffi::av_export_session_estimated_output_file_length(self.ptr, &raw mut err_msg)
+        };
         if result == i64::MIN {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
@@ -495,7 +501,7 @@ impl ExportSession {
 
     pub fn metadata(&self) -> Result<Vec<MetadataItem>, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let array = unsafe { ffi::av_export_session_metadata(self.ptr, &mut err_msg) };
+        let array = unsafe { ffi::av_export_session_metadata(self.ptr, &raw mut err_msg) };
         if array.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
@@ -510,7 +516,7 @@ impl ExportSession {
                 self.ptr,
                 item_ptrs.as_ptr(),
                 item_ptrs.len(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -534,7 +540,7 @@ impl ExportSession {
             ffi::av_export_session_set_metadata_item_filter(
                 self.ptr,
                 filter.map_or(ptr::null_mut(), MetadataItemFilter::as_ptr),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -555,7 +561,7 @@ impl ExportSession {
             ffi::av_export_session_set_audio_mix(
                 self.ptr,
                 audio_mix.map_or(ptr::null_mut(), AudioMix::as_ptr),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -579,7 +585,7 @@ impl ExportSession {
             ffi::av_export_session_set_video_composition(
                 self.ptr,
                 composition.map_or(ptr::null_mut(), VideoComposition::as_ptr),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -611,7 +617,7 @@ impl ExportSession {
             ffi::av_export_session_set_can_perform_multiple_passes_over_source_media_data(
                 self.ptr,
                 enabled,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -636,7 +642,7 @@ impl ExportSession {
             ffi::av_export_session_set_directory_for_temporary_files(
                 self.ptr,
                 path_c.as_ref().map_or(ptr::null(), |value| value.as_ptr()),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -660,7 +666,7 @@ impl ExportSession {
             ffi::av_export_session_set_audio_track_group_handling(
                 self.ptr,
                 handling.raw(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {

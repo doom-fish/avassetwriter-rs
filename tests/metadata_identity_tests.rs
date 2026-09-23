@@ -57,7 +57,7 @@ fn lazy_aliases_filter_and_request_share_one_load() -> Result<(), Box<dyn std::e
     let clone = lazy.clone();
     assert_eq!(loads.load(Ordering::SeqCst), 0);
 
-    let filtered = MetadataItem::filtered_by_identifier(&[clone.clone()], IDENTIFIER)?;
+    let filtered = MetadataItem::filtered_by_identifier(std::slice::from_ref(&clone), IDENTIFIER)?;
     assert_eq!(filtered.len(), 1);
     assert_eq!(loads.load(Ordering::SeqCst), 0);
     assert_eq!(
@@ -149,7 +149,7 @@ fn writer_metadata_round_trip_preserves_lazy_identity() -> Result<(), Box<dyn st
             .expect("lazy metadata response should succeed");
     })?;
 
-    writer.set_metadata(&[lazy.clone()])?;
+    writer.set_metadata(std::slice::from_ref(&lazy))?;
     let round_trip = writer.metadata()?;
     assert_eq!(round_trip.len(), 1);
     assert_eq!(loads.load(Ordering::SeqCst), 0);

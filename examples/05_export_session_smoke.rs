@@ -142,13 +142,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn process_video_request(request: VideoCompositionRequest) {
     let track_id = match request.source_track_ids() {
-        Ok(track_ids) => match track_ids.into_iter().next() {
-            Some(track_id) => track_id,
-            None => {
+        Ok(track_ids) => {
+            let Some(track_id) = track_ids.into_iter().next() else {
                 let _ = request.finish_with_error("video composition request had no source track");
                 return;
-            }
-        },
+            };
+            track_id
+        }
         Err(error) => {
             let _ = request.finish_with_error(&error.to_string());
             return;

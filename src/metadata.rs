@@ -322,7 +322,7 @@ impl MetadataItem {
             });
         }
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let value_ptr = unsafe { ffi::av_metadata_item_value_json(current, &mut err_msg) };
+        let value_ptr = unsafe { ffi::av_metadata_item_value_json(current, &raw mut err_msg) };
         if value_ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
@@ -348,7 +348,7 @@ impl MetadataItem {
         let key_c = cstring_arg(key, "metadata item key")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
         let raw = unsafe {
-            ffi::av_metadata_item_status_of_value(self.as_ptr()?, key_c.as_ptr(), &mut err_msg)
+            ffi::av_metadata_item_status_of_value(self.as_ptr()?, key_c.as_ptr(), &raw mut err_msg)
         };
         if raw < 0 {
             return Err(unsafe { from_swift(raw, err_msg) });
@@ -376,7 +376,7 @@ impl MetadataItem {
                 self.as_ptr()?,
                 payload_c.as_ptr(),
                 30,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if statuses_ptr.is_null() {
@@ -412,7 +412,7 @@ impl MetadataItem {
                 Some(metadata_value_request_trampoline),
                 userdata,
                 Some(metadata_value_request_drop),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if ptr.is_null() {
@@ -450,7 +450,7 @@ impl MetadataItem {
                 item_ptrs.as_ptr(),
                 item_ptrs.len(),
                 languages_c.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if array.is_null() {
@@ -471,7 +471,7 @@ impl MetadataItem {
                 item_ptrs.as_ptr(),
                 item_ptrs.len(),
                 identifier_c.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if array.is_null() {
@@ -491,7 +491,7 @@ impl MetadataItem {
                 item_ptrs.as_ptr(),
                 item_ptrs.len(),
                 filter.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if array.is_null() {
@@ -518,7 +518,8 @@ impl MetadataItem {
         let payload = serialize_json(&self.payload()?)?;
         let payload_c = cstring_arg(&payload, "metadata item json")?;
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr = unsafe { ffi::av_metadata_item_create_json(payload_c.as_ptr(), &mut err_msg) };
+        let ptr =
+            unsafe { ffi::av_metadata_item_create_json(payload_c.as_ptr(), &raw mut err_msg) };
         if ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_ARGUMENT, err_msg) });
         }
@@ -552,7 +553,7 @@ impl MetadataItem {
     fn from_retained_ptr(item_ptr: *mut c_void) -> Result<Self, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
         let properties_ptr =
-            unsafe { ffi::av_metadata_item_properties_json(item_ptr, &mut err_msg) };
+            unsafe { ffi::av_metadata_item_properties_json(item_ptr, &raw mut err_msg) };
         if properties_ptr.is_null() {
             unsafe { ffi::av_metadata_item_release(item_ptr) };
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
@@ -725,7 +726,7 @@ impl TimedMetadataGroup {
                 time_value(&self.time_range.duration),
                 time_scale(&self.time_range.duration),
                 time_kind(&self.time_range.duration),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if ptr.is_null() {
@@ -738,7 +739,7 @@ impl TimedMetadataGroup {
     #[allow(dead_code)]
     pub(crate) fn from_retained_ptr(group_ptr: *mut c_void) -> Result<Self, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let items_ptr = unsafe { ffi::av_metadata_group_items(group_ptr, &mut err_msg) };
+        let items_ptr = unsafe { ffi::av_metadata_group_items(group_ptr, &raw mut err_msg) };
         if items_ptr.is_null() {
             unsafe { ffi::av_timed_metadata_group_release(group_ptr) };
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
@@ -752,7 +753,7 @@ impl TimedMetadataGroup {
             }
         };
         let properties_ptr =
-            unsafe { ffi::av_timed_metadata_group_properties_json(group_ptr, &mut err_msg) };
+            unsafe { ffi::av_timed_metadata_group_properties_json(group_ptr, &raw mut err_msg) };
         if properties_ptr.is_null() {
             unsafe { ffi::av_timed_metadata_group_release(group_ptr) };
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
@@ -900,7 +901,7 @@ impl DateRangeMetadataGroup {
                     .as_ref()
                     .map_or(ptr::null(), |value| value.as_ptr()),
                 false,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if ptr.is_null() {
@@ -913,7 +914,7 @@ impl DateRangeMetadataGroup {
     #[allow(dead_code)]
     pub(crate) fn from_retained_ptr(group_ptr: *mut c_void) -> Result<Self, AVWriterError> {
         let mut err_msg: *mut c_char = ptr::null_mut();
-        let items_ptr = unsafe { ffi::av_metadata_group_items(group_ptr, &mut err_msg) };
+        let items_ptr = unsafe { ffi::av_metadata_group_items(group_ptr, &raw mut err_msg) };
         if items_ptr.is_null() {
             unsafe { ffi::av_date_range_metadata_group_release(group_ptr) };
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
@@ -926,8 +927,9 @@ impl DateRangeMetadataGroup {
                     return Err(error);
                 }
             };
-        let properties_ptr =
-            unsafe { ffi::av_date_range_metadata_group_properties_json(group_ptr, &mut err_msg) };
+        let properties_ptr = unsafe {
+            ffi::av_date_range_metadata_group_properties_json(group_ptr, &raw mut err_msg)
+        };
         if properties_ptr.is_null() {
             unsafe { ffi::av_date_range_metadata_group_release(group_ptr) };
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
@@ -1065,6 +1067,7 @@ impl MutableDateRangeMetadataGroup {
     }
 
     #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn as_date_range_metadata_group(&self) -> DateRangeMetadataGroup {
         let current = self.ptr.get();
         let ptr = if current.is_null() {
@@ -1110,7 +1113,7 @@ impl MutableDateRangeMetadataGroup {
                     .as_ref()
                     .map_or(ptr::null(), |value| value.as_ptr()),
                 true,
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if ptr.is_null() {
@@ -1164,7 +1167,7 @@ impl MetadataItemValueRequest {
             ffi::av_metadata_item_value_request_respond_with_value_json(
                 self.ptr,
                 payload_c.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1180,7 +1183,7 @@ impl MetadataItemValueRequest {
             ffi::av_metadata_item_value_request_respond_with_error(
                 self.ptr,
                 message_c.as_ptr(),
-                &mut err_msg,
+                &raw mut err_msg,
             )
         };
         if status != ffi::status::OK {
@@ -1254,6 +1257,7 @@ mod tests {
             .as_ptr()
             .expect("timed metadata group should materialize");
         let cloned = group.clone();
+        drop(group);
         assert_eq!(loads.load(Ordering::SeqCst), 0);
         assert_eq!(
             cloned.items()[0]
