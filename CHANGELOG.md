@@ -1,5 +1,82 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.13.0] - Unreleased
+
+### Security
+
+- `Writer::create` and `ExportSession::export` ran `FileManager.removeItem`
+  on the output path before writing and ignored its errors. That call removes
+  directories recursively, so passing a folder deleted it, and an old file was
+  gone even when writer creation then failed; the export path did this
+  without any documentation. Nothing is removed any more: an existing output
+  fails with `AVWriterError::OutputExists`, and only an explicit
+  `OutputPolicy::ReplaceFile` replaces an existing regular file (never a
+  directory, a symlink, or the export's own source).
+
+### Fixed
+
+- Misuse that AVFoundation answers with an Objective-C exception aborted the
+  process: `start_session` twice, appending a sample whose media type doesn't
+  match its input, a presentation time with a timescale of 0 or less, setters
+  after writing starts, and the other documented throw conditions reachable
+  from the safe API (input, group and adaptor creation, track associations,
+  language codes, caption groups, regions and conformers, audio-mix volume
+  times, `flush_segment` without a segment delegate, an export audio mix
+  combined with alternate-track handling). These now return
+  `AVWriterError::InvalidState` or `InvalidArgument`; values only AVFoundation
+  can judge are checked inside an Objective-C `@try`.
+- `start_session` reported `startWriting` failures as `WriterCreateFailed`
+  instead of the documented `StartFailed`.
+- `end_session` before the session starts or after it ended, and appends
+  outside the session, return `InvalidState`.
+- `append_audio_pcm` checks the byte count against the frame count,
+  `add_audio_input_pcm` rejects sample rates that aren't positive and finite,
+  and `add_video_input_pixel_buffer` rejects non-positive dimensions.
+- `MetadataItem::with_lazy_value_loader` accepted a closure that isn't `Sync`,
+  although copies of the lazy item share the loader and AVFoundation can call
+  it from its own threads.
+- Docs: README and COVERAGE say that `AVAssetReader` is not wrapped, and both
+  coverage audits explain that their 100% is a declaration-level count over
+  the writer/export headers.
+
+### Changed
+
+- **BREAKING:** every time is `apple_cf::cm::CMTime` and every range
+  `CMTimeRange` (re-exported from the prelude) instead of `(i64, i32)` tuples
+  and the crate's own `Time` / `TimeRange`. Times that must be numeric with a
+  positive timescale are rejected with `InvalidArgument`.
+- **BREAKING:** `Writer::create` and exports fail with
+  `AVWriterError::OutputExists` when the output path exists instead of
+  deleting it.
+- **BREAKING:** `Writer::set_optimize_for_network_use` and
+  `Writer::set_movie_fragment_interval_seconds` return `Result`.
+- **BREAKING:** `Writer::add_caption_input` no longer accepts
+  `MediaType::Subtitle`; AVFoundation's caption adaptor rejects subtitle
+  inputs.
+- **BREAKING:** `MetadataItem::with_lazy_value_loader` requires a
+  `Send + Sync` closure.
+- The Swift package has a second, Objective-C target
+  (`AVAssetWriterObjCBridge`) that catches AVFoundation exceptions.
+- In-family requirements are `apple-cf >=0.11, <0.12` and
+  `doom-fish-utils >=0.4.1, <0.5` (tests use `videotoolbox >=0.21, <0.22`),
+  and `rust-version` is 1.82 (was 1.76).
+
+### Added
+
+- `OutputPolicy`, `Writer::create_with_policy` and
+  `ExportSession::{output_policy, set_output_policy}`.
+- `AVWriterError::OutputExists`.
+
+### Removed
+
+- **BREAKING:** `avassetwriter::Time` and `avassetwriter::TimeRange`; use
+  `CMTime` and `CMTimeRange`.
+
 ## [0.12.0] - 2026-09-07
 
 ### Added

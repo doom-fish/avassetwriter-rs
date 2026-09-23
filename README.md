@@ -6,6 +6,13 @@ Safe Rust bindings for Apple's [AVAssetWriter](https://developer.apple.com/docum
 
 Designed to compose with [`videotoolbox`](https://github.com/doom-fish/videotoolbox-rs): hand the `CMSampleBuffer` straight from the encoder to the muxer for video, push interleaved PCM bytes for audio, or build pixel-buffer / metadata-driven pipelines directly.
 
+## Installation
+
+```toml
+[dependencies]
+avassetwriter = "0.13"
+```
+
 ## Quick start — video + audio
 
 ```rust,no_run
@@ -84,7 +91,7 @@ Enable with the `async` Cargo feature:
 
 ```toml
 [dependencies]
-avassetwriter = { version = "0.12", features = ["async"] }
+avassetwriter = { version = "0.13", features = ["async"] }
 ```
 
 The `async_api` module wraps three completion-handler APIs as
