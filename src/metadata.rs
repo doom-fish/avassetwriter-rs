@@ -399,7 +399,7 @@ impl MetadataItem {
     /// `base`. Construction and cloning do not invoke `callback`.
     pub fn with_lazy_value_loader<F>(base: &Self, callback: F) -> Result<Self, AVWriterError>
     where
-        F: Fn(MetadataItemValueRequest) + Send + 'static,
+        F: Fn(MetadataItemValueRequest) + Send + Sync + 'static,
     {
         let base_ptr = base.as_ptr()?;
         let state = Box::new(MetadataValueLoaderState {
@@ -1199,7 +1199,7 @@ impl MetadataItemValueRequest {
 }
 
 struct MetadataValueLoaderState {
-    callback: Box<dyn Fn(MetadataItemValueRequest) + Send + 'static>,
+    callback: Box<dyn Fn(MetadataItemValueRequest) + Send + Sync + 'static>,
 }
 
 unsafe extern "C" fn metadata_value_request_trampoline(
@@ -1236,6 +1236,12 @@ mod tests {
 
     use super::*;
     use apple_cf::cm::CMTime;
+
+    #[test]
+    fn value_loader_state_can_be_shared_across_threads() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<MetadataValueLoaderState>();
+    }
 
     #[test]
     fn timed_group_materialization_and_clone_keep_lazy_item() {
