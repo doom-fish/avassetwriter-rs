@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-10-23
+
 ### Fixed
 
 - The Swift bridge now supports macOS 12.0. HEVC 8K presets return an error before macOS 12.1.
