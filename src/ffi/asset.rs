@@ -8,8 +8,10 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> *mut c_void;
 
+    #[link_name = "avw_asset_release"]
     pub fn av_asset_release(asset: *mut c_void);
 
+    #[link_name = "avw_asset_info_json"]
     pub fn av_asset_info_json(
         asset: *mut c_void,
         out_error_message: *mut *mut c_char,
@@ -20,12 +22,14 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> *mut c_void;
 
+    #[link_name = "avw_asset_status_of_value"]
     pub fn av_asset_status_of_value(
         asset: *mut c_void,
         key: *const c_char,
         out_error_message: *mut *mut c_char,
     ) -> i32;
 
+    #[link_name = "avw_asset_load_values_json"]
     pub fn av_asset_load_values_json(
         asset: *mut c_void,
         keys_json: *const c_char,

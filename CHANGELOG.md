@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `avassetwriter` and `avplayer` exported six C functions with the same names, for example `av_asset_release`. When a program linked the two crates, the linker kept only one copy. Thus one crate called the bridge code of the other crate. The bridge now exports these six functions with the prefix `avw_`. The functions in the `ffi` module keep their Rust names.
+
 ## [0.13.0] - 2026-09-24
 
 ### Security

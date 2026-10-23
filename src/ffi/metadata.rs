@@ -174,6 +174,7 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> *mut c_char;
 
+    #[link_name = "avw_timed_metadata_group_info_json"]
     pub fn av_timed_metadata_group_info_json(
         group: *mut c_void,
         out_error_message: *mut *mut c_char,
@@ -207,6 +208,7 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> *mut c_char;
 
+    #[link_name = "avw_date_range_metadata_group_info_json"]
     pub fn av_date_range_metadata_group_info_json(
         group: *mut c_void,
         out_error_message: *mut *mut c_char,

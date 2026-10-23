@@ -32,14 +32,14 @@ public func av_asset_create_url(
     return Unmanaged.passRetained(asset).toOpaque()
 }
 
-@_cdecl("av_asset_release")
-public func av_asset_release(_ assetPtr: UnsafeMutableRawPointer?) {
+@_cdecl("avw_asset_release")
+public func avw_asset_release(_ assetPtr: UnsafeMutableRawPointer?) {
     guard let assetPtr else { return }
     Unmanaged<AVAsset>.fromOpaque(assetPtr).release()
 }
 
-@_cdecl("av_asset_info_json")
-public func av_asset_info_json(
+@_cdecl("avw_asset_info_json")
+public func avw_asset_info_json(
     _ assetPtr: UnsafeMutableRawPointer,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> UnsafeMutablePointer<CChar>? {
@@ -65,8 +65,8 @@ public func av_asset_metadata(
     return retainedMetadataItemArray(asset.metadata)
 }
 
-@_cdecl("av_asset_status_of_value")
-public func av_asset_status_of_value(
+@_cdecl("avw_asset_status_of_value")
+public func avw_asset_status_of_value(
     _ assetPtr: UnsafeMutableRawPointer,
     _ keyPtr: UnsafePointer<CChar>,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
@@ -81,8 +81,8 @@ public func av_asset_status_of_value(
     return Int32(status.rawValue)
 }
 
-@_cdecl("av_asset_load_values_json")
-public func av_asset_load_values_json(
+@_cdecl("avw_asset_load_values_json")
+public func avw_asset_load_values_json(
     _ assetPtr: UnsafeMutableRawPointer,
     _ keysJson: UnsafePointer<CChar>,
     _ timeoutSeconds: Int32,

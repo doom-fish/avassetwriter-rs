@@ -664,8 +664,8 @@ public func av_timed_metadata_group_properties_json(
     }
 }
 
-@_cdecl("av_timed_metadata_group_info_json")
-public func av_timed_metadata_group_info_json(
+@_cdecl("avw_timed_metadata_group_info_json")
+public func avw_timed_metadata_group_info_json(
     _ groupPtr: UnsafeMutableRawPointer,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> UnsafeMutablePointer<CChar>? {
@@ -787,8 +787,8 @@ public func av_date_range_metadata_group_properties_json(
     }
 }
 
-@_cdecl("av_date_range_metadata_group_info_json")
-public func av_date_range_metadata_group_info_json(
+@_cdecl("avw_date_range_metadata_group_info_json")
+public func avw_date_range_metadata_group_info_json(
     _ groupPtr: UnsafeMutableRawPointer,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> UnsafeMutablePointer<CChar>? {
