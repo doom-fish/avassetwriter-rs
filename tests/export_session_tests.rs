@@ -38,10 +38,10 @@ fn export_session_smoke() -> Result<(), Box<dyn std::error::Error>> {
     write_test_asset(&source)?;
 
     let available = ExportSession::available_presets()?;
-    assert!(!available.is_empty());
+    assert_ne!(available, [] as [avassetwriter::ExportPreset; 0]);
 
     let compatible = ExportSession::compatible_presets(&source)?;
-    assert!(!compatible.is_empty());
+    assert_ne!(compatible, [] as [avassetwriter::ExportPreset; 0]);
     let preset = compatible
         .iter()
         .copied()
@@ -56,10 +56,10 @@ fn export_session_smoke() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let supported_types = session.supported_file_types()?;
-    assert!(!supported_types.is_empty());
+    assert_ne!(supported_types, [] as [avassetwriter::FileType; 0]);
 
     let compatible_types = session.compatible_file_types()?;
-    assert!(!compatible_types.is_empty());
+    assert_ne!(compatible_types, [] as [avassetwriter::FileType; 0]);
     let output_type = compatible_types
         .iter()
         .copied()
@@ -198,7 +198,7 @@ fn composition_smoke() -> Result<(), Box<dyn std::error::Error>> {
     assert!(snapshot.is_readable);
     assert!(snapshot.is_composable);
     assert_eq!(snapshot.track_ids.len(), composition.track_count());
-    assert!(!snapshot.track_ids.is_empty());
+    assert_ne!(snapshot.track_ids, [] as [i32; 0]);
     let _ = composition.unused_track_id()?;
 
     let tracks = composition.tracks()?;
@@ -352,7 +352,7 @@ fn rust_video_compositor_finishes_requests_from_worker_threads(
     }
     assert_eq!(empty_count, 1);
     let snapshot = snapshot.expect("custom compositor should record one request snapshot");
-    assert!(!snapshot.source_track_ids.is_empty());
+    assert_ne!(snapshot.source_track_ids, [] as [i32; 0]);
     assert!(std::fs::metadata(output)?.len() > 0);
     Ok(())
 }
