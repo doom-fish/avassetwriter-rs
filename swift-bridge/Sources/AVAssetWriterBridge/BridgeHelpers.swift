@@ -124,7 +124,11 @@ func decodeOutputSettingsPreset(_ raw: String) -> AVOutputSettingsPreset? {
             return .hevc4320x2160
         }
         return nil
-    case "hevc_7680x4320": return .hevc7680x4320
+    case "hevc_7680x4320":
+        if #available(macOS 12.1, *) {
+            return .hevc7680x4320
+        }
+        return nil
     case "mvhevc_960x960":
         if #available(macOS 14.0, *) {
             return .mvhevc960x960
@@ -186,7 +190,11 @@ func decodeExportPreset(_ raw: String) -> String? {
             return AVAssetExportPresetHEVC4320x2160
         }
         return nil
-    case "hevc_7680x4320": return AVAssetExportPresetHEVC7680x4320
+    case "hevc_7680x4320":
+        if #available(macOS 12.1, *) {
+            return AVAssetExportPresetHEVC7680x4320
+        }
+        return nil
     case "mvhevc_960x960":
         if #available(macOS 14.0, *) {
             return AVAssetExportPresetMVHEVC960x960

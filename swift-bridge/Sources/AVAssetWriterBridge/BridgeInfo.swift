@@ -129,7 +129,12 @@ func exportSessionInfoPayload(from session: AVAssetExportSession) -> ExportSessi
         metadata: [],
         canPerformMultiplePassesOverSourceMediaData: session.canPerformMultiplePassesOverSourceMediaData,
         directoryForTemporaryFiles: session.directoryForTemporaryFiles?.path,
-        audioTrackGroupHandling: UInt64(session.audioTrackGroupHandling.rawValue)
+        audioTrackGroupHandling: {
+            if #available(macOS 13.0, *) {
+                return UInt64(session.audioTrackGroupHandling.rawValue)
+            }
+            return 0
+        }()
     )
 }
 

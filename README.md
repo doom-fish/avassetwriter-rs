@@ -2,7 +2,9 @@
 
 Safe Rust bindings for Apple's [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter), [AVOutputSettingsAssistant](https://developer.apple.com/documentation/avfoundation/avoutputsettingsassistant), and [AVAssetExportSession](https://developer.apple.com/documentation/avfoundation/avassetexportsession) — covering writer configuration/readback, audio/video/metadata inputs, pixel-buffer/metadata/caption/tagged-buffer adaptors, output-settings recommendations, export preset discovery, compatibility checks, export-session media-processing objects, and file export on macOS.
 
-> **Status:** The current release substantially covers the public writer, output-settings, export-session, metadata, and custom video-composition surface used by real muxing and transcode pipelines. It does not wrap `AVAssetReader` or its outputs: the crate writes and exports media, but cannot read samples back out of an asset. Requires macOS 13 or later.
+> **Status:** The current release substantially covers the public writer, output-settings, export-session, metadata, and custom video-composition surface used by real muxing and transcode pipelines. It does not wrap `AVAssetReader` or its outputs: the crate writes and exports media, but cannot read samples back out of an asset. Requires macOS 12.0 or later.
+
+HEVC 8K presets need macOS 12.1. The audio track group handling setter needs macOS 13.0. Unsupported operations return an error.
 
 Designed to compose with [`videotoolbox`](https://github.com/doom-fish/videotoolbox-rs): hand the `CMSampleBuffer` straight from the encoder to the muxer for video, push interleaved PCM bytes for audio, or build pixel-buffer / metadata-driven pipelines directly.
 
@@ -107,11 +109,12 @@ stream:
 | `AsyncExportSession::compatible_file_types(session)` | `AVAssetExportSession.determineCompatibleFileTypesWithCompletionHandler:` |
 
 ```rust,no_run
+# #[cfg(feature = "async")]
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 use apple_cf::cm::CMTime;
 use avassetwriter::{FileType, Writer};
 use avassetwriter::async_api::{AsyncWriter, AsyncWriterInput};
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
 pollster::block_on(async {
     let writer = Writer::create("out.m4a", FileType::M4a)?;
     let input = writer.add_audio_input_pcm(48_000.0, 1, 16)?;
@@ -125,6 +128,8 @@ pollster::block_on(async {
     Ok::<_, Box<dyn std::error::Error>>(())
 })
 # }
+# #[cfg(not(feature = "async"))]
+# fn main() {}
 ```
 
 See `examples/06_async_api.rs` for a complete walkthrough.
