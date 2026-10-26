@@ -149,6 +149,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   concurrent takers cannot both return the same generation; failed decoding
   remains retryable and lost acknowledgments are surfaced.
 
+## [0.11.1] - 2026-06-06
+
+### Fixed
+
+- Contain panics when FFI releases a user closure.
+
 ## [0.11.0] - 2026-05-20
 
 ### Added
@@ -333,6 +339,24 @@ All notable changes to this project will be documented in this file.
 - Expanded `FileType` coverage to include the broader set of `AVFileType` constants exposed by current Apple SDKs.
 - Quick-start docs and examples now write into `target/example-artifacts` instead of `/tmp`.
 - Development baseline now uses the local `videotoolbox` `0.10.x` path dependency range.
+
+## [0.5.0] - 2026-05-16
+
+### Added
+
+- Add input groups, network-use options and fragment intervals.
+
+## [0.4.0] - 2026-05-16
+
+### Added
+
+- Add `AVOutputSettingsAssistant` preset support.
+
+## [0.3.0] - 2026-05-16
+
+### Added
+
+- Add `AVAssetWriterInputPixelBufferAdaptor` for zero-copy `CVPixelBuffer` input.
 
 ## [0.2.0] - 2026-05-15
 
