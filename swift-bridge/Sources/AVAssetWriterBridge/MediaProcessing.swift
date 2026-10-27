@@ -1,11 +1,12 @@
+import AVAssetWriterObjCBridge
 import AVFoundation
 import CoreImage
 import CoreMedia
 import CoreVideo
 import Foundation
 
-private func mediaProcessingAsset(from pathPtr: UnsafePointer<CChar>) -> AVURLAsset {
-    AVURLAsset(url: URL(fileURLWithPath: String(cString: pathPtr)))
+private func mediaProcessingAsset(from pathPtr: UnsafePointer<AVWString>) -> AVURLAsset {
+    AVURLAsset(url: URL(fileURLWithPath: String(abi: pathPtr)))
 }
 
 private func eraseSendableDictionary(_ dictionary: [String: any Sendable]?) -> [String: Any]? {
@@ -34,12 +35,12 @@ private func encodeVideoCompositorClassName(_ compositorClass: AVVideoCompositin
     compositorClass.map(NSStringFromClass)
 }
 
-private struct AudioMixInputParametersInfoPayload: Codable {
+private struct AudioMixInputParametersInfoPayload {
     let trackId: Int32
     let audioTimePitchAlgorithm: String?
 }
 
-private struct AudioVolumeRampPayload: Codable {
+private struct AudioVolumeRampPayload {
     let startVolume: Float
     let endVolume: Float
     let timeRange: TimeRangePayload
@@ -84,9 +85,9 @@ private func videoCompositionInfoPayload(from composition: AVVideoComposition) -
 private func videoCompositorInfoPayload(from compositor: any AVVideoCompositing) -> VideoCompositorInfoPayload {
     VideoCompositorInfoPayload(
         className: NSStringFromClass(type(of: compositor as AnyObject)),
-        sourcePixelBufferAttributesJson: jsonString(fromJSONObject: eraseSendableDictionary(compositor.sourcePixelBufferAttributes)),
-        requiredPixelBufferAttributesForRenderContextJson: jsonString(
-            fromJSONObject: eraseSendableDictionary(compositor.requiredPixelBufferAttributesForRenderContext)
+        sourcePixelBufferAttributes: propertyValue(from: eraseSendableDictionary(compositor.sourcePixelBufferAttributes)),
+        requiredPixelBufferAttributesForRenderContext: propertyValue(
+            from: eraseSendableDictionary(compositor.requiredPixelBufferAttributesForRenderContext)
         ),
         supportsWideColorSourceFrames: {
             if #available(macOS 10.12, *) {
@@ -103,7 +104,7 @@ private func videoCompositorInfoPayload(from compositor: any AVVideoCompositing)
     )
 }
 
-private struct RectPayload: Codable {
+private struct RectPayload {
     let x: Double
     let y: Double
     let width: Double
@@ -112,7 +113,7 @@ private struct RectPayload: Codable {
 
 private let requestSnapshotWireFormatVersion: UInt32 = 1
 
-private struct AsynchronousVideoCompositionRequestPayload: Codable {
+private struct AsynchronousVideoCompositionRequestPayload {
     let wireFormatVersion: UInt32
     let generation: UInt64
     let compositionTime: TimePayload
@@ -123,7 +124,7 @@ private struct AsynchronousVideoCompositionRequestPayload: Codable {
     let videoCompositionInstructionClassName: String?
 }
 
-private struct AsynchronousCIImageFilteringRequestPayload: Codable {
+private struct AsynchronousCIImageFilteringRequestPayload {
     let wireFormatVersion: UInt32
     let generation: UInt64
     let compositionTime: TimePayload
@@ -131,30 +132,29 @@ private struct AsynchronousCIImageFilteringRequestPayload: Codable {
     let sourceImageExtent: RectPayload
 }
 
-private final class RequestSnapshotStore: @unchecked Sendable {
+private final class RequestSnapshotStore<Value>: @unchecked Sendable {
     private struct Entry {
         let generation: UInt64
-        let json: String
+        let payload: Value
     }
 
     private let lock = NSLock()
     private var nextGeneration: UInt64? = 1
     private var latest: Entry?
 
-    func store(_ encode: (UInt64) -> String?) {
+    func store(_ encode: (UInt64) -> Value) {
         lock.lock()
         defer { lock.unlock() }
         guard let generation = nextGeneration else { return }
         nextGeneration = generation == UInt64.max ? nil : generation + 1
-        guard let json = encode(generation) else { return }
-        latest = Entry(generation: generation, json: json)
+        latest = Entry(generation: generation, payload: encode(generation))
     }
 
-    func copy() -> (generation: UInt64, json: String)? {
+    func copy() -> (generation: UInt64, payload: Value)? {
         lock.lock()
         defer { lock.unlock() }
         guard let latest else { return nil }
-        return (latest.generation, latest.json)
+        return (latest.generation, latest.payload)
     }
 
     func acknowledge(_ generation: UInt64) -> Bool {
@@ -165,17 +165,17 @@ private final class RequestSnapshotStore: @unchecked Sendable {
         return true
     }
 
-    func take() -> String? {
+    func take() -> Value? {
         lock.lock()
         defer { lock.unlock() }
         guard let latest else { return nil }
         self.latest = nil
-        return latest.json
+        return latest.payload
     }
 }
 
-private let videoCompositionRequestSnapshots = RequestSnapshotStore()
-private let ciImageFilteringRequestSnapshots = RequestSnapshotStore()
+private let videoCompositionRequestSnapshots = RequestSnapshotStore<AsynchronousVideoCompositionRequestPayload>()
+private let ciImageFilteringRequestSnapshots = RequestSnapshotStore<AsynchronousCIImageFilteringRequestPayload>()
 
 private final class CIImageFilteringCompositionRegistry: @unchecked Sendable {
     private let lock = NSLock()
@@ -198,7 +198,7 @@ private let ciImageFilteringCompositions = CIImageFilteringCompositionRegistry()
 
 private func storeLatestVideoCompositionRequest(_ request: AVAsynchronousVideoCompositionRequest) {
     videoCompositionRequestSnapshots.store { generation in
-        try? encodeJson(AsynchronousVideoCompositionRequestPayload(
+        AsynchronousVideoCompositionRequestPayload(
             wireFormatVersion: requestSnapshotWireFormatVersion,
             generation: generation,
             compositionTime: encodeTime(request.compositionTime),
@@ -212,14 +212,14 @@ private func storeLatestVideoCompositionRequest(_ request: AVAsynchronousVideoCo
             videoCompositionInstructionClassName: String(
                 describing: type(of: request.videoCompositionInstruction)
             )
-        ))
+        )
     }
 }
 
 private func storeLatestCIImageFilteringRequest(_ request: AVAsynchronousCIImageFilteringRequest) {
     let extent = request.sourceImage.extent
     ciImageFilteringRequestSnapshots.store { generation in
-        try? encodeJson(AsynchronousCIImageFilteringRequestPayload(
+        AsynchronousCIImageFilteringRequestPayload(
             wireFormatVersion: requestSnapshotWireFormatVersion,
             generation: generation,
             compositionTime: encodeTime(request.compositionTime),
@@ -233,7 +233,7 @@ private func storeLatestCIImageFilteringRequest(_ request: AVAsynchronousCIImage
                 width: Double(extent.size.width),
                 height: Double(extent.size.height)
             )
-        ))
+        )
     }
 }
 
@@ -596,9 +596,9 @@ public func av_metadata_item_filter_for_sharing() -> UnsafeMutableRawPointer? {
 @_cdecl("av_metadata_item_filter_kind")
 public func av_metadata_item_filter_kind(
     _ filterPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let filter = Unmanaged<AVMetadataItemFilter>.fromOpaque(filterPtr).takeUnretainedValue()
-    return ffiString(metadataItemFilterKind(filter))
+    return makePayload(metadataItemFilterKind(filter))
 }
 
 @_cdecl("av_metadata_item_filter_release")
@@ -612,13 +612,13 @@ public func av_audio_mix_create() -> UnsafeMutableRawPointer? {
     Unmanaged.passRetained(AVMutableAudioMix()).toOpaque()
 }
 
-@_cdecl("av_audio_mix_info_json")
-public func av_audio_mix_info_json(
+@_cdecl("av_audio_mix_info_payload")
+public func av_audio_mix_info_payload(
     _ mixPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let mix = Unmanaged<AVAudioMix>.fromOpaque(mixPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(audioMixInfoPayload(from: mix)))
+        return makePayload(audioMixInfoPayload(from: mix))
     } catch {
         return nil
     }
@@ -645,17 +645,17 @@ public func av_audio_mix_set_input_parameters(
     _ mixPtr: UnsafeMutableRawPointer,
     _ parametersPtr: UnsafePointer<UnsafeMutableRawPointer?>,
     _ count: Int,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     guard let mix = Unmanaged<AVAudioMix>.fromOpaque(mixPtr).takeUnretainedValue() as? AVMutableAudioMix else {
-        outErrorMessage?.pointee = ffiString("audio mix is not mutable")
+        outErrorMessage?.pointee = makePayload("audio mix is not mutable")
         return AVW_INVALID_STATE
     }
     var parameters: [AVAudioMixInputParameters] = []
     parameters.reserveCapacity(count)
     for index in 0..<count {
         guard let parameterPtr = parametersPtr[index] else {
-            outErrorMessage?.pointee = ffiString("audio mix input parameters array contained a null entry")
+            outErrorMessage?.pointee = makePayload("audio mix input parameters array contained a null entry")
             return AVW_INVALID_ARGUMENT
         }
         parameters.append(Unmanaged<AVAudioMixInputParameters>.fromOpaque(parameterPtr).takeUnretainedValue())
@@ -675,26 +675,26 @@ public func av_audio_mix_input_parameters_create() -> UnsafeMutableRawPointer? {
     Unmanaged.passRetained(AVMutableAudioMixInputParameters()).toOpaque()
 }
 
-@_cdecl("av_audio_mix_input_parameters_info_json")
-public func av_audio_mix_input_parameters_info_json(
+@_cdecl("av_audio_mix_input_parameters_info_payload")
+public func av_audio_mix_input_parameters_info_payload(
     _ parametersPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let parameters = Unmanaged<AVAudioMixInputParameters>.fromOpaque(parametersPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(audioMixInputParametersInfoPayload(from: parameters)))
+        return makePayload(audioMixInputParametersInfoPayload(from: parameters))
     } catch {
         return nil
     }
 }
 
-@_cdecl("av_audio_mix_input_parameters_volume_ramp_json")
-public func av_audio_mix_input_parameters_volume_ramp_json(
+@_cdecl("av_audio_mix_input_parameters_volume_ramp_payload")
+public func av_audio_mix_input_parameters_volume_ramp_payload(
     _ parametersPtr: UnsafeMutableRawPointer,
     _ timeValue: Int64,
     _ timeScale: Int32,
     _ timeKind: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let parameters = Unmanaged<AVAudioMixInputParameters>.fromOpaque(parametersPtr).takeUnretainedValue()
     var startVolume: Float = 0
     var endVolume: Float = 0
@@ -709,13 +709,13 @@ public func av_audio_mix_input_parameters_volume_ramp_json(
         return nil
     }
     do {
-        return ffiString(try encodeJson(AudioVolumeRampPayload(
+        return makePayload(AudioVolumeRampPayload(
             startVolume: startVolume,
             endVolume: endVolume,
             timeRange: encodeTimeRange(timeRange)
-        )))
+        ))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -724,10 +724,10 @@ public func av_audio_mix_input_parameters_volume_ramp_json(
 public func av_audio_mix_input_parameters_set_track_id(
     _ parametersPtr: UnsafeMutableRawPointer,
     _ trackID: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     guard let parameters = Unmanaged<AVAudioMixInputParameters>.fromOpaque(parametersPtr).takeUnretainedValue() as? AVMutableAudioMixInputParameters else {
-        outErrorMessage?.pointee = ffiString("audio mix input parameters are not mutable")
+        outErrorMessage?.pointee = makePayload("audio mix input parameters are not mutable")
         return AVW_INVALID_STATE
     }
     parameters.trackID = trackID
@@ -737,15 +737,15 @@ public func av_audio_mix_input_parameters_set_track_id(
 @_cdecl("av_audio_mix_input_parameters_set_audio_time_pitch_algorithm")
 public func av_audio_mix_input_parameters_set_audio_time_pitch_algorithm(
     _ parametersPtr: UnsafeMutableRawPointer,
-    _ algorithmPtr: UnsafePointer<CChar>?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ algorithmPtr: UnsafePointer<AVWString>?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     guard let parameters = Unmanaged<AVAudioMixInputParameters>.fromOpaque(parametersPtr).takeUnretainedValue() as? AVMutableAudioMixInputParameters else {
-        outErrorMessage?.pointee = ffiString("audio mix input parameters are not mutable")
+        outErrorMessage?.pointee = makePayload("audio mix input parameters are not mutable")
         return AVW_INVALID_STATE
     }
     parameters.audioTimePitchAlgorithm = algorithmPtr.map {
-        AVAudioTimePitchAlgorithm(rawValue: String(cString: $0))
+        AVAudioTimePitchAlgorithm(rawValue: String(abi: $0))
     }
     return AVW_OK
 }
@@ -757,15 +757,15 @@ public func av_audio_mix_input_parameters_set_volume(
     _ timeValue: Int64,
     _ timeScale: Int32,
     _ timeKind: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     guard let parameters = Unmanaged<AVAudioMixInputParameters>.fromOpaque(parametersPtr).takeUnretainedValue() as? AVMutableAudioMixInputParameters else {
-        outErrorMessage?.pointee = ffiString("audio mix input parameters are not mutable")
+        outErrorMessage?.pointee = makePayload("audio mix input parameters are not mutable")
         return AVW_INVALID_STATE
     }
     let time = cmTime(value: timeValue, timescale: timeScale, kind: timeKind)
     guard time.isNumeric else {
-        outErrorMessage?.pointee = ffiString("volume time must be numeric")
+        outErrorMessage?.pointee = makePayload("volume time must be numeric")
         return AVW_INVALID_ARGUMENT
     }
     parameters.setVolume(volume, at: time)
@@ -783,10 +783,10 @@ public func av_audio_mix_input_parameters_set_volume_ramp(
     _ durationValue: Int64,
     _ durationScale: Int32,
     _ durationKind: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     guard let parameters = Unmanaged<AVAudioMixInputParameters>.fromOpaque(parametersPtr).takeUnretainedValue() as? AVMutableAudioMixInputParameters else {
-        outErrorMessage?.pointee = ffiString("audio mix input parameters are not mutable")
+        outErrorMessage?.pointee = makePayload("audio mix input parameters are not mutable")
         return AVW_INVALID_STATE
     }
     let timeRange = CMTimeRange(
@@ -794,7 +794,7 @@ public func av_audio_mix_input_parameters_set_volume_ramp(
         duration: cmTime(value: durationValue, timescale: durationScale, kind: durationKind)
     )
     guard timeRange.start.isNumeric, timeRange.duration.isNumeric else {
-        outErrorMessage?.pointee = ffiString("volume ramp start and duration must be numeric")
+        outErrorMessage?.pointee = makePayload("volume ramp start and duration must be numeric")
         return AVW_INVALID_ARGUMENT
     }
     parameters.setVolumeRamp(fromStartVolume: startVolume, toEndVolume: endVolume, timeRange: timeRange)
@@ -809,14 +809,14 @@ public func av_audio_mix_input_parameters_release(_ parametersPtr: UnsafeMutable
 
 @_cdecl("av_video_composition_create_from_asset")
 public func av_video_composition_create_from_asset(
-    _ pathPtr: UnsafePointer<CChar>
+    _ pathPtr: UnsafePointer<AVWString>
 ) -> UnsafeMutableRawPointer? {
     Unmanaged.passRetained(AVMutableVideoComposition(propertiesOf: mediaProcessingAsset(from: pathPtr))).toOpaque()
 }
 
 @_cdecl("av_video_composition_create_from_asset_ci_filter_recorder")
 public func av_video_composition_create_from_asset_ci_filter_recorder(
-    _ pathPtr: UnsafePointer<CChar>
+    _ pathPtr: UnsafePointer<AVWString>
 ) -> UnsafeMutableRawPointer? {
     let asset = mediaProcessingAsset(from: pathPtr)
     let composition = AVMutableVideoComposition(asset: asset) { request in
@@ -827,13 +827,13 @@ public func av_video_composition_create_from_asset_ci_filter_recorder(
     return Unmanaged.passRetained(composition).toOpaque()
 }
 
-@_cdecl("av_video_composition_info_json")
-public func av_video_composition_info_json(
+@_cdecl("av_video_composition_info_payload")
+public func av_video_composition_info_payload(
     _ compositionPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let composition = Unmanaged<AVVideoComposition>.fromOpaque(compositionPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(videoCompositionInfoPayload(from: composition)))
+        return makePayload(videoCompositionInfoPayload(from: composition))
     } catch {
         return nil
     }
@@ -842,27 +842,27 @@ public func av_video_composition_info_json(
 @_cdecl("av_video_composition_set_custom_video_compositor_class")
 public func av_video_composition_set_custom_video_compositor_class(
     _ compositionPtr: UnsafeMutableRawPointer,
-    _ classPtr: UnsafePointer<CChar>?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ classPtr: UnsafePointer<AVWString>?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     guard #available(macOS 10.9, *) else {
-        outErrorMessage?.pointee = ffiString("custom video compositors require macOS 10.9+")
+        outErrorMessage?.pointee = makePayload("custom video compositors require macOS 10.9+")
         return AVW_INVALID_STATE
     }
     guard let composition = Unmanaged<AVVideoComposition>.fromOpaque(compositionPtr).takeUnretainedValue() as? AVMutableVideoComposition else {
-        outErrorMessage?.pointee = ffiString("video composition is not mutable")
+        outErrorMessage?.pointee = makePayload("video composition is not mutable")
         return AVW_INVALID_STATE
     }
     if let classPtr {
-        let raw = String(cString: classPtr)
+        let raw = String(abi: classPtr)
         if raw == "rustCallback" {
-            outErrorMessage?.pointee = ffiString(
+            outErrorMessage?.pointee = makePayload(
                 "the Rust callback compositor must be installed with a request handler"
             )
             return AVW_INVALID_ARGUMENT
         }
         guard let compositorClass = decodeVideoCompositorClass(raw) else {
-            outErrorMessage?.pointee = ffiString("unknown video compositor class '\(raw)'")
+            outErrorMessage?.pointee = makePayload("unknown video compositor class '\(raw)'")
             return AVW_INVALID_ARGUMENT
         }
         restoreRustVideoCompositionInstructions(composition)
@@ -880,31 +880,31 @@ public func av_video_composition_install_rust_compositor(
     _ callback: AVWVideoCompositionRequestCallback?,
     _ userdata: UnsafeMutableRawPointer?,
     _ dropUserdata: AVWDropCallback?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     guard let composition = Unmanaged<AVVideoComposition>
         .fromOpaque(compositionPtr)
         .takeUnretainedValue() as? AVMutableVideoComposition
     else {
-        outErrorMessage?.pointee = ffiString("video composition is not mutable")
+        outErrorMessage?.pointee = makePayload("video composition is not mutable")
         return AVW_INVALID_STATE
     }
     guard let callback, let userdata, let dropUserdata else {
-        outErrorMessage?.pointee = ffiString("Rust video compositor handler was incomplete")
+        outErrorMessage?.pointee = makePayload("Rust video compositor handler was incomplete")
         return AVW_INVALID_ARGUMENT
     }
     if ciImageFilteringCompositions.contains(composition) {
-        outErrorMessage?.pointee = ffiString(
+        outErrorMessage?.pointee = makePayload(
             "CI image-filtering compositions are not supported by the Rust callback compositor"
         )
         return AVW_INVALID_STATE
     }
     guard !composition.instructions.isEmpty else {
-        outErrorMessage?.pointee = ffiString("video composition has no instructions to process")
+        outErrorMessage?.pointee = makePayload("video composition has no instructions to process")
         return AVW_INVALID_STATE
     }
     if hasTaggedBufferOutput(composition) {
-        outErrorMessage?.pointee = ffiString(
+        outErrorMessage?.pointee = makePayload(
             "tagged-buffer video composition output is not supported by the Rust callback compositor"
         )
         return AVW_INVALID_STATE
@@ -913,7 +913,7 @@ public func av_video_composition_install_rust_compositor(
        ObjectIdentifier(currentClass) != ObjectIdentifier(AVWRPassthroughVideoCompositor.self),
        ObjectIdentifier(currentClass) != ObjectIdentifier(AVWRRustVideoCompositor.self)
     {
-        outErrorMessage?.pointee = ffiString(
+        outErrorMessage?.pointee = makePayload(
             "video compositions using another custom compositor, including CI filtering, are unsupported"
         )
         return AVW_INVALID_STATE
@@ -939,13 +939,13 @@ public func av_video_composition_install_rust_compositor(
 @_cdecl("av_video_composition_clear_rust_compositor")
 public func av_video_composition_clear_rust_compositor(
     _ compositionPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     guard let composition = Unmanaged<AVVideoComposition>
         .fromOpaque(compositionPtr)
         .takeUnretainedValue() as? AVMutableVideoComposition
     else {
-        outErrorMessage?.pointee = ffiString("video composition is not mutable")
+        outErrorMessage?.pointee = makePayload("video composition is not mutable")
         return AVW_INVALID_STATE
     }
     restoreRustVideoCompositionInstructions(composition)
@@ -963,28 +963,28 @@ public func av_video_composition_release(_ compositionPtr: UnsafeMutableRawPoint
     Unmanaged<AVVideoComposition>.fromOpaque(compositionPtr).release()
 }
 
-@_cdecl("av_video_compositor_info_json")
-public func av_video_compositor_info_json(
+@_cdecl("av_video_compositor_info_payload")
+public func av_video_compositor_info_payload(
     _ compositorPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let object = Unmanaged<NSObject>.fromOpaque(compositorPtr).takeUnretainedValue()
     guard let compositor = object as? AVVideoCompositing else {
         return nil
     }
     do {
-        return ffiString(try encodeJson(videoCompositorInfoPayload(from: compositor)))
+        return makePayload(videoCompositorInfoPayload(from: compositor))
     } catch {
         return nil
     }
 }
 
-@_cdecl("av_copy_latest_video_composition_request_json")
-public func av_copy_latest_video_composition_request_json(
+@_cdecl("av_copy_latest_video_composition_request_payload")
+public func av_copy_latest_video_composition_request_payload(
     _ outGeneration: UnsafeMutablePointer<UInt64>?
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     guard let snapshot = videoCompositionRequestSnapshots.copy() else { return nil }
     outGeneration?.pointee = snapshot.generation
-    return ffiString(snapshot.json)
+    return makePayload(snapshot.payload)
 }
 
 @_cdecl("av_ack_latest_video_composition_request")
@@ -992,19 +992,19 @@ public func av_ack_latest_video_composition_request(_ generation: UInt64) -> Boo
     videoCompositionRequestSnapshots.acknowledge(generation)
 }
 
-@_cdecl("av_take_latest_video_composition_request_json")
-public func av_take_latest_video_composition_request_json() -> UnsafeMutablePointer<CChar>? {
-    guard let json = videoCompositionRequestSnapshots.take() else { return nil }
-    return ffiString(json)
+@_cdecl("av_take_latest_video_composition_request_payload")
+public func av_take_latest_video_composition_request_payload() -> UnsafeMutablePointer<AVWOwnedPayload>? {
+    guard let payload = videoCompositionRequestSnapshots.take() else { return nil }
+    return makePayload(payload)
 }
 
-@_cdecl("av_copy_latest_ci_image_filtering_request_json")
-public func av_copy_latest_ci_image_filtering_request_json(
+@_cdecl("av_copy_latest_ci_image_filtering_request_payload")
+public func av_copy_latest_ci_image_filtering_request_payload(
     _ outGeneration: UnsafeMutablePointer<UInt64>?
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     guard let snapshot = ciImageFilteringRequestSnapshots.copy() else { return nil }
     outGeneration?.pointee = snapshot.generation
-    return ffiString(snapshot.json)
+    return makePayload(snapshot.payload)
 }
 
 @_cdecl("av_ack_latest_ci_image_filtering_request")
@@ -1012,10 +1012,10 @@ public func av_ack_latest_ci_image_filtering_request(_ generation: UInt64) -> Bo
     ciImageFilteringRequestSnapshots.acknowledge(generation)
 }
 
-@_cdecl("av_take_latest_ci_image_filtering_request_json")
-public func av_take_latest_ci_image_filtering_request_json() -> UnsafeMutablePointer<CChar>? {
-    guard let json = ciImageFilteringRequestSnapshots.take() else { return nil }
-    return ffiString(json)
+@_cdecl("av_take_latest_ci_image_filtering_request_payload")
+public func av_take_latest_ci_image_filtering_request_payload() -> UnsafeMutablePointer<AVWOwnedPayload>? {
+    guard let payload = ciImageFilteringRequestSnapshots.take() else { return nil }
+    return makePayload(payload)
 }
 
 @_cdecl("av_video_composition_request_release")
@@ -1120,7 +1120,7 @@ public func av_video_composition_request_source_sample_data_track_id_at(
 public func av_video_composition_request_copy_source_frame(
     _ requestPtr: UnsafeMutableRawPointer,
     _ trackID: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     let handle = Unmanaged<AVWRRustVideoCompositionRequest>
         .fromOpaque(requestPtr)
@@ -1129,7 +1129,7 @@ public func av_video_composition_request_copy_source_frame(
         guard let frame = try handle.sourceFrame(trackID: trackID) else { return nil }
         return Unmanaged.passRetained(frame).toOpaque()
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -1138,7 +1138,7 @@ public func av_video_composition_request_copy_source_frame(
 public func av_video_composition_request_copy_source_sample_buffer(
     _ requestPtr: UnsafeMutableRawPointer,
     _ trackID: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     let handle = Unmanaged<AVWRRustVideoCompositionRequest>
         .fromOpaque(requestPtr)
@@ -1147,7 +1147,7 @@ public func av_video_composition_request_copy_source_sample_buffer(
         guard let sample = try handle.sourceSampleBuffer(trackID: trackID) else { return nil }
         return Unmanaged.passRetained(sample).toOpaque()
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -1155,7 +1155,7 @@ public func av_video_composition_request_copy_source_sample_buffer(
 @_cdecl("av_video_composition_request_new_output_pixel_buffer")
 public func av_video_composition_request_new_output_pixel_buffer(
     _ requestPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     let handle = Unmanaged<AVWRRustVideoCompositionRequest>
         .fromOpaque(requestPtr)
@@ -1163,7 +1163,7 @@ public func av_video_composition_request_new_output_pixel_buffer(
     do {
         return Unmanaged.passRetained(try handle.newOutputPixelBuffer()).toOpaque()
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -1172,14 +1172,14 @@ public func av_video_composition_request_new_output_pixel_buffer(
 public func av_video_composition_request_finish_with_frame(
     _ requestPtr: UnsafeMutableRawPointer,
     _ framePtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let handle = Unmanaged<AVWRRustVideoCompositionRequest>
         .fromOpaque(requestPtr)
         .takeUnretainedValue()
     let frame = Unmanaged<CVPixelBuffer>.fromOpaque(framePtr).takeUnretainedValue()
     if let error = handle.finish(with: frame) {
-        outErrorMessage?.pointee = ffiString(error)
+        outErrorMessage?.pointee = makePayload(error)
         return AVW_INVALID_STATE
     }
     return AVW_OK
@@ -1188,14 +1188,14 @@ public func av_video_composition_request_finish_with_frame(
 @_cdecl("av_video_composition_request_finish_with_error")
 public func av_video_composition_request_finish_with_error(
     _ requestPtr: UnsafeMutableRawPointer,
-    _ messagePtr: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ messagePtr: UnsafePointer<AVWString>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let handle = Unmanaged<AVWRRustVideoCompositionRequest>
         .fromOpaque(requestPtr)
         .takeUnretainedValue()
-    if let error = handle.finish(withErrorMessage: String(cString: messagePtr)) {
-        outErrorMessage?.pointee = ffiString(error)
+    if let error = handle.finish(withErrorMessage: String(abi: messagePtr)) {
+        outErrorMessage?.pointee = makePayload(error)
         return AVW_INVALID_STATE
     }
     return AVW_OK
@@ -1204,13 +1204,13 @@ public func av_video_composition_request_finish_with_error(
 @_cdecl("av_video_composition_request_cancel")
 public func av_video_composition_request_cancel(
     _ requestPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let handle = Unmanaged<AVWRRustVideoCompositionRequest>
         .fromOpaque(requestPtr)
         .takeUnretainedValue()
     if let error = handle.cancel() {
-        outErrorMessage?.pointee = ffiString(error)
+        outErrorMessage?.pointee = makePayload(error)
         return AVW_INVALID_STATE
     }
     return AVW_OK
@@ -1220,4 +1220,118 @@ public func av_video_composition_request_cancel(
 public func av_video_compositor_release(_ compositorPtr: UnsafeMutableRawPointer?) {
     guard let compositorPtr else { return }
     Unmanaged<NSObject>.fromOpaque(compositorPtr).release()
+}
+
+extension AudioMixInputParametersInfoPayload: BridgePayload {
+    typealias ABI = AVWAudioMixInputParametersInfo
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            track_id: trackId.toABI(arena),
+            audio_time_pitch_algorithm: audioTimePitchAlgorithm.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            trackId: try .fromABI(raw.track_id),
+            audioTimePitchAlgorithm: try .fromABI(raw.audio_time_pitch_algorithm)
+        )
+    }
+}
+
+extension AudioVolumeRampPayload: BridgePayload {
+    typealias ABI = AVWAudioVolumeRamp
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            start_volume: startVolume.toABI(arena),
+            end_volume: endVolume.toABI(arena),
+            time_range: timeRange.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            startVolume: try .fromABI(raw.start_volume),
+            endVolume: try .fromABI(raw.end_volume),
+            timeRange: try .fromABI(raw.time_range)
+        )
+    }
+}
+
+extension RectPayload: BridgePayload {
+    typealias ABI = AVWRect
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            x: x.toABI(arena),
+            y: y.toABI(arena),
+            width: width.toABI(arena),
+            height: height.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            x: try .fromABI(raw.x),
+            y: try .fromABI(raw.y),
+            width: try .fromABI(raw.width),
+            height: try .fromABI(raw.height)
+        )
+    }
+}
+
+extension AsynchronousVideoCompositionRequestPayload: BridgePayload {
+    typealias ABI = AVWVideoCompositionRequest
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            wire_format_version: wireFormatVersion.toABI(arena),
+            generation: generation.toABI(arena),
+            composition_time: compositionTime.toABI(arena),
+            source_track_ids: sourceTrackIDs.toABI(arena),
+            source_sample_data_track_ids: sourceSampleDataTrackIDs.toABI(arena),
+            render_size: renderSize.toABI(arena),
+            render_scale: renderScale.toABI(arena),
+            video_composition_instruction_class_name: videoCompositionInstructionClassName.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            wireFormatVersion: try .fromABI(raw.wire_format_version),
+            generation: try .fromABI(raw.generation),
+            compositionTime: try .fromABI(raw.composition_time),
+            sourceTrackIDs: try .fromABI(raw.source_track_ids),
+            sourceSampleDataTrackIDs: try .fromABI(raw.source_sample_data_track_ids),
+            renderSize: try .fromABI(raw.render_size),
+            renderScale: try .fromABI(raw.render_scale),
+            videoCompositionInstructionClassName: try .fromABI(raw.video_composition_instruction_class_name)
+        )
+    }
+}
+
+extension AsynchronousCIImageFilteringRequestPayload: BridgePayload {
+    typealias ABI = AVWCIImageFilteringRequest
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            wire_format_version: wireFormatVersion.toABI(arena),
+            generation: generation.toABI(arena),
+            composition_time: compositionTime.toABI(arena),
+            render_size: renderSize.toABI(arena),
+            source_image_extent: sourceImageExtent.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            wireFormatVersion: try .fromABI(raw.wire_format_version),
+            generation: try .fromABI(raw.generation),
+            compositionTime: try .fromABI(raw.composition_time),
+            renderSize: try .fromABI(raw.render_size),
+            sourceImageExtent: try .fromABI(raw.source_image_extent)
+        )
+    }
 }

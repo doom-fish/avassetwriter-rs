@@ -53,13 +53,14 @@
 //!
 //! [`Future`]: std::future::Future
 
-use core::ffi::{c_char, c_void, CStr};
+use crate::binary::{take_payload, FromAbi};
+use core::ffi::c_void;
 use core::ptr;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use doom_fish_utils::completion::{error_from_cstr, AsyncCompletion, AsyncCompletionFuture};
+use doom_fish_utils::completion::{AsyncCompletion, AsyncCompletionFuture};
 use doom_fish_utils::panic_safe::catch_user_panic;
 use doom_fish_utils::stream::{AsyncStreamSender, BoundedAsyncStream, NextItem};
 
@@ -72,12 +73,16 @@ use crate::writer::{FileType, InputId, Writer};
 // WriterFinishFuture — AVAssetWriter.finishWritingWithCompletionHandler:
 // ============================================================================
 
-extern "C" fn writer_finish_cb(result: *const c_void, error: *const i8, ctx: *mut c_void) {
+extern "C" fn writer_finish_cb(
+    result: *const c_void,
+    error: *const ffi::AVWString,
+    ctx: *mut c_void,
+) {
     catch_user_panic("writer_finish_cb", || {
         if !error.is_null() {
-            // SAFETY: `error` is a valid NUL-terminated C string owned by the
-            // Swift bridge for the duration of this callback.
-            let msg = unsafe { error_from_cstr(error) };
+            let msg = unsafe { error.as_ref() }
+                .and_then(|raw| String::from_abi(raw).ok())
+                .unwrap_or_default();
             // SAFETY: `ctx` is a valid `AsyncCompletion` context pointer
             // created by `AsyncCompletion::create` and consumed at most once.
             unsafe { AsyncCompletion::<()>::complete_err(ctx, msg) };
@@ -221,7 +226,7 @@ impl InputMediaDataReadyStream {
     ) -> Result<Self, AVWriterError> {
         let (stream, sender) = BoundedAsyncStream::new(capacity);
         let sender_raw = Box::into_raw(Box::new(sender));
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let bridge_ptr = unsafe {
             ffi::av_writer_input_ready_stream_subscribe_owned(
                 writer.as_raw_ptr(),
@@ -286,12 +291,12 @@ impl AsyncWriterInput {
 // ExportFuture — AVAssetExportSession.exportAsynchronouslyWithCompletionHandler:
 // ============================================================================
 
-extern "C" fn export_cb(result: *const c_void, error: *const i8, ctx: *mut c_void) {
+extern "C" fn export_cb(result: *const c_void, error: *const ffi::AVWString, ctx: *mut c_void) {
     catch_user_panic("export_cb", || {
         if !error.is_null() {
-            // SAFETY: `error` is a valid NUL-terminated C string owned by the
-            // Swift bridge for the duration of this callback.
-            let msg = unsafe { error_from_cstr(error) };
+            let msg = unsafe { error.as_ref() }
+                .and_then(|raw| String::from_abi(raw).ok())
+                .unwrap_or_default();
             // SAFETY: `ctx` is a valid `AsyncCompletion` context pointer
             // created by `AsyncCompletion::create` and consumed at most once.
             unsafe { AsyncCompletion::<()>::complete_err(ctx, msg) };
@@ -337,12 +342,16 @@ impl Future for ExportFuture {
 // CompatibleFileTypesFuture
 // ============================================================================
 
-extern "C" fn compatible_file_types_cb(result: *const c_void, error: *const i8, ctx: *mut c_void) {
+extern "C" fn compatible_file_types_cb(
+    result: *const c_void,
+    error: *const ffi::AVWString,
+    ctx: *mut c_void,
+) {
     catch_user_panic("compatible_file_types_cb", || {
         if !error.is_null() {
-            // SAFETY: `error` is a valid NUL-terminated C string owned by the
-            // Swift bridge for the duration of this callback.
-            let msg = unsafe { error_from_cstr(error) };
+            let msg = unsafe { error.as_ref() }
+                .and_then(|raw| String::from_abi(raw).ok())
+                .unwrap_or_default();
             // SAFETY: `ctx` is a valid `AsyncCompletion` context pointer
             // created by `AsyncCompletion::create` and consumed at most once.
             unsafe { AsyncCompletion::<Vec<FileType>>::complete_err(ctx, msg) };
@@ -360,22 +369,14 @@ extern "C" fn compatible_file_types_cb(result: *const c_void, error: *const i8, 
             return;
         }
 
-        // `result` is a heap-allocated *mut c_char JSON string from `ffiString`.
-        // We parse it and then free it via `avw_string_free`.
-        let json_ptr = result.cast::<core::ffi::c_char>().cast_mut();
-        let parse_result = (|| -> Result<Vec<FileType>, String> {
-            // SAFETY: `json_ptr` is a valid NUL-terminated heap string produced
-            // by the Swift bridge's `ffiString` helper.  We free it below after
-            // copying its contents.
-            let s = unsafe { CStr::from_ptr(json_ptr) }
-                .to_str()
-                .map_err(|e| e.to_string())?;
-            let raw: Vec<String> = serde_json::from_str(s).map_err(|e| e.to_string())?;
-            Ok(raw.iter().filter_map(|s| FileType::from_raw(s)).collect())
-        })();
-        // SAFETY: `json_ptr` was produced by the Swift `ffiString` helper and
-        // must be freed exactly once via `avw_string_free`.
-        unsafe { ffi::avw_string_free(json_ptr) };
+        let parse_result =
+            take_payload::<Vec<String>>(result.cast_mut().cast(), "compatible file types")
+                .map(|raw| {
+                    raw.iter()
+                        .filter_map(|value| FileType::from_raw(value))
+                        .collect::<Vec<_>>()
+                })
+                .map_err(|error| error.to_string());
 
         match parse_result {
             // SAFETY: same ctx invariant as above.

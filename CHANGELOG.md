@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-27
+
+### Changed
+
+- Replace all text transport with a shared C ABI for Rust and Swift.
+- Give strings and arrays a pointer and a length, with explicit payload ownership.
+- Replace the general-purpose settings value type with the native `PropertyValue` enum.
+- Remove the serialization dependencies and traits.
+- Update the coverage exclusions for the new storage and resumable-export APIs in the current SDK.
+
 ## [0.13.3] - 2026-10-26
 
 ### Fixed

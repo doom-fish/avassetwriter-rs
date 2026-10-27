@@ -50,26 +50,26 @@ final class SegmentDelegate: NSObject, AVAssetWriterDelegate {
 
 @_cdecl("av_writer_create_segmented")
 public func av_writer_create_segmented(
-    _ fileType: UnsafePointer<CChar>,
-    _ profile: UnsafePointer<CChar>?,
+    _ fileType: UnsafePointer<AVWString>,
+    _ profile: UnsafePointer<AVWString>?,
     _ callback: AVWSegmentCallback?,
     _ userdata: UnsafeMutableRawPointer?,
     _ dropUserdata: AVWDropCallback?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
-    let fileTypeRaw = String(cString: fileType)
+    let fileTypeRaw = String(abi: fileType)
     guard fileTypeRaw == "mp4" else {
-        outErrorMessage?.pointee = ffiString("segmented output currently supports mp4 only")
+        outErrorMessage?.pointee = makePayload("segmented output currently supports mp4 only")
         return nil
     }
     guard let outputType = UTType(filenameExtension: "mp4") else {
-        outErrorMessage?.pointee = ffiString("failed to resolve UTType for mp4")
+        outErrorMessage?.pointee = makePayload("failed to resolve UTType for mp4")
         return nil
     }
     let writer = AVAssetWriter(contentType: outputType)
     let wrapper = Writer(writer: writer)
     if let profileRaw = profile {
-        let profileString = String(cString: profileRaw)
+        let profileString = String(abi: profileRaw)
         wrapper.writer.outputFileTypeProfile = decodeFileTypeProfile(profileString)
     }
     let box = SegmentCallbackBox(callback: callback, userdata: userdata, dropUserdata: dropUserdata)
@@ -81,12 +81,12 @@ public func av_writer_create_segmented(
     return Unmanaged.passRetained(wrapper).toOpaque()
 }
 
-@_cdecl("av_writer_info_json")
-public func av_writer_info_json(_ writerPtr: UnsafeMutableRawPointer) -> UnsafeMutablePointer<CChar>? {
+@_cdecl("av_writer_info_payload")
+public func av_writer_info_payload(_ writerPtr: UnsafeMutableRawPointer) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
     do {
-        return ffiString(try encodeJson(writerInfoPayload(from: wrapper)))
+        return makePayload(writerInfoPayload(from: wrapper))
     } catch {
         return nil
     }
@@ -95,7 +95,7 @@ public func av_writer_info_json(_ writerPtr: UnsafeMutableRawPointer) -> UnsafeM
 @_cdecl("av_writer_metadata")
 public func av_writer_metadata(
     _ writerPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
@@ -108,7 +108,7 @@ public func av_writer_set_metadata_items(
     _ writerPtr: UnsafeMutableRawPointer,
     _ itemPointers: UnsafePointer<UnsafeMutableRawPointer?>?,
     _ itemCount: Int,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
@@ -119,16 +119,16 @@ public func av_writer_set_metadata_items(
         wrapper.writer.metadata = try metadataItems(from: itemPointers, count: itemCount)
         return AVW_OK
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return AVW_INVALID_ARGUMENT
     }
 }
 
-@_cdecl("av_writer_set_metadata_json")
-public func av_writer_set_metadata_json(
+@_cdecl("av_writer_set_metadata_payload")
+public func av_writer_set_metadata_payload(
     _ writerPtr: UnsafeMutableRawPointer,
-    _ metadataJson: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ metadataPayload: UnsafePointer<AVWArray>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
@@ -136,11 +136,11 @@ public func av_writer_set_metadata_json(
         return status
     }
     do {
-        let payload = try decodeJson(metadataJson, as: [MetadataItemPayload].self)
+        let payload = try readPayload(metadataPayload, as: [MetadataItemPayload].self)
         wrapper.writer.metadata = try payload.map(avMetadataItem)
         return AVW_OK
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return AVW_INVALID_ARGUMENT
     }
 }
@@ -148,59 +148,59 @@ public func av_writer_set_metadata_json(
 @_cdecl("av_writer_set_directory_for_temporary_files")
 public func av_writer_set_directory_for_temporary_files(
     _ writerPtr: UnsafeMutableRawPointer,
-    _ directoryPath: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ directoryPath: UnsafePointer<AVWString>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
     if let status = wrapper.configurationStatus("directoryForTemporaryFiles", outErrorMessage) {
         return status
     }
-    wrapper.writer.directoryForTemporaryFiles = URL(fileURLWithPath: String(cString: directoryPath))
+    wrapper.writer.directoryForTemporaryFiles = URL(fileURLWithPath: String(abi: directoryPath))
     return AVW_OK
 }
 
-@_cdecl("av_writer_can_apply_output_settings_json")
-public func av_writer_can_apply_output_settings_json(
+@_cdecl("av_writer_can_apply_output_settings_payload")
+public func av_writer_can_apply_output_settings_payload(
     _ writerPtr: UnsafeMutableRawPointer,
-    _ mediaType: UnsafePointer<CChar>,
-    _ outputSettingsJson: UnsafePointer<CChar>?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ mediaType: UnsafePointer<AVWString>,
+    _ outputSettings: UnsafePointer<AVWPropertyValue>?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    let mediaTypeString = String(cString: mediaType)
+    let mediaTypeString = String(abi: mediaType)
     guard let mediaType = decodeMediaType(mediaTypeString) else {
-        outErrorMessage?.pointee = ffiString("unknown media type: \(mediaTypeString)")
+        outErrorMessage?.pointee = makePayload("unknown media type: \(mediaTypeString)")
         return AVW_INVALID_ARGUMENT
     }
     do {
-        let outputSettings = try jsonObjectFromCString(outputSettingsJson) as? [String: Any]
+        let outputSettings = try propertyObject(outputSettings) as? [String: Any]
         return wrapper.writer.canApply(outputSettings: outputSettings, forMediaType: mediaType) ? 1 : 0
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return AVW_INVALID_ARGUMENT
     }
 }
 
-@_cdecl("av_writer_add_input_json")
-public func av_writer_add_input_json(
+@_cdecl("av_writer_add_input_payload")
+public func av_writer_add_input_payload(
     _ writerPtr: UnsafeMutableRawPointer,
-    _ mediaTypePtr: UnsafePointer<CChar>,
-    _ outputSettingsJson: UnsafePointer<CChar>?,
+    _ mediaTypePtr: UnsafePointer<AVWString>,
+    _ outputSettings: UnsafePointer<AVWPropertyValue>?,
     _ sourceFormatHintPtr: UnsafeMutableRawPointer?,
     _ expectsMediaDataInRealTime: Bool,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
-    let mediaTypeString = String(cString: mediaTypePtr)
+    let mediaTypeString = String(abi: mediaTypePtr)
     guard let mediaType = decodeMediaType(mediaTypeString) else {
-        outErrorMessage?.pointee = ffiString("unknown media type: \(mediaTypeString)")
+        outErrorMessage?.pointee = makePayload("unknown media type: \(mediaTypeString)")
         return AVW_INVALID_ARGUMENT
     }
     do {
-        let outputSettings = try jsonObjectFromCString(outputSettingsJson) as? [String: Any]
+        let outputSettings = try propertyObject(outputSettings) as? [String: Any]
         let sourceFormatHint = sourceFormatHintPtr.map {
             Unmanaged<CMFormatDescription>.fromOpaque($0).takeUnretainedValue()
         }
@@ -212,7 +212,7 @@ public func av_writer_add_input_json(
             outErrorMessage
         )
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return AVW_INVALID_ARGUMENT
     }
 }
@@ -221,13 +221,13 @@ public func av_writer_add_input_json(
 public func av_writer_add_audio_input_from_sample(
     _ writerPtr: UnsafeMutableRawPointer,
     _ sampleBufferPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
     let sampleBuffer = Unmanaged<CMSampleBuffer>.fromOpaque(sampleBufferPtr).takeUnretainedValue()
     guard let format = CMSampleBufferGetFormatDescription(sampleBuffer) else {
-        outErrorMessage?.pointee = ffiString("sample buffer has no format description")
+        outErrorMessage?.pointee = makePayload("sample buffer has no format description")
         return AVW_INVALID_ARGUMENT
     }
     if let status = formatHintStatus(format, expected: .audio, outErrorMessage) {
@@ -242,12 +242,12 @@ public func av_writer_add_audio_input_from_sample(
     )
 }
 
-@_cdecl("av_writer_add_metadata_input_from_specifications_json")
-public func av_writer_add_metadata_input_from_specifications_json(
+@_cdecl("av_writer_add_metadata_input_from_specifications_payload")
+public func av_writer_add_metadata_input_from_specifications_payload(
     _ writerPtr: UnsafeMutableRawPointer,
-    _ specificationsJson: UnsafePointer<CChar>,
+    _ specificationsPayload: UnsafePointer<AVWArray>,
     _ expectsMediaDataInRealTime: Bool,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
@@ -255,7 +255,7 @@ public func av_writer_add_metadata_input_from_specifications_json(
         return status
     }
     do {
-        let specifications = try decodeJson(specificationsJson, as: [MetadataSpecificationPayload].self)
+        let specifications = try readPayload(specificationsPayload, as: [MetadataSpecificationPayload].self)
         let formatDescription = try metadataFormatDescription(from: specifications)
         guard let input = wrapper.makeInput(
             mediaType: .metadata,
@@ -268,7 +268,7 @@ public func av_writer_add_metadata_input_from_specifications_json(
         input.expectsMediaDataInRealTime = expectsMediaDataInRealTime
         var message: NSString?
         guard let adaptor = AVWXMakeMetadataAdaptor(input, &message) else {
-            outErrorMessage?.pointee = ffiString((message as String?) ?? "metadata adaptor rejected the input")
+            outErrorMessage?.pointee = makePayload((message as String?) ?? "metadata adaptor rejected the input")
             return AVW_INVALID_ARGUMENT
         }
         let inputId = wrapper.addInput(input, outErrorMessage)
@@ -279,7 +279,7 @@ public func av_writer_add_metadata_input_from_specifications_json(
         wrapper.adaptedInputIds.insert(inputId)
         return inputId
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return AVW_INVALID_ARGUMENT
     }
 }
@@ -290,20 +290,20 @@ public func av_writer_end_session(
     _ timeValue: Int64,
     _ timeScale: Int32,
     _ timeKind: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
     guard wrapper.writer.status == .writing, wrapper.sessionStarted else {
-        outErrorMessage?.pointee = ffiString("end_session requires a started sample-writing session")
+        outErrorMessage?.pointee = makePayload("end_session requires a started sample-writing session")
         return AVW_INVALID_STATE
     }
     guard !wrapper.sessionEnded else {
-        outErrorMessage?.pointee = ffiString("the sample-writing session has already ended")
+        outErrorMessage?.pointee = makePayload("the sample-writing session has already ended")
         return AVW_INVALID_STATE
     }
     guard timeKind == 0, timeScale > 0 else {
-        outErrorMessage?.pointee = ffiString(
+        outErrorMessage?.pointee = makePayload(
             "end_session requires a numeric time with a positive timescale"
         )
         return AVW_INVALID_ARGUMENT
@@ -312,7 +312,7 @@ public func av_writer_end_session(
     guard wrapper.runBlockingNativeOperation({
         wrapper.writer.endSession(atSourceTime: endTime)
     }) else {
-        outErrorMessage?.pointee = ffiString(
+        outErrorMessage?.pointee = makePayload(
             "end_session cannot run reentrantly or while another blocking writer operation is active"
         )
         return AVW_INVALID_STATE
@@ -324,7 +324,7 @@ public func av_writer_end_session(
 @_cdecl("av_writer_cancel")
 public func av_writer_cancel(
     _ writerPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
@@ -336,7 +336,7 @@ public func av_writer_cancel(
 @_cdecl("av_writer_remove_segment_callback")
 public func av_writer_remove_segment_callback(
     _ writerPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }

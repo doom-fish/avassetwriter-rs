@@ -34,7 +34,7 @@ Legend:
 | `initWithURL:fileType:error:` | ✅ implemented | `Writer::create(path, file_type)` refuses an existing path; `Writer::create_with_policy` with `OutputPolicy::ReplaceFile` replaces only a regular file. |
 | `initWithContentType:` | ✅ implemented | `Writer::create_segmented(...)` uses the content-type initializer for segmented output. |
 | `canApplyOutputSettings:forMediaType:` | ✅ implemented | `Writer::can_apply_output_settings`. |
-| `canAddInput:` / `addInput:` | ✅ implemented | Covered by sample-buffer, PCM, generic JSON, metadata, caption, and pixel-buffer input constructors. |
+| `canAddInput:` / `addInput:` | ✅ implemented | Sample-buffer, PCM, property dictionary, metadata, caption, and pixel-buffer input constructors. |
 | `canAddInputGroup:` / `addInputGroup:` | ✅ implemented | `Writer::add_input_group`. |
 | `startWriting` / `startSessionAtSourceTime:` | ✅ implemented | `Writer::start_session`; one session per writer, so a second call returns `InvalidState`. |
 | `endSessionAtSourceTime:` | ✅ implemented | `Writer::end_session` uses a split-phase native call that blocks unrelated threads while admitting delegate-originated reentrancy. |
@@ -95,7 +95,7 @@ Legend:
 | --- | --- | --- |
 | `availableOutputSettingsPresets` | ✅ implemented | `OutputSettingsAssistant::available_presets`. |
 | `outputSettingsAssistantWithPreset:` | ✅ implemented | `OutputSettingsAssistant::new` and `Writer::add_video_input_from_preset`. |
-| `audioSettings` / `videoSettings` | ✅ implemented | Surfaced as `serde_json::Value` dictionaries. |
+| `audioSettings` / `videoSettings` | ✅ implemented | Native `PropertyValue` dictionaries. |
 | `outputFileType` | ✅ implemented | `OutputSettingsAssistant::output_file_type`. |
 | `sourceAudioFormat` | ✅ implemented | Get/set `CMFormatDescription` hint. |
 | `sourceVideoFormat` | ✅ implemented | Get/set `CMFormatDescription` hint. |
@@ -146,7 +146,7 @@ Legend:
 | `AVAssetTrack.AssociationType*` constants | ✅ implemented | Covered by `TrackAssociationType`. |
 | `AVAssetWriterInputMediaDataLocation*` constants | ✅ implemented | Covered by `InputMediaDataLocation`, including sparse interleaving on macOS 26+. |
 | `AVAudioSettings.h` keys used directly by this crate | ✅ implemented | `AVFormatIDKey`, `AVSampleRateKey`, `AVNumberOfChannelsKey`, and `AVEncoderBitRateKey`. |
-| `AVVideoSettings.h` dictionaries | 🟡 partial | Surfaced as raw JSON dictionaries via `OutputSettingsAssistant::video_settings` and `Writer::input_output_settings`; there is not yet a hand-typed key enum/wrapper layer. |
+| `AVVideoSettings.h` dictionaries | 🟡 partial | `PropertyValue` dictionaries through `OutputSettingsAssistant::video_settings` and `Writer::input_output_settings`. The key constants do not have a dedicated enum. |
 | `AVMediaTypeMetadataObject` | ⏭️ skipped | Not available on macOS; documented as iOS/tvOS/visionOS-only. |
 
 ## Deferred / intentionally skipped summary
@@ -154,5 +154,16 @@ Legend:
 1. `AVAssetExportSession.audioTimePitchAlgorithm` remains deferred until this crate grows a safe constant layer for AVFAudio processing algorithms instead of exposing stringly typed values.
 2. `MetadataItemFilter` and `AudioMix` remain focused interop wrappers. `VideoComposition` now supports live Rust request processing, but the bundled compositor is intentionally limited to 32-bit BGRA SDR frames; tagged buffers, wide-color/HDR sources, and direct Rust `CIImage` processing remain explicit gaps.
 3. Deprecated `AVAssetExportSession.maxDuration` / `estimatedOutputFileLength` remain skipped in favor of the modern async estimate APIs.
-4. `AVVideoSettings` constants are currently exposed as JSON dictionaries rather than as a dedicated typed Rust wrapper.
+4. `AVVideoSettings` uses `PropertyValue` dictionaries, without a dedicated enum for the key constants.
 5. The `AVAssetReader` family is out of scope and not wrapped.
+6. `proVideoStorageSupported` and `usesProVideoStorage` are not wrapped.
+7. Resumable export is not wrapped. This includes `configurationFailureReason`, `configureForResumableExportWithCompletionHandler`, `resumingFromPreviousState`, and `resumptionConfigured`.
+
+## Bridge representation
+
+All bridge payloads use the shared C ABI in `AVAssetWriterABI.h`.
+Rust maps each field with `#[repr(C)]` structures.
+Strings and arrays have a pointer and a length.
+Returned payloads own their nested allocations until `avw_payload_free`.
+Callback payloads remain valid for the duration of the callback.
+Settings dictionaries use the native `PropertyValue` enum, with no text format.

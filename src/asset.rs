@@ -1,22 +1,18 @@
 #![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
 use core::ptr;
 use std::path::Path;
 
-use serde::Deserialize;
-
-use crate::bridge_support::{cstring_arg, parse_json_ptr, serialize_json};
+use crate::bridge_support::{payload_arg, string_arg, take_payload};
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
 use crate::metadata::{KeyLoadStatus, KeyLoadStatusPayload, KeyValueStatus, MetadataItem};
 use apple_cf::cm::CMTime;
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 struct AssetInfoPayload {
     url: Option<String>,
-    #[serde(with = "crate::time")]
     duration: CMTime,
 }
 
@@ -62,7 +58,7 @@ impl Asset {
 
     /// Static metadata attached to the asset.
     pub fn metadata(&self) -> Result<Vec<MetadataItem>, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let array = unsafe { ffi::av_asset_metadata(self.ptr, &raw mut err_msg) };
         if array.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
@@ -77,8 +73,8 @@ impl Asset {
 
     /// Query the current load status of a key without triggering loading.
     pub fn status_of_value(&self, key: &str) -> Result<KeyValueStatus, AVWriterError> {
-        let key_c = cstring_arg(key, "asset key")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let key_c = string_arg(key, "asset key")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let raw =
             unsafe { ffi::av_asset_status_of_value(self.ptr, key_c.as_ptr(), &raw mut err_msg) };
         if raw < 0 {
@@ -100,17 +96,16 @@ impl Asset {
             .into_iter()
             .map(|key| key.as_ref().to_owned())
             .collect::<Vec<_>>();
-        let payload = serialize_json(&keys)?;
-        let payload_c = cstring_arg(&payload, "asset keys json")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let payload_c = payload_arg(&keys);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let statuses_ptr = unsafe {
-            ffi::av_asset_load_values_json(self.ptr, payload_c.as_ptr(), 30, &raw mut err_msg)
+            ffi::av_asset_load_values_payload(self.ptr, payload_c.as_ptr(), 30, &raw mut err_msg)
         };
         if statuses_ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
         let raw_statuses: Vec<KeyLoadStatusPayload> =
-            parse_json_ptr(statuses_ptr, "asset key statuses")?;
+            take_payload(statuses_ptr, "asset key statuses")?;
         Ok(raw_statuses
             .into_iter()
             .map(|status| KeyLoadStatus {
@@ -135,8 +130,8 @@ impl Asset {
         is_file_url: bool,
         prefer_precise_duration_and_timing: bool,
     ) -> Result<Self, AVWriterError> {
-        let url_c = cstring_arg(url, "asset URL")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let url_c = string_arg(url, "asset URL")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
             ffi::av_asset_create_url(
                 url_c.as_ptr(),
@@ -150,11 +145,31 @@ impl Asset {
     }
 
     fn info(&self) -> Result<AssetInfoPayload, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
-        let ptr = unsafe { ffi::av_asset_info_json(self.ptr, &raw mut err_msg) };
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
+        let ptr = unsafe { ffi::av_asset_info_payload(self.ptr, &raw mut err_msg) };
         if ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
-        parse_json_ptr(ptr, "asset info")
+        take_payload(ptr, "asset info")
+    }
+}
+
+impl crate::binary::ToAbi for AssetInfoPayload {
+    type Abi = crate::ffi::AVWAssetInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            url: crate::binary::ToAbi::to_abi(&self.url, arena),
+            duration: crate::binary::ToAbi::to_abi(&self.duration, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for AssetInfoPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            url: crate::binary::FromAbi::from_abi(&raw.url)?,
+            duration: crate::binary::FromAbi::from_abi(&raw.duration)?,
+        })
     }
 }

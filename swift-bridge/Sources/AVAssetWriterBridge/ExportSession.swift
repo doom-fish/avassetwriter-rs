@@ -1,3 +1,4 @@
+import AVAssetWriterObjCBridge
 import AVFoundation
 import CoreMedia
 import CoreVideo
@@ -5,12 +6,12 @@ import Dispatch
 import Foundation
 import UniformTypeIdentifiers
 
-private func exportAsset(from pathPtr: UnsafePointer<CChar>) -> AVURLAsset {
-    AVURLAsset(url: URL(fileURLWithPath: String(cString: pathPtr)))
+private func exportAsset(from pathPtr: UnsafePointer<AVWString>) -> AVURLAsset {
+    AVURLAsset(url: URL(fileURLWithPath: String(abi: pathPtr)))
 }
 
-@_cdecl("av_export_session_all_presets_json")
-public func av_export_session_all_presets_json() -> UnsafeMutablePointer<CChar>? {
+@_cdecl("av_export_session_all_presets_payload")
+public func av_export_session_all_presets_payload() -> UnsafeMutablePointer<AVWOwnedPayload>? {
     do {
         let presets = try AVAssetExportSession.allExportPresets().map { preset in
             guard let encoded = encodeExportPreset(preset) else {
@@ -18,16 +19,16 @@ public func av_export_session_all_presets_json() -> UnsafeMutablePointer<CChar>?
             }
             return encoded
         }
-        return ffiString(try encodeJson(presets))
+        return makePayload(presets)
     } catch {
         return nil
     }
 }
 
-@_cdecl("av_export_session_compatible_presets_json")
-public func av_export_session_compatible_presets_json(
-    _ pathPtr: UnsafePointer<CChar>
-) -> UnsafeMutablePointer<CChar>? {
+@_cdecl("av_export_session_compatible_presets_payload")
+public func av_export_session_compatible_presets_payload(
+    _ pathPtr: UnsafePointer<AVWString>
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     do {
         let presets = try AVAssetExportSession.exportPresets(compatibleWith: exportAsset(from: pathPtr)).map { preset in
             guard let encoded = encodeExportPreset(preset) else {
@@ -35,7 +36,7 @@ public func av_export_session_compatible_presets_json(
             }
             return encoded
         }
-        return ffiString(try encodeJson(presets))
+        return makePayload(presets)
     } catch {
         return nil
     }
@@ -43,21 +44,21 @@ public func av_export_session_compatible_presets_json(
 
 @_cdecl("av_export_session_determine_compatibility")
 public func av_export_session_determine_compatibility(
-    _ pathPtr: UnsafePointer<CChar>,
-    _ presetPtr: UnsafePointer<CChar>,
-    _ outputFileTypePtr: UnsafePointer<CChar>?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ pathPtr: UnsafePointer<AVWString>,
+    _ presetPtr: UnsafePointer<AVWString>,
+    _ outputFileTypePtr: UnsafePointer<AVWString>?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
-    let presetRaw = String(cString: presetPtr)
+    let presetRaw = String(abi: presetPtr)
     guard let preset = decodeExportPreset(presetRaw) else {
-        outErrorMessage?.pointee = ffiString("unknown export preset '\(presetRaw)'")
+        outErrorMessage?.pointee = makePayload("unknown export preset '\(presetRaw)'")
         return AVW_INVALID_ARGUMENT
     }
     let outputFileType: AVFileType?
     if let outputFileTypePtr {
-        let fileTypeRaw = String(cString: outputFileTypePtr)
+        let fileTypeRaw = String(abi: outputFileTypePtr)
         guard let decoded = decodeFileType(fileTypeRaw) else {
-            outErrorMessage?.pointee = ffiString("unknown output file type '\(fileTypeRaw)'")
+            outErrorMessage?.pointee = makePayload("unknown output file type '\(fileTypeRaw)'")
             return AVW_INVALID_ARGUMENT
         }
         outputFileType = decoded
@@ -80,17 +81,17 @@ public func av_export_session_determine_compatibility(
 
 @_cdecl("av_export_session_create")
 public func av_export_session_create(
-    _ pathPtr: UnsafePointer<CChar>,
-    _ presetPtr: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ pathPtr: UnsafePointer<AVWString>,
+    _ presetPtr: UnsafePointer<AVWString>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
-    let presetRaw = String(cString: presetPtr)
+    let presetRaw = String(abi: presetPtr)
     guard let preset = decodeExportPreset(presetRaw) else {
-        outErrorMessage?.pointee = ffiString("unknown export preset '\(presetRaw)'")
+        outErrorMessage?.pointee = makePayload("unknown export preset '\(presetRaw)'")
         return nil
     }
     guard let session = AVAssetExportSession(asset: exportAsset(from: pathPtr), presetName: preset) else {
-        outErrorMessage?.pointee = ffiString("failed to create AVAssetExportSession for preset '\(presetRaw)'")
+        outErrorMessage?.pointee = makePayload("failed to create AVAssetExportSession for preset '\(presetRaw)'")
         return nil
     }
     return Unmanaged.passRetained(session).toOpaque()
@@ -102,13 +103,13 @@ public func av_export_session_release(_ sessionPtr: UnsafeMutableRawPointer?) {
     Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).release()
 }
 
-@_cdecl("av_export_session_info_json")
-public func av_export_session_info_json(
+@_cdecl("av_export_session_info_payload")
+public func av_export_session_info_payload(
     _ sessionPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(exportSessionInfoPayload(from: session)))
+        return makePayload(exportSessionInfoPayload(from: session))
     } catch {
         return nil
     }
@@ -117,18 +118,18 @@ public func av_export_session_info_json(
 @_cdecl("av_export_session_set_output_file_type")
 public func av_export_session_set_output_file_type(
     _ sessionPtr: UnsafeMutableRawPointer,
-    _ outputFileTypePtr: UnsafePointer<CChar>?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outputFileTypePtr: UnsafePointer<AVWString>?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     if let outputFileTypePtr {
-        let raw = String(cString: outputFileTypePtr)
+        let raw = String(abi: outputFileTypePtr)
         guard let fileType = decodeFileType(raw) else {
-            outErrorMessage?.pointee = ffiString("unknown output file type '\(raw)'")
+            outErrorMessage?.pointee = makePayload("unknown output file type '\(raw)'")
             return AVW_INVALID_ARGUMENT
         }
         guard session.supportedFileTypes.contains(fileType) else {
-            outErrorMessage?.pointee = ffiString("output file type '\(raw)' is not supported by this export session")
+            outErrorMessage?.pointee = makePayload("output file type '\(raw)' is not supported by this export session")
             return AVW_INVALID_ARGUMENT
         }
         session.outputFileType = fileType
@@ -141,11 +142,11 @@ public func av_export_session_set_output_file_type(
 @_cdecl("av_export_session_set_output_path")
 public func av_export_session_set_output_path(
     _ sessionPtr: UnsafeMutableRawPointer,
-    _ outputPathPtr: UnsafePointer<CChar>?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outputPathPtr: UnsafePointer<AVWString>?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
-    session.outputURL = outputPathPtr.map { URL(fileURLWithPath: String(cString: $0)) }
+    session.outputURL = outputPathPtr.map { URL(fileURLWithPath: String(abi: $0)) }
     _ = outErrorMessage
     return AVW_OK
 }
@@ -154,7 +155,7 @@ public func av_export_session_set_output_path(
 public func av_export_session_set_should_optimize_for_network_use(
     _ sessionPtr: UnsafeMutableRawPointer,
     _ enabled: Bool,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     session.shouldOptimizeForNetworkUse = enabled
@@ -166,11 +167,11 @@ public func av_export_session_set_should_optimize_for_network_use(
 public func av_export_session_set_allows_parallelized_export(
     _ sessionPtr: UnsafeMutableRawPointer,
     _ enabled: Bool,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     guard #available(macOS 14.0, *) else {
-        outErrorMessage?.pointee = ffiString("parallelized export requires macOS 14+")
+        outErrorMessage?.pointee = makePayload("parallelized export requires macOS 14+")
         return AVW_INVALID_STATE
     }
     session.allowsParallelizedExport = enabled
@@ -180,15 +181,15 @@ public func av_export_session_set_allows_parallelized_export(
 @_cdecl("av_export_session_export")
 public func av_export_session_export(
     _ sessionPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     guard session.outputURL != nil else {
-        outErrorMessage?.pointee = ffiString("export session outputURL must be set before export")
+        outErrorMessage?.pointee = makePayload("export session outputURL must be set before export")
         return AVW_INVALID_STATE
     }
     guard session.outputFileType != nil else {
-        outErrorMessage?.pointee = ffiString("export session outputFileType must be set before export")
+        outErrorMessage?.pointee = makePayload("export session outputFileType must be set before export")
         return AVW_INVALID_STATE
     }
     let semaphore = DispatchSemaphore(value: 0)
@@ -200,13 +201,13 @@ public func av_export_session_export(
     case .completed:
         return AVW_OK
     case .failed:
-        outErrorMessage?.pointee = ffiString(session.error?.localizedDescription ?? "export session failed")
+        outErrorMessage?.pointee = makePayload(session.error?.localizedDescription ?? "export session failed")
         return AVW_FINISH_FAILED
     case .cancelled:
-        outErrorMessage?.pointee = ffiString("export session cancelled")
+        outErrorMessage?.pointee = makePayload("export session cancelled")
         return AVW_FINISH_FAILED
     default:
-        outErrorMessage?.pointee = ffiString("export session finished in unexpected state \(session.status.rawValue)")
+        outErrorMessage?.pointee = makePayload("export session finished in unexpected state \(session.status.rawValue)")
         return AVW_INVALID_STATE
     }
 }
@@ -214,7 +215,7 @@ public func av_export_session_export(
 @_cdecl("av_export_session_cancel")
 public func av_export_session_cancel(
     _ sessionPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     session.cancelExport()
@@ -222,10 +223,10 @@ public func av_export_session_cancel(
     return AVW_OK
 }
 
-@_cdecl("av_export_session_compatible_file_types_json")
-public func av_export_session_compatible_file_types_json(
+@_cdecl("av_export_session_compatible_file_types_payload")
+public func av_export_session_compatible_file_types_payload(
     _ sessionPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     let semaphore = DispatchSemaphore(value: 0)
     var compatibleFileTypes: [String] = []
@@ -235,7 +236,7 @@ public func av_export_session_compatible_file_types_json(
     }
     semaphore.wait()
     do {
-        return ffiString(try encodeJson(compatibleFileTypes))
+        return makePayload(compatibleFileTypes)
     } catch {
         return nil
     }
@@ -250,7 +251,7 @@ public func av_export_session_set_time_range(
     _ durationValue: Int64,
     _ durationTimescale: Int32,
     _ durationKind: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     session.timeRange = CMTimeRange(
@@ -265,7 +266,7 @@ public func av_export_session_set_time_range(
 public func av_export_session_set_file_length_limit(
     _ sessionPtr: UnsafeMutableRawPointer,
     _ limit: Int64,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     session.fileLengthLimit = limit
@@ -273,11 +274,11 @@ public func av_export_session_set_file_length_limit(
     return AVW_OK
 }
 
-@_cdecl("av_export_session_estimated_maximum_duration_json")
-public func av_export_session_estimated_maximum_duration_json(
+@_cdecl("av_export_session_estimated_maximum_duration_payload")
+public func av_export_session_estimated_maximum_duration_payload(
     _ sessionPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     let semaphore = DispatchSemaphore(value: 0)
     var estimatedDuration: CMTime = .invalid
@@ -292,13 +293,13 @@ public func av_export_session_estimated_maximum_duration_json(
     }
     semaphore.wait()
     if let exportError {
-        outErrorMessage?.pointee = ffiString(exportError.localizedDescription)
+        outErrorMessage?.pointee = makePayload(exportError.localizedDescription)
         return nil
     }
     do {
-        return ffiString(try encodeJson(encodeTime(estimatedDuration)))
+        return makePayload(encodeTime(estimatedDuration))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -306,7 +307,7 @@ public func av_export_session_estimated_maximum_duration_json(
 @_cdecl("av_export_session_estimated_output_file_length")
 public func av_export_session_estimated_output_file_length(
     _ sessionPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int64 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     let semaphore = DispatchSemaphore(value: 0)
@@ -322,25 +323,25 @@ public func av_export_session_estimated_output_file_length(
     }
     semaphore.wait()
     if let exportError {
-        outErrorMessage?.pointee = ffiString(exportError.localizedDescription)
+        outErrorMessage?.pointee = makePayload(exportError.localizedDescription)
         return Int64.min
     }
     return estimatedLength
 }
 
-@_cdecl("av_export_session_set_metadata_json")
-public func av_export_session_set_metadata_json(
+@_cdecl("av_export_session_set_metadata_payload")
+public func av_export_session_set_metadata_payload(
     _ sessionPtr: UnsafeMutableRawPointer,
-    _ metadataJson: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ metadataPayload: UnsafePointer<AVWArray>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     do {
-        let payload = try decodeJson(metadataJson, as: [MetadataItemPayload].self)
+        let payload = try readPayload(metadataPayload, as: [MetadataItemPayload].self)
         session.metadata = try payload.map(avMetadataItem)
         return AVW_OK
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return AVW_INVALID_ARGUMENT
     }
 }
@@ -348,7 +349,7 @@ public func av_export_session_set_metadata_json(
 @_cdecl("av_export_session_metadata")
 public func av_export_session_metadata(
     _ sessionPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     _ = outErrorMessage
@@ -360,14 +361,14 @@ public func av_export_session_set_metadata_items(
     _ sessionPtr: UnsafeMutableRawPointer,
     _ itemPointers: UnsafePointer<UnsafeMutableRawPointer?>?,
     _ itemCount: Int,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     do {
         session.metadata = try metadataItems(from: itemPointers, count: itemCount)
         return AVW_OK
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return AVW_INVALID_ARGUMENT
     }
 }
@@ -390,10 +391,10 @@ public func av_export_session_metadata_item_filter(
 public func av_export_session_set_metadata_item_filter(
     _ sessionPtr: UnsafeMutableRawPointer,
     _ filterPtr: UnsafeMutableRawPointer?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     guard #available(macOS 10.9, *) else {
-        outErrorMessage?.pointee = ffiString("metadata filters require macOS 10.9+")
+        outErrorMessage?.pointee = makePayload("metadata filters require macOS 10.9+")
         return AVW_INVALID_STATE
     }
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
@@ -416,12 +417,12 @@ public func av_export_session_audio_mix(
 public func av_export_session_set_audio_mix(
     _ sessionPtr: UnsafeMutableRawPointer,
     _ audioMixPtr: UnsafeMutableRawPointer?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     if #available(macOS 13.0, *) {
         guard audioMixPtr == nil || !session.audioTrackGroupHandling.contains(.preserveAlternateTracks) else {
-            outErrorMessage?.pointee = ffiString(
+            outErrorMessage?.pointee = makePayload(
                 "an audio mix cannot be combined with preserve-alternate-tracks audio track group handling"
             )
             return AVW_INVALID_STATE
@@ -446,7 +447,7 @@ public func av_export_session_video_composition(
 public func av_export_session_set_video_composition(
     _ sessionPtr: UnsafeMutableRawPointer,
     _ compositionPtr: UnsafeMutableRawPointer?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     session.videoComposition = compositionPtr.map {
@@ -474,7 +475,7 @@ public func av_export_session_custom_video_compositor(
 public func av_export_session_set_can_perform_multiple_passes_over_source_media_data(
     _ sessionPtr: UnsafeMutableRawPointer,
     _ enabled: Bool,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     session.canPerformMultiplePassesOverSourceMediaData = enabled
@@ -485,11 +486,11 @@ public func av_export_session_set_can_perform_multiple_passes_over_source_media_
 @_cdecl("av_export_session_set_directory_for_temporary_files")
 public func av_export_session_set_directory_for_temporary_files(
     _ sessionPtr: UnsafeMutableRawPointer,
-    _ pathPtr: UnsafePointer<CChar>?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ pathPtr: UnsafePointer<AVWString>?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
-    session.directoryForTemporaryFiles = pathPtr.map { URL(fileURLWithPath: String(cString: $0)) }
+    session.directoryForTemporaryFiles = pathPtr.map { URL(fileURLWithPath: String(abi: $0)) }
     _ = outErrorMessage
     return AVW_OK
 }
@@ -498,20 +499,20 @@ public func av_export_session_set_directory_for_temporary_files(
 public func av_export_session_set_audio_track_group_handling(
     _ sessionPtr: UnsafeMutableRawPointer,
     _ handlingRaw: UInt64,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     guard #available(macOS 13.0, *) else {
-        outErrorMessage?.pointee = ffiString("audio track group handling requires macOS 13.0 or later")
+        outErrorMessage?.pointee = makePayload("audio track group handling requires macOS 13.0 or later")
         return AVW_INVALID_STATE
     }
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     guard let raw = UInt(exactly: handlingRaw) else {
-        outErrorMessage?.pointee = ffiString("audio track group handling \(handlingRaw) is out of range")
+        outErrorMessage?.pointee = makePayload("audio track group handling \(handlingRaw) is out of range")
         return AVW_INVALID_ARGUMENT
     }
     let handling = AVAssetTrackGroupOutputHandling(rawValue: raw)
     guard session.audioMix == nil || !handling.contains(.preserveAlternateTracks) else {
-        outErrorMessage?.pointee = ffiString(
+        outErrorMessage?.pointee = makePayload(
             "preserve-alternate-tracks audio track group handling cannot be combined with an audio mix"
         )
         return AVW_INVALID_STATE

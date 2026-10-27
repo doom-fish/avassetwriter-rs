@@ -1,4 +1,5 @@
-use core::ffi::{c_char, c_void};
+use super::abi::{AVWOwnedPayload, AVWString};
+use core::ffi::c_void;
 
 pub type VideoCompositionRequestCallback =
     unsafe extern "C" fn(request: *mut c_void, userdata: *mut c_void);
@@ -7,13 +8,13 @@ pub type VideoCompositionDropCallback = unsafe extern "C" fn(userdata: *mut c_vo
 extern "C" {
     pub fn av_metadata_item_filter_for_sharing() -> *mut c_void;
 
-    pub fn av_metadata_item_filter_kind(filter: *mut c_void) -> *mut c_char;
+    pub fn av_metadata_item_filter_kind(filter: *mut c_void) -> *mut AVWOwnedPayload;
 
     pub fn av_metadata_item_filter_release(filter: *mut c_void);
 
     pub fn av_audio_mix_create() -> *mut c_void;
 
-    pub fn av_audio_mix_info_json(mix: *mut c_void) -> *mut c_char;
+    pub fn av_audio_mix_info_payload(mix: *mut c_void) -> *mut AVWOwnedPayload;
 
     pub fn av_audio_mix_input_parameter_count(mix: *mut c_void) -> usize;
 
@@ -26,33 +27,35 @@ extern "C" {
         mix: *mut c_void,
         parameters: *const *mut c_void,
         count: usize,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_audio_mix_release(mix: *mut c_void);
 
     pub fn av_audio_mix_input_parameters_create() -> *mut c_void;
 
-    pub fn av_audio_mix_input_parameters_info_json(parameters: *mut c_void) -> *mut c_char;
+    pub fn av_audio_mix_input_parameters_info_payload(
+        parameters: *mut c_void,
+    ) -> *mut AVWOwnedPayload;
 
-    pub fn av_audio_mix_input_parameters_volume_ramp_json(
+    pub fn av_audio_mix_input_parameters_volume_ramp_payload(
         parameters: *mut c_void,
         time_value: i64,
         time_scale: i32,
         time_kind: i32,
-        out_error_message: *mut *mut c_char,
-    ) -> *mut c_char;
+        out_error_message: *mut *mut AVWOwnedPayload,
+    ) -> *mut AVWOwnedPayload;
 
     pub fn av_audio_mix_input_parameters_set_track_id(
         parameters: *mut c_void,
         track_id: i32,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_audio_mix_input_parameters_set_audio_time_pitch_algorithm(
         parameters: *mut c_void,
-        algorithm: *const c_char,
-        out_error_message: *mut *mut c_char,
+        algorithm: *const AVWString,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_audio_mix_input_parameters_set_volume(
@@ -61,7 +64,7 @@ extern "C" {
         time_value: i64,
         time_scale: i32,
         time_kind: i32,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_audio_mix_input_parameters_set_volume_ramp(
@@ -74,23 +77,23 @@ extern "C" {
         duration_value: i64,
         duration_scale: i32,
         duration_kind: i32,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_audio_mix_input_parameters_release(parameters: *mut c_void);
 
-    pub fn av_video_composition_create_from_asset(path: *const c_char) -> *mut c_void;
+    pub fn av_video_composition_create_from_asset(path: *const AVWString) -> *mut c_void;
 
     pub fn av_video_composition_create_from_asset_ci_filter_recorder(
-        path: *const c_char,
+        path: *const AVWString,
     ) -> *mut c_void;
 
-    pub fn av_video_composition_info_json(composition: *mut c_void) -> *mut c_char;
+    pub fn av_video_composition_info_payload(composition: *mut c_void) -> *mut AVWOwnedPayload;
 
     pub fn av_video_composition_set_custom_video_compositor_class(
         composition: *mut c_void,
-        class: *const c_char,
-        out_error_message: *mut *mut c_char,
+        class: *const AVWString,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_video_composition_install_rust_compositor(
@@ -98,29 +101,33 @@ extern "C" {
         callback: Option<VideoCompositionRequestCallback>,
         userdata: *mut c_void,
         drop_userdata: Option<VideoCompositionDropCallback>,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_video_composition_clear_rust_compositor(
         composition: *mut c_void,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_video_composition_release(composition: *mut c_void);
 
-    pub fn av_video_compositor_info_json(compositor: *mut c_void) -> *mut c_char;
+    pub fn av_video_compositor_info_payload(compositor: *mut c_void) -> *mut AVWOwnedPayload;
 
-    pub fn av_copy_latest_video_composition_request_json(out_generation: *mut u64) -> *mut c_char;
+    pub fn av_copy_latest_video_composition_request_payload(
+        out_generation: *mut u64,
+    ) -> *mut AVWOwnedPayload;
 
     pub fn av_ack_latest_video_composition_request(generation: u64) -> bool;
 
-    pub fn av_take_latest_video_composition_request_json() -> *mut c_char;
+    pub fn av_take_latest_video_composition_request_payload() -> *mut AVWOwnedPayload;
 
-    pub fn av_copy_latest_ci_image_filtering_request_json(out_generation: *mut u64) -> *mut c_char;
+    pub fn av_copy_latest_ci_image_filtering_request_payload(
+        out_generation: *mut u64,
+    ) -> *mut AVWOwnedPayload;
 
     pub fn av_ack_latest_ci_image_filtering_request(generation: u64) -> bool;
 
-    pub fn av_take_latest_ci_image_filtering_request_json() -> *mut c_char;
+    pub fn av_take_latest_ci_image_filtering_request_payload() -> *mut AVWOwnedPayload;
 
     pub fn av_video_composition_request_release(request: *mut c_void);
 
@@ -159,35 +166,35 @@ extern "C" {
     pub fn av_video_composition_request_copy_source_frame(
         request: *mut c_void,
         track_id: i32,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> *mut c_void;
 
     pub fn av_video_composition_request_copy_source_sample_buffer(
         request: *mut c_void,
         track_id: i32,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> *mut c_void;
 
     pub fn av_video_composition_request_new_output_pixel_buffer(
         request: *mut c_void,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> *mut c_void;
 
     pub fn av_video_composition_request_finish_with_frame(
         request: *mut c_void,
         frame: *mut c_void,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_video_composition_request_finish_with_error(
         request: *mut c_void,
-        message: *const c_char,
-        out_error_message: *mut *mut c_char,
+        message: *const AVWString,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_video_composition_request_cancel(
         request: *mut c_void,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_video_compositor_release(compositor: *mut c_void);

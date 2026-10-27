@@ -48,15 +48,15 @@ impl std::error::Error for AVWriterError {}
 /// Build an `AVWriterError` from a status code + optional Swift-side message.
 ///
 /// Frees `error_str` after copying its contents.
-pub(crate) unsafe fn from_swift(status: i32, error_str: *mut core::ffi::c_char) -> AVWriterError {
+pub(crate) unsafe fn from_swift(
+    status: i32,
+    error_str: *mut ffi::AVWOwnedPayload,
+) -> AVWriterError {
     let message = if error_str.is_null() {
         String::new()
     } else {
-        let s = core::ffi::CStr::from_ptr(error_str)
-            .to_string_lossy()
-            .into_owned();
-        ffi::avw_string_free(error_str);
-        s
+        crate::binary::take_payload::<String>(error_str, "error")
+            .unwrap_or_else(|error| error.to_string())
     };
     match status {
         ffi::status::WRITER_CREATE_FAILED => AVWriterError::WriterCreateFailed(message),

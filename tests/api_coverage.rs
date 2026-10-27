@@ -157,6 +157,8 @@ fn av_asset_writer_intentionally_omitted() -> BTreeSet<String> {
         "assetWriterWithURL",
         // Class self-reference from the deprecated factory helper.
         "assetWriter",
+        "proVideoStorageSupported",
+        "usesProVideoStorage",
     ]
     .into_iter()
     .map(String::from)
@@ -178,6 +180,10 @@ fn av_asset_export_session_intentionally_omitted() -> BTreeSet<String> {
         "estimatedOutputFileLength",
         // Still deferred until this crate grows a safe constant layer.
         "audioTimePitchAlgorithm",
+        "configurationFailureReason",
+        "configureForResumableExportWithCompletionHandler",
+        "resumingFromPreviousState",
+        "resumptionConfigured",
     ]
     .into_iter()
     .map(String::from)
@@ -271,10 +277,10 @@ fn objc_to_swift_aliases() -> std::collections::BTreeMap<&'static str, Vec<&'sta
             "appendTimedMetadataGroup",
             vec!["av_writer_append_timed_metadata_group"],
         ),
-        ("appendCaption", vec!["av_writer_append_caption_json"]),
+        ("appendCaption", vec!["av_writer_append_caption_payload"]),
         (
             "appendCaptionGroup",
-            vec!["av_writer_append_caption_group_json"],
+            vec!["av_writer_append_caption_group_payload"],
         ),
         (
             "outputSettingsAssistantWithPreset",
@@ -308,7 +314,7 @@ fn objc_to_swift_aliases() -> std::collections::BTreeMap<&'static str, Vec<&'sta
             "estimateMaximumDurationWithCompletionHandler",
             vec![
                 "estimatedMaximumDuration",
-                "av_export_session_estimated_maximum_duration_json",
+                "av_export_session_estimated_maximum_duration_payload",
             ],
         ),
         (
@@ -370,7 +376,7 @@ fn ready_stream_c_abi_signatures_are_inventoried() {
         ';',
     );
     assert!(legacy_rust.contains("ctx: *mut c_void"));
-    assert!(legacy_rust.contains("out_error_message: *mut *mut c_char"));
+    assert!(legacy_rust.contains("out_error_message: *mut *mut AVWOwnedPayload"));
     assert!(!legacy_rust.contains("drop_userdata"));
 
     let owned_rust = declaration(
@@ -386,9 +392,8 @@ fn ready_stream_c_abi_signatures_are_inventoried() {
         '{',
     );
     assert!(legacy_swift.contains("_ ctx: UnsafeMutableRawPointer"));
-    assert!(
-        legacy_swift.contains("_ outError: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?")
-    );
+    assert!(legacy_swift
+        .contains("_ outError: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?"));
     assert!(!legacy_swift.contains("dropUserdata"));
 
     let owned_swift = declaration(

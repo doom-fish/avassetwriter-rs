@@ -1,28 +1,29 @@
+import AVAssetWriterObjCBridge
 import AVFoundation
 import Foundation
 
 private let metadataISO8601Formatter = ISO8601DateFormatter()
 
-private struct MetadataGroupPayload: Codable {
+private struct MetadataGroupPayload {
     let items: [MetadataItemPayload]
     let classifyingLabel: String?
     let uniqueID: String?
 }
 
-private struct TimedMetadataGroupInfoPayload: Codable {
+private struct TimedMetadataGroupInfoPayload {
     let items: [MetadataItemPayload]
     let timeRange: TimeRangePayload
     let classifyingLabel: String?
     let uniqueID: String?
 }
 
-private struct TimedMetadataGroupPropertiesPayload: Codable {
+private struct TimedMetadataGroupPropertiesPayload {
     let timeRange: TimeRangePayload
     let classifyingLabel: String?
     let uniqueID: String?
 }
 
-private struct DateRangeMetadataGroupPayload: Codable {
+private struct DateRangeMetadataGroupPayload {
     let items: [MetadataItemPayload]
     let startDate: String
     let endDate: String?
@@ -30,20 +31,20 @@ private struct DateRangeMetadataGroupPayload: Codable {
     let uniqueID: String?
 }
 
-private struct DateRangeMetadataGroupPropertiesPayload: Codable {
+private struct DateRangeMetadataGroupPropertiesPayload {
     let startDate: String
     let endDate: String?
     let classifyingLabel: String?
     let uniqueID: String?
 }
 
-private struct KeyLoadStatusPayload: Codable {
+private struct KeyLoadStatusPayload {
     let key: String
     let status: Int32
     let errorMessage: String?
 }
 
-private struct MetadataItemPropertiesPayload: Codable {
+private struct MetadataItemPropertiesPayload {
     let identifier: String
     let dataType: String?
     let extendedLanguageTag: String?
@@ -172,17 +173,17 @@ public typealias AVWMetadataItemValueRequestCallback = @convention(c) (
     UnsafeMutableRawPointer?
 ) -> Void
 
-@_cdecl("av_metadata_item_create_json")
-public func av_metadata_item_create_json(
-    _ payloadJson: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+@_cdecl("av_metadata_item_create_payload")
+public func av_metadata_item_create_payload(
+    _ payloadPayload: UnsafePointer<AVWMetadataItem>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     do {
-        let payload = try decodeJson(payloadJson, as: MetadataItemPayload.self)
+        let payload = try readPayload(payloadPayload, as: MetadataItemPayload.self)
         let item = try avMetadataItem(from: payload)
         return Unmanaged.passRetained(item.copy() as! AVMetadataItem).toOpaque()
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -195,30 +196,30 @@ public func av_metadata_item_retain(
     return Unmanaged.passRetained(item).toOpaque()
 }
 
-@_cdecl("av_metadata_item_properties_json")
-public func av_metadata_item_properties_json(
+@_cdecl("av_metadata_item_properties_payload")
+public func av_metadata_item_properties_payload(
     _ itemPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let item = Unmanaged<AVMetadataItem>.fromOpaque(itemPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(metadataItemProperties(item)))
+        return makePayload(metadataItemProperties(item))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
 
-@_cdecl("av_metadata_item_value_json")
-public func av_metadata_item_value_json(
+@_cdecl("av_metadata_item_value_payload")
+public func av_metadata_item_value_payload(
     _ itemPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let item = Unmanaged<AVMetadataItem>.fromOpaque(itemPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(strictMetadataValuePayload(from: item.value)))
+        return makePayload(try strictMetadataValuePayload(from: item.value))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -258,16 +259,16 @@ public func av_metadata_item_copy_with_locale_identifier(
     }).toOpaque()
 }
 
-@_cdecl("av_metadata_item_info_json")
-public func av_metadata_item_info_json(
+@_cdecl("av_metadata_item_info_payload")
+public func av_metadata_item_info_payload(
     _ itemPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let item = Unmanaged<AVMetadataItem>.fromOpaque(itemPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(encodeMetadataItem(item)))
+        return makePayload(encodeMetadataItem(item))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -304,36 +305,36 @@ public func av_metadata_item_array_release(_ arrayPtr: UnsafeMutableRawPointer?)
 @_cdecl("av_metadata_item_status_of_value")
 public func av_metadata_item_status_of_value(
     _ itemPtr: UnsafeMutableRawPointer,
-    _ keyPtr: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ keyPtr: UnsafePointer<AVWString>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let item = Unmanaged<AVMetadataItem>.fromOpaque(itemPtr).takeUnretainedValue()
-    let key = String(cString: keyPtr)
+    let key = String(abi: keyPtr)
     var error: NSError?
     let status = item.statusOfValue(forKey: key, error: &error)
     if let error, status == .failed {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
     }
     return Int32(status.rawValue)
 }
 
-@_cdecl("av_metadata_item_load_values_json")
-public func av_metadata_item_load_values_json(
+@_cdecl("av_metadata_item_load_values_payload")
+public func av_metadata_item_load_values_payload(
     _ itemPtr: UnsafeMutableRawPointer,
-    _ keysJson: UnsafePointer<CChar>,
+    _ keysPayload: UnsafePointer<AVWArray>,
     _ timeoutSeconds: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let item = Unmanaged<AVMetadataItem>.fromOpaque(itemPtr).takeUnretainedValue()
     do {
-        let keys = try decodeJson(keysJson, as: [String].self)
+        let keys = try readPayload(keysPayload, as: [String].self)
         let semaphore = DispatchSemaphore(value: 0)
         item.loadValuesAsynchronously(forKeys: keys) {
             semaphore.signal()
         }
         let timeout = max(Int(timeoutSeconds), 1)
         if semaphore.wait(timeout: .now() + .seconds(timeout)) == .timedOut {
-            outErrorMessage?.pointee = ffiString("timed out waiting for AVMetadataItem key loading")
+            outErrorMessage?.pointee = makePayload("timed out waiting for AVMetadataItem key loading")
             return nil
         }
         let statuses = keys.map { key -> KeyLoadStatusPayload in
@@ -345,30 +346,30 @@ public func av_metadata_item_load_values_json(
                 errorMessage: error?.localizedDescription
             )
         }
-        return ffiString(try encodeJson(statuses))
+        return makePayload(statuses)
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
 
-@_cdecl("av_metadata_item_filter_preferred_languages_json")
-public func av_metadata_item_filter_preferred_languages_json(
-    _ itemsJson: UnsafePointer<CChar>,
-    _ languagesJson: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+@_cdecl("av_metadata_item_filter_preferred_languages_payload")
+public func av_metadata_item_filter_preferred_languages_payload(
+    _ itemsPayload: UnsafePointer<AVWArray>,
+    _ languagesPayload: UnsafePointer<AVWArray>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     do {
-        let payloads = try decodeJson(itemsJson, as: [MetadataItemPayload].self)
-        let languages = try decodeJson(languagesJson, as: [String].self)
+        let payloads = try readPayload(itemsPayload, as: [MetadataItemPayload].self)
+        let languages = try readPayload(languagesPayload, as: [String].self)
         let items = try payloads.map(avMetadataItem)
         let filtered = AVMetadataItem.metadataItems(
             from: items,
             filteredAndSortedAccordingToPreferredLanguages: languages
         )
-        return ffiString(try encodeJson(filtered.map(encodeMetadataItem)))
+        return makePayload(filtered.map(encodeMetadataItem))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -377,36 +378,36 @@ public func av_metadata_item_filter_preferred_languages_json(
 public func av_metadata_item_filter_preferred_languages(
     _ itemPointers: UnsafePointer<UnsafeMutableRawPointer?>?,
     _ itemCount: Int,
-    _ languagesJson: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ languagesPayload: UnsafePointer<AVWArray>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     do {
         let items = try metadataItems(from: itemPointers, count: itemCount)
-        let languages = try decodeJson(languagesJson, as: [String].self)
+        let languages = try readPayload(languagesPayload, as: [String].self)
         return retainedMetadataItemArray(AVMetadataItem.metadataItems(
             from: items,
             filteredAndSortedAccordingToPreferredLanguages: languages
         ))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
 
-@_cdecl("av_metadata_item_filter_identifier_json")
-public func av_metadata_item_filter_identifier_json(
-    _ itemsJson: UnsafePointer<CChar>,
-    _ identifierPtr: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+@_cdecl("av_metadata_item_filter_identifier_payload")
+public func av_metadata_item_filter_identifier_payload(
+    _ itemsPayload: UnsafePointer<AVWArray>,
+    _ identifierPtr: UnsafePointer<AVWString>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     do {
-        let payloads = try decodeJson(itemsJson, as: [MetadataItemPayload].self)
+        let payloads = try readPayload(itemsPayload, as: [MetadataItemPayload].self)
         let items = try payloads.map(avMetadataItem)
-        let identifier = AVMetadataIdentifier(rawValue: String(cString: identifierPtr))
+        let identifier = AVMetadataIdentifier(rawValue: String(abi: identifierPtr))
         let filtered = AVMetadataItem.metadataItems(from: items, filteredByIdentifier: identifier)
-        return ffiString(try encodeJson(filtered.map(encodeMetadataItem)))
+        return makePayload(filtered.map(encodeMetadataItem))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -415,35 +416,35 @@ public func av_metadata_item_filter_identifier_json(
 public func av_metadata_item_filter_identifier(
     _ itemPointers: UnsafePointer<UnsafeMutableRawPointer?>?,
     _ itemCount: Int,
-    _ identifierPtr: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ identifierPtr: UnsafePointer<AVWString>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     do {
         let items = try metadataItems(from: itemPointers, count: itemCount)
-        let identifier = AVMetadataIdentifier(rawValue: String(cString: identifierPtr))
+        let identifier = AVMetadataIdentifier(rawValue: String(abi: identifierPtr))
         return retainedMetadataItemArray(
             AVMetadataItem.metadataItems(from: items, filteredByIdentifier: identifier)
         )
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
 
-@_cdecl("av_metadata_item_filter_metadata_item_filter_json")
-public func av_metadata_item_filter_metadata_item_filter_json(
-    _ itemsJson: UnsafePointer<CChar>,
+@_cdecl("av_metadata_item_filter_metadata_item_filter_payload")
+public func av_metadata_item_filter_metadata_item_filter_payload(
+    _ itemsPayload: UnsafePointer<AVWArray>,
     _ filterPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let filter = Unmanaged<AVMetadataItemFilter>.fromOpaque(filterPtr).takeUnretainedValue()
     do {
-        let payloads = try decodeJson(itemsJson, as: [MetadataItemPayload].self)
+        let payloads = try readPayload(itemsPayload, as: [MetadataItemPayload].self)
         let items = try payloads.map(avMetadataItem)
         let filtered = AVMetadataItem.metadataItems(from: items, filteredBy: filter)
-        return ffiString(try encodeJson(filtered.map(encodeMetadataItem)))
+        return makePayload(filtered.map(encodeMetadataItem))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -453,28 +454,28 @@ public func av_metadata_item_filter_metadata_item_filter(
     _ itemPointers: UnsafePointer<UnsafeMutableRawPointer?>?,
     _ itemCount: Int,
     _ filterPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     let filter = Unmanaged<AVMetadataItemFilter>.fromOpaque(filterPtr).takeUnretainedValue()
     do {
         let items = try metadataItems(from: itemPointers, count: itemCount)
         return retainedMetadataItemArray(AVMetadataItem.metadataItems(from: items, filteredBy: filter))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
 
-@_cdecl("av_metadata_item_create_lazy_json")
-public func av_metadata_item_create_lazy_json(
-    _ baseItemJson: UnsafePointer<CChar>,
+@_cdecl("av_metadata_item_create_lazy_payload")
+public func av_metadata_item_create_lazy_payload(
+    _ baseItemPayload: UnsafePointer<AVWMetadataItem>,
     _ callback: AVWMetadataItemValueRequestCallback?,
     _ userdata: UnsafeMutableRawPointer?,
     _ dropUserdata: AVWDropCallback?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     do {
-        let payload = try decodeJson(baseItemJson, as: MetadataItemPayload.self)
+        let payload = try readPayload(baseItemPayload, as: MetadataItemPayload.self)
         let baseItem = try avMetadataItem(from: payload)
         let box = MetadataItemValueLoaderBox(callback: callback, userdata: userdata, dropUserdata: dropUserdata)
         let item = AVMetadataItem(propertiesOf: baseItem) { request in
@@ -482,7 +483,7 @@ public func av_metadata_item_create_lazy_json(
         }
         return Unmanaged.passRetained(item).toOpaque()
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -493,7 +494,7 @@ public func av_metadata_item_create_lazy(
     _ callback: AVWMetadataItemValueRequestCallback?,
     _ userdata: UnsafeMutableRawPointer?,
     _ dropUserdata: AVWDropCallback?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     let baseItem = Unmanaged<AVMetadataItem>.fromOpaque(baseItemPtr).takeUnretainedValue()
     let box = MetadataItemValueLoaderBox(
@@ -522,19 +523,19 @@ public func av_metadata_item_value_request_release(_ requestPtr: UnsafeMutableRa
     Unmanaged<AVMetadataItemValueRequest>.fromOpaque(requestPtr).release()
 }
 
-@_cdecl("av_metadata_item_value_request_metadata_item_json")
-public func av_metadata_item_value_request_metadata_item_json(
+@_cdecl("av_metadata_item_value_request_metadata_item_payload")
+public func av_metadata_item_value_request_metadata_item_payload(
     _ requestPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let request = Unmanaged<AVMetadataItemValueRequest>.fromOpaque(requestPtr).takeUnretainedValue()
     guard let item = request.metadataItem else {
         return nil
     }
     do {
-        return ffiString(try encodeJson(encodeMetadataItem(item)))
+        return makePayload(encodeMetadataItem(item))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -550,19 +551,19 @@ public func av_metadata_item_value_request_metadata_item(
     return Unmanaged.passRetained(item).toOpaque()
 }
 
-@_cdecl("av_metadata_item_value_request_respond_with_value_json")
-public func av_metadata_item_value_request_respond_with_value_json(
+@_cdecl("av_metadata_item_value_request_respond_with_value_payload")
+public func av_metadata_item_value_request_respond_with_value_payload(
     _ requestPtr: UnsafeMutableRawPointer,
-    _ valueJson: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ valuePayload: UnsafePointer<AVWMetadataValue>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let request = Unmanaged<AVMetadataItemValueRequest>.fromOpaque(requestPtr).takeUnretainedValue()
     do {
-        let value = try decodeJson(valueJson, as: MetadataValuePayload.self)
+        let value = try readPayload(valuePayload, as: MetadataValuePayload.self)
         request.respond(value: try metadataValueObject(from: value))
         return AVW_OK
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return AVW_INVALID_ARGUMENT
     }
 }
@@ -570,29 +571,29 @@ public func av_metadata_item_value_request_respond_with_value_json(
 @_cdecl("av_metadata_item_value_request_respond_with_error")
 public func av_metadata_item_value_request_respond_with_error(
     _ requestPtr: UnsafeMutableRawPointer,
-    _ errorMessagePtr: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ errorMessagePtr: UnsafePointer<AVWString>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let request = Unmanaged<AVMetadataItemValueRequest>.fromOpaque(requestPtr).takeUnretainedValue()
     request.respond(error: NSError(
         domain: "avassetwriter",
         code: -1,
-        userInfo: [NSLocalizedDescriptionKey: String(cString: errorMessagePtr)]
+        userInfo: [NSLocalizedDescriptionKey: String(abi: errorMessagePtr)]
     ))
     _ = outErrorMessage
     return AVW_OK
 }
 
-@_cdecl("av_timed_metadata_group_create_json")
-public func av_timed_metadata_group_create_json(
-    _ payloadJson: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+@_cdecl("av_timed_metadata_group_create_payload")
+public func av_timed_metadata_group_create_payload(
+    _ payloadPayload: UnsafePointer<AVWTimedMetadataGroup>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     do {
-        let payload = try decodeJson(payloadJson, as: TimedMetadataGroupPayload.self)
+        let payload = try readPayload(payloadPayload, as: TimedMetadataGroupPayload.self)
         return Unmanaged.passRetained(try timedMetadataGroup(from: payload)).toOpaque()
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -607,7 +608,7 @@ public func av_timed_metadata_group_create_items(
     _ durationValue: Int64,
     _ durationScale: Int32,
     _ durationKind: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     do {
         let items = try metadataItems(from: itemPointers, count: itemCount)
@@ -619,7 +620,7 @@ public func av_timed_metadata_group_create_items(
             AVTimedMetadataGroup(items: items, timeRange: timeRange)
         ).toOpaque()
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -635,45 +636,45 @@ public func av_timed_metadata_group_retain(
 @_cdecl("av_metadata_group_items")
 public func av_metadata_group_items(
     _ groupPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     let object = Unmanaged<NSObject>.fromOpaque(groupPtr).takeUnretainedValue()
     guard let group = object as? AVMetadataGroup else {
-        outErrorMessage?.pointee = ffiString("object is not an AVMetadataGroup")
+        outErrorMessage?.pointee = makePayload("object is not an AVMetadataGroup")
         return nil
     }
     return retainedMetadataItemArray(group.items)
 }
 
-@_cdecl("av_timed_metadata_group_properties_json")
-public func av_timed_metadata_group_properties_json(
+@_cdecl("av_timed_metadata_group_properties_payload")
+public func av_timed_metadata_group_properties_payload(
     _ groupPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let group = Unmanaged<AVTimedMetadataGroup>.fromOpaque(groupPtr).takeUnretainedValue()
     let labels = metadataGroupLabels(group)
     do {
-        return ffiString(try encodeJson(TimedMetadataGroupPropertiesPayload(
+        return makePayload(TimedMetadataGroupPropertiesPayload(
             timeRange: encodeTimeRange(group.timeRange),
             classifyingLabel: labels.0,
             uniqueID: labels.1
-        )))
+        ))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
 
-@_cdecl("avw_timed_metadata_group_info_json")
-public func avw_timed_metadata_group_info_json(
+@_cdecl("avw_timed_metadata_group_info_payload")
+public func avw_timed_metadata_group_info_payload(
     _ groupPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let group = Unmanaged<AVTimedMetadataGroup>.fromOpaque(groupPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(encodeTimedMetadataGroup(group)))
+        return makePayload(encodeTimedMetadataGroup(group))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -684,17 +685,17 @@ public func av_timed_metadata_group_release(_ groupPtr: UnsafeMutableRawPointer?
     Unmanaged<AVTimedMetadataGroup>.fromOpaque(groupPtr).release()
 }
 
-@_cdecl("av_date_range_metadata_group_create_json")
-public func av_date_range_metadata_group_create_json(
-    _ payloadJson: UnsafePointer<CChar>,
+@_cdecl("av_date_range_metadata_group_create_payload")
+public func av_date_range_metadata_group_create_payload(
+    _ payloadPayload: UnsafePointer<AVWDateRangeMetadataGroup>,
     _ mutableGroup: Bool,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     do {
-        let payload = try decodeJson(payloadJson, as: DateRangeMetadataGroupPayload.self)
+        let payload = try readPayload(payloadPayload, as: DateRangeMetadataGroupPayload.self)
         return Unmanaged.passRetained(try dateRangeMetadataGroup(from: payload, mutable: mutableGroup)).toOpaque()
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -703,19 +704,19 @@ public func av_date_range_metadata_group_create_json(
 public func av_date_range_metadata_group_create_items(
     _ itemPointers: UnsafePointer<UnsafeMutableRawPointer?>?,
     _ itemCount: Int,
-    _ startDatePtr: UnsafePointer<CChar>,
-    _ endDatePtr: UnsafePointer<CChar>?,
+    _ startDatePtr: UnsafePointer<AVWString>,
+    _ endDatePtr: UnsafePointer<AVWString>?,
     _ mutableGroup: Bool,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     do {
         let items = try metadataItems(from: itemPointers, count: itemCount)
-        let startDateRaw = String(cString: startDatePtr)
+        let startDateRaw = String(abi: startDatePtr)
         guard let startDate = metadataISO8601Formatter.date(from: startDateRaw) else {
             throw BridgeError.message("invalid ISO-8601 startDate: \(startDateRaw)")
         }
         let endDate = endDatePtr.flatMap {
-            metadataISO8601Formatter.date(from: String(cString: $0))
+            metadataISO8601Formatter.date(from: String(abi: $0))
         }
         if mutableGroup {
             let group = AVMutableDateRangeMetadataGroup(
@@ -728,7 +729,7 @@ public func av_date_range_metadata_group_create_items(
         let group = AVDateRangeMetadataGroup(items: items, start: startDate, end: endDate)
         return Unmanaged.passRetained(group).toOpaque()
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -767,40 +768,40 @@ public func av_date_range_metadata_group_immutable_copy(
     return Unmanaged.passRetained(copy).toOpaque()
 }
 
-@_cdecl("av_date_range_metadata_group_properties_json")
-public func av_date_range_metadata_group_properties_json(
+@_cdecl("av_date_range_metadata_group_properties_payload")
+public func av_date_range_metadata_group_properties_payload(
     _ groupPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let group = Unmanaged<AVDateRangeMetadataGroup>.fromOpaque(groupPtr).takeUnretainedValue()
     let labels = metadataGroupLabels(group)
     do {
-        return ffiString(try encodeJson(DateRangeMetadataGroupPropertiesPayload(
+        return makePayload(DateRangeMetadataGroupPropertiesPayload(
             startDate: metadataISO8601Formatter.string(from: group.startDate),
             endDate: group.endDate.map(metadataISO8601Formatter.string(from:)),
             classifyingLabel: labels.0,
             uniqueID: labels.1
-        )))
+        ))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
 
-@_cdecl("avw_date_range_metadata_group_info_json")
-public func avw_date_range_metadata_group_info_json(
+@_cdecl("avw_date_range_metadata_group_info_payload")
+public func avw_date_range_metadata_group_info_payload(
     _ groupPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let object = Unmanaged<NSObject>.fromOpaque(groupPtr).takeUnretainedValue()
     guard let group = object as? AVDateRangeMetadataGroup else {
-        outErrorMessage?.pointee = ffiString("object is not an AVDateRangeMetadataGroup")
+        outErrorMessage?.pointee = makePayload("object is not an AVDateRangeMetadataGroup")
         return nil
     }
     do {
-        return ffiString(try encodeJson(encodeDateRangeMetadataGroup(group)))
+        return makePayload(encodeDateRangeMetadataGroup(group))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -809,4 +810,154 @@ public func avw_date_range_metadata_group_info_json(
 public func av_date_range_metadata_group_release(_ groupPtr: UnsafeMutableRawPointer?) {
     guard let groupPtr else { return }
     Unmanaged<NSObject>.fromOpaque(groupPtr).release()
+}
+
+extension MetadataItemPropertiesPayload: BridgePayload {
+    typealias ABI = AVWMetadataItemProperties
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            identifier: identifier.toABI(arena),
+            data_type: dataType.toABI(arena),
+            extended_language_tag: extendedLanguageTag.toABI(arena),
+            locale_identifier: localeIdentifier.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            identifier: try .fromABI(raw.identifier),
+            dataType: try .fromABI(raw.data_type),
+            extendedLanguageTag: try .fromABI(raw.extended_language_tag),
+            localeIdentifier: try .fromABI(raw.locale_identifier)
+        )
+    }
+}
+
+extension MetadataGroupPayload: BridgePayload {
+    typealias ABI = AVWMetadataGroup
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            items: items.toABI(arena),
+            classifying_label: classifyingLabel.toABI(arena),
+            unique_id: uniqueID.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            items: try .fromABI(raw.items),
+            classifyingLabel: try .fromABI(raw.classifying_label),
+            uniqueID: try .fromABI(raw.unique_id)
+        )
+    }
+}
+
+extension TimedMetadataGroupInfoPayload: BridgePayload {
+    typealias ABI = AVWTimedMetadataGroupInfo
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            items: items.toABI(arena),
+            time_range: timeRange.toABI(arena),
+            classifying_label: classifyingLabel.toABI(arena),
+            unique_id: uniqueID.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            items: try .fromABI(raw.items),
+            timeRange: try .fromABI(raw.time_range),
+            classifyingLabel: try .fromABI(raw.classifying_label),
+            uniqueID: try .fromABI(raw.unique_id)
+        )
+    }
+}
+
+extension TimedMetadataGroupPropertiesPayload: BridgePayload {
+    typealias ABI = AVWTimedMetadataGroupProperties
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            time_range: timeRange.toABI(arena),
+            classifying_label: classifyingLabel.toABI(arena),
+            unique_id: uniqueID.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            timeRange: try .fromABI(raw.time_range),
+            classifyingLabel: try .fromABI(raw.classifying_label),
+            uniqueID: try .fromABI(raw.unique_id)
+        )
+    }
+}
+
+extension DateRangeMetadataGroupPayload: BridgePayload {
+    typealias ABI = AVWDateRangeMetadataGroup
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            items: items.toABI(arena),
+            start_date: startDate.toABI(arena),
+            end_date: endDate.toABI(arena),
+            classifying_label: classifyingLabel.toABI(arena),
+            unique_id: uniqueID.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            items: try .fromABI(raw.items),
+            startDate: try .fromABI(raw.start_date),
+            endDate: try .fromABI(raw.end_date),
+            classifyingLabel: try .fromABI(raw.classifying_label),
+            uniqueID: try .fromABI(raw.unique_id)
+        )
+    }
+}
+
+extension DateRangeMetadataGroupPropertiesPayload: BridgePayload {
+    typealias ABI = AVWDateRangeMetadataGroupProperties
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            start_date: startDate.toABI(arena),
+            end_date: endDate.toABI(arena),
+            classifying_label: classifyingLabel.toABI(arena),
+            unique_id: uniqueID.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            startDate: try .fromABI(raw.start_date),
+            endDate: try .fromABI(raw.end_date),
+            classifyingLabel: try .fromABI(raw.classifying_label),
+            uniqueID: try .fromABI(raw.unique_id)
+        )
+    }
+}
+
+extension KeyLoadStatusPayload: BridgePayload {
+    typealias ABI = AVWKeyLoadStatus
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            key: key.toABI(arena),
+            status: status.toABI(arena),
+            error_message: errorMessage.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            key: try .fromABI(raw.key),
+            status: try .fromABI(raw.status),
+            errorMessage: try .fromABI(raw.error_message)
+        )
+    }
 }

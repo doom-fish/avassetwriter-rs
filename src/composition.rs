@@ -5,32 +5,27 @@
     clippy::struct_excessive_bools
 )]
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
 use core::ptr;
 use std::path::Path;
 
+use crate::PropertyValue;
 use apple_cf::cm::CMFormatDescription;
-use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 
 use crate::asset::Asset;
-use crate::bridge_support::{
-    cstring_arg, parse_json_ptr, parse_optional_json_string, time_kind, time_scale, time_value,
-};
+use crate::bridge_support::{string_arg, take_payload, time_kind, time_scale, time_value};
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
 use crate::writer::MediaType;
 use apple_cf::cm::{CMTime, CMTimeRange};
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CompositionSize {
     pub width: f64,
     pub height: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CompositionTransform {
     pub a: f64,
     pub b: f64,
@@ -40,17 +35,13 @@ pub struct CompositionTransform {
     pub ty: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompositionTimeMapping {
-    #[serde(with = "crate::time::range")]
     pub source: CMTimeRange,
-    #[serde(with = "crate::time::range")]
     pub target: CMTimeRange,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatDescriptionSummary {
     pub media_type_raw: u32,
     pub media_type: String,
@@ -58,23 +49,20 @@ pub struct FormatDescriptionSummary {
     pub media_subtype: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CompositionInfo {
-    #[serde(with = "crate::time")]
     pub duration: CMTime,
     pub natural_size: CompositionSize,
     pub is_playable: bool,
     pub is_exportable: bool,
     pub is_readable: bool,
     pub is_composable: bool,
-    pub url_asset_initialization_options: Option<JsonValue>,
+    pub url_asset_initialization_options: Option<PropertyValue>,
     pub track_ids: Vec<i32>,
     pub unused_track_id: i32,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CompositionTrackInfo {
     pub track_id: i32,
     pub media_type: MediaType,
@@ -83,7 +71,6 @@ pub struct CompositionTrackInfo {
     pub is_enabled: bool,
     pub is_self_contained: bool,
     pub total_sample_data_length: i64,
-    #[serde(with = "crate::time::range")]
     pub time_range: CMTimeRange,
     pub natural_time_scale: i32,
     pub estimated_data_rate: f32,
@@ -94,7 +81,6 @@ pub struct CompositionTrackInfo {
     pub preferred_volume: f32,
     pub has_audio_sample_dependencies: bool,
     pub nominal_frame_rate: f32,
-    #[serde(with = "crate::time")]
     pub min_frame_duration: CMTime,
     pub requires_frame_reordering: bool,
     pub segment_count: usize,
@@ -102,15 +88,13 @@ pub struct CompositionTrackInfo {
     pub format_description_replacement_count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssetTrackSegmentInfo {
     pub time_mapping: CompositionTimeMapping,
     pub is_empty: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompositionTrackSegmentInfo {
     pub time_mapping: CompositionTimeMapping,
     pub is_empty: bool,
@@ -118,30 +102,26 @@ pub struct CompositionTrackSegmentInfo {
     pub source_track_id: Option<i32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompositionTrackFormatDescriptionReplacementInfo {
     pub original_format_description: FormatDescriptionSummary,
     pub replacement_format_description: FormatDescriptionSummary,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 struct CompositionInfoPayload {
-    #[serde(with = "crate::time")]
     duration: CMTime,
     natural_size: CompositionSize,
     is_playable: bool,
     is_exportable: bool,
     is_readable: bool,
     is_composable: bool,
-    url_asset_initialization_options_json: Option<String>,
+    url_asset_initialization_options: Option<PropertyValue>,
     track_ids: Vec<i32>,
     unused_track_id: i32,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 struct CompositionTrackInfoPayload {
     track_id: i32,
     media_type: String,
@@ -150,7 +130,6 @@ struct CompositionTrackInfoPayload {
     is_enabled: bool,
     is_self_contained: bool,
     total_sample_data_length: i64,
-    #[serde(with = "crate::time::range")]
     time_range: CMTimeRange,
     natural_time_scale: i32,
     estimated_data_rate: f32,
@@ -161,7 +140,6 @@ struct CompositionTrackInfoPayload {
     preferred_volume: f32,
     has_audio_sample_dependencies: bool,
     nominal_frame_rate: f32,
-    #[serde(with = "crate::time")]
     min_frame_duration: CMTime,
     requires_frame_reordering: bool,
     segment_count: usize,
@@ -173,22 +151,18 @@ fn missing_payload(context: &str) -> AVWriterError {
     AVWriterError::InvalidState(format!("swift bridge returned no {context}"))
 }
 
-fn decode_composition_info(
-    payload: CompositionInfoPayload,
-) -> Result<CompositionInfo, AVWriterError> {
-    Ok(CompositionInfo {
+fn decode_composition_info(payload: CompositionInfoPayload) -> CompositionInfo {
+    CompositionInfo {
         duration: payload.duration,
         natural_size: payload.natural_size,
         is_playable: payload.is_playable,
         is_exportable: payload.is_exportable,
         is_readable: payload.is_readable,
         is_composable: payload.is_composable,
-        url_asset_initialization_options: parse_optional_json_string(
-            payload.url_asset_initialization_options_json,
-        )?,
+        url_asset_initialization_options: payload.url_asset_initialization_options,
         track_ids: payload.track_ids,
         unused_track_id: payload.unused_track_id,
-    })
+    }
 }
 
 fn decode_composition_track_info(payload: CompositionTrackInfoPayload) -> CompositionTrackInfo {
@@ -239,7 +213,7 @@ impl Composition {
     }
 
     pub fn from_asset(asset: &Asset) -> Result<Self, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr =
             unsafe { ffi::av_composition_create_from_asset(asset.as_ptr(), &raw mut err_msg) };
         Self::from_raw(ptr)
@@ -252,7 +226,7 @@ impl Composition {
     }
 
     pub fn snapshot(&self) -> Result<CompositionInfo, AVWriterError> {
-        decode_composition_info(self.info_payload()?)
+        Ok(decode_composition_info(self.info_payload()?))
     }
 
     pub fn duration(&self) -> Result<CMTime, AVWriterError> {
@@ -280,7 +254,7 @@ impl Composition {
         Ok(self.snapshot()?.is_composable)
     }
 
-    pub fn url_asset_initialization_options(&self) -> Result<Option<JsonValue>, AVWriterError> {
+    pub fn url_asset_initialization_options(&self) -> Result<Option<PropertyValue>, AVWriterError> {
         Ok(self.snapshot()?.url_asset_initialization_options)
     }
 
@@ -351,8 +325,8 @@ impl Composition {
     }
 
     fn info_payload(&self) -> Result<CompositionInfoPayload, AVWriterError> {
-        let ptr = unsafe { ffi::av_composition_info_json(self.ptr) };
-        parse_json_ptr(ptr, "composition info")
+        let ptr = unsafe { ffi::av_composition_info_payload(self.ptr) };
+        take_payload(ptr, "composition info")
     }
 }
 
@@ -495,7 +469,7 @@ impl CompositionTrack {
         &self,
         media_characteristic: &str,
     ) -> Result<bool, AVWriterError> {
-        let media_characteristic_c = cstring_arg(media_characteristic, "media characteristic")?;
+        let media_characteristic_c = string_arg(media_characteristic, "media characteristic")?;
         Ok(unsafe {
             ffi::av_composition_track_has_media_characteristic(
                 self.ptr,
@@ -509,14 +483,14 @@ impl CompositionTrack {
         track_time: CMTime,
     ) -> Result<CMTime, AVWriterError> {
         let ptr = unsafe {
-            ffi::av_composition_track_sample_presentation_time_json(
+            ffi::av_composition_track_sample_presentation_time_payload(
                 self.ptr,
                 time_value(&track_time),
                 time_scale(&track_time),
                 time_kind(&track_time),
             )
         };
-        parse_json_ptr::<crate::time::TimeJson>(ptr, "composition track sample presentation time")
+        take_payload::<crate::time::TimeValue>(ptr, "composition track sample presentation time")
             .map(|time| time.0)
     }
 
@@ -568,8 +542,8 @@ impl CompositionTrack {
     }
 
     fn info_payload(&self) -> Result<CompositionTrackInfoPayload, AVWriterError> {
-        let ptr = unsafe { ffi::av_composition_track_info_json(self.ptr) };
-        parse_json_ptr(ptr, "composition track info")
+        let ptr = unsafe { ffi::av_composition_track_info_payload(self.ptr) };
+        take_payload(ptr, "composition track info")
     }
 }
 
@@ -640,8 +614,8 @@ impl CompositionTrackSegment {
     }
 
     pub fn snapshot(&self) -> Result<CompositionTrackSegmentInfo, AVWriterError> {
-        let ptr = unsafe { ffi::av_composition_track_segment_info_json(self.ptr) };
-        parse_json_ptr(ptr, "composition track segment info")
+        let ptr = unsafe { ffi::av_composition_track_segment_info_payload(self.ptr) };
+        take_payload(ptr, "composition track segment info")
     }
 
     pub fn time_mapping(&self) -> Result<CompositionTimeMapping, AVWriterError> {
@@ -676,8 +650,8 @@ impl CompositionTrackSegment {
         source_time_range: CMTimeRange,
         target_time_range: CMTimeRange,
     ) -> Result<Self, AVWriterError> {
-        let url_c = cstring_arg(url, "segment source URL")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let url_c = string_arg(url, "segment source URL")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
             ffi::av_composition_track_segment_create_url(
                 url_c.as_ptr(),
@@ -728,8 +702,8 @@ unsafe impl Send for AssetTrackSegment {}
 
 impl AssetTrackSegment {
     pub fn snapshot(&self) -> Result<AssetTrackSegmentInfo, AVWriterError> {
-        let ptr = unsafe { ffi::av_asset_track_segment_info_json(self.ptr) };
-        parse_json_ptr(ptr, "asset track segment info")
+        let ptr = unsafe { ffi::av_asset_track_segment_info_payload(self.ptr) };
+        take_payload(ptr, "asset track segment info")
     }
 
     pub fn time_mapping(&self) -> Result<CompositionTimeMapping, AVWriterError> {
@@ -772,9 +746,10 @@ impl CompositionTrackFormatDescriptionReplacement {
     pub fn snapshot(
         &self,
     ) -> Result<CompositionTrackFormatDescriptionReplacementInfo, AVWriterError> {
-        let ptr =
-            unsafe { ffi::av_composition_track_format_description_replacement_info_json(self.ptr) };
-        parse_json_ptr(ptr, "composition track format description replacement info")
+        let ptr = unsafe {
+            ffi::av_composition_track_format_description_replacement_info_payload(self.ptr)
+        };
+        take_payload(ptr, "composition track format description replacement info")
     }
 
     pub fn original_format_description(&self) -> Result<CMFormatDescription, AVWriterError> {
@@ -814,5 +789,295 @@ impl core::fmt::Debug for CompositionTrackFormatDescriptionReplacement {
         f.debug_struct("CompositionTrackFormatDescriptionReplacement")
             .field("ptr", &self.ptr)
             .finish()
+    }
+}
+
+impl crate::binary::ToAbi for CompositionSize {
+    type Abi = crate::ffi::AVWSize;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            width: crate::binary::ToAbi::to_abi(&self.width, arena),
+            height: crate::binary::ToAbi::to_abi(&self.height, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CompositionSize {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            width: crate::binary::FromAbi::from_abi(&raw.width)?,
+            height: crate::binary::FromAbi::from_abi(&raw.height)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CompositionTransform {
+    type Abi = crate::ffi::AVWTransform;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            a: crate::binary::ToAbi::to_abi(&self.a, arena),
+            b: crate::binary::ToAbi::to_abi(&self.b, arena),
+            c: crate::binary::ToAbi::to_abi(&self.c, arena),
+            d: crate::binary::ToAbi::to_abi(&self.d, arena),
+            tx: crate::binary::ToAbi::to_abi(&self.tx, arena),
+            ty: crate::binary::ToAbi::to_abi(&self.ty, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CompositionTransform {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            a: crate::binary::FromAbi::from_abi(&raw.a)?,
+            b: crate::binary::FromAbi::from_abi(&raw.b)?,
+            c: crate::binary::FromAbi::from_abi(&raw.c)?,
+            d: crate::binary::FromAbi::from_abi(&raw.d)?,
+            tx: crate::binary::FromAbi::from_abi(&raw.tx)?,
+            ty: crate::binary::FromAbi::from_abi(&raw.ty)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CompositionInfoPayload {
+    type Abi = crate::ffi::AVWCompositionInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            duration: crate::binary::ToAbi::to_abi(&self.duration, arena),
+            natural_size: crate::binary::ToAbi::to_abi(&self.natural_size, arena),
+            is_playable: crate::binary::ToAbi::to_abi(&self.is_playable, arena),
+            is_exportable: crate::binary::ToAbi::to_abi(&self.is_exportable, arena),
+            is_readable: crate::binary::ToAbi::to_abi(&self.is_readable, arena),
+            is_composable: crate::binary::ToAbi::to_abi(&self.is_composable, arena),
+            url_asset_initialization_options: crate::binary::ToAbi::to_abi(
+                &self.url_asset_initialization_options,
+                arena,
+            ),
+            track_ids: crate::binary::ToAbi::to_abi(&self.track_ids, arena),
+            unused_track_id: crate::binary::ToAbi::to_abi(&self.unused_track_id, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CompositionInfoPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            duration: crate::binary::FromAbi::from_abi(&raw.duration)?,
+            natural_size: crate::binary::FromAbi::from_abi(&raw.natural_size)?,
+            is_playable: crate::binary::FromAbi::from_abi(&raw.is_playable)?,
+            is_exportable: crate::binary::FromAbi::from_abi(&raw.is_exportable)?,
+            is_readable: crate::binary::FromAbi::from_abi(&raw.is_readable)?,
+            is_composable: crate::binary::FromAbi::from_abi(&raw.is_composable)?,
+            url_asset_initialization_options: crate::binary::FromAbi::from_abi(
+                &raw.url_asset_initialization_options,
+            )?,
+            track_ids: crate::binary::FromAbi::from_abi(&raw.track_ids)?,
+            unused_track_id: crate::binary::FromAbi::from_abi(&raw.unused_track_id)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CompositionTimeMapping {
+    type Abi = crate::ffi::AVWCompositionTimeMapping;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            source: crate::binary::ToAbi::to_abi(&self.source, arena),
+            target: crate::binary::ToAbi::to_abi(&self.target, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CompositionTimeMapping {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            source: crate::binary::FromAbi::from_abi(&raw.source)?,
+            target: crate::binary::FromAbi::from_abi(&raw.target)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for AssetTrackSegmentInfo {
+    type Abi = crate::ffi::AVWAssetTrackSegmentInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            time_mapping: crate::binary::ToAbi::to_abi(&self.time_mapping, arena),
+            is_empty: crate::binary::ToAbi::to_abi(&self.is_empty, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for AssetTrackSegmentInfo {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            time_mapping: crate::binary::FromAbi::from_abi(&raw.time_mapping)?,
+            is_empty: crate::binary::FromAbi::from_abi(&raw.is_empty)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CompositionTrackSegmentInfo {
+    type Abi = crate::ffi::AVWCompositionTrackSegmentInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            time_mapping: crate::binary::ToAbi::to_abi(&self.time_mapping, arena),
+            is_empty: crate::binary::ToAbi::to_abi(&self.is_empty, arena),
+            source_url: crate::binary::ToAbi::to_abi(&self.source_url, arena),
+            source_track_id: crate::binary::ToAbi::to_abi(&self.source_track_id, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CompositionTrackSegmentInfo {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            time_mapping: crate::binary::FromAbi::from_abi(&raw.time_mapping)?,
+            is_empty: crate::binary::FromAbi::from_abi(&raw.is_empty)?,
+            source_url: crate::binary::FromAbi::from_abi(&raw.source_url)?,
+            source_track_id: crate::binary::FromAbi::from_abi(&raw.source_track_id)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for FormatDescriptionSummary {
+    type Abi = crate::ffi::AVWFormatDescriptionSummary;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            media_type_raw: crate::binary::ToAbi::to_abi(&self.media_type_raw, arena),
+            media_type: crate::binary::ToAbi::to_abi(&self.media_type, arena),
+            media_subtype_raw: crate::binary::ToAbi::to_abi(&self.media_subtype_raw, arena),
+            media_subtype: crate::binary::ToAbi::to_abi(&self.media_subtype, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for FormatDescriptionSummary {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            media_type_raw: crate::binary::FromAbi::from_abi(&raw.media_type_raw)?,
+            media_type: crate::binary::FromAbi::from_abi(&raw.media_type)?,
+            media_subtype_raw: crate::binary::FromAbi::from_abi(&raw.media_subtype_raw)?,
+            media_subtype: crate::binary::FromAbi::from_abi(&raw.media_subtype)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CompositionTrackFormatDescriptionReplacementInfo {
+    type Abi = crate::ffi::AVWCompositionTrackFormatDescriptionReplacementInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            original_format_description: crate::binary::ToAbi::to_abi(
+                &self.original_format_description,
+                arena,
+            ),
+            replacement_format_description: crate::binary::ToAbi::to_abi(
+                &self.replacement_format_description,
+                arena,
+            ),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CompositionTrackFormatDescriptionReplacementInfo {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            original_format_description: crate::binary::FromAbi::from_abi(
+                &raw.original_format_description,
+            )?,
+            replacement_format_description: crate::binary::FromAbi::from_abi(
+                &raw.replacement_format_description,
+            )?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CompositionTrackInfoPayload {
+    type Abi = crate::ffi::AVWCompositionTrackInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            track_id: crate::binary::ToAbi::to_abi(&self.track_id, arena),
+            media_type: crate::binary::ToAbi::to_abi(&self.media_type, arena),
+            is_playable: crate::binary::ToAbi::to_abi(&self.is_playable, arena),
+            is_decodable: crate::binary::ToAbi::to_abi(&self.is_decodable, arena),
+            is_enabled: crate::binary::ToAbi::to_abi(&self.is_enabled, arena),
+            is_self_contained: crate::binary::ToAbi::to_abi(&self.is_self_contained, arena),
+            total_sample_data_length: crate::binary::ToAbi::to_abi(
+                &self.total_sample_data_length,
+                arena,
+            ),
+            time_range: crate::binary::ToAbi::to_abi(&self.time_range, arena),
+            natural_time_scale: crate::binary::ToAbi::to_abi(&self.natural_time_scale, arena),
+            estimated_data_rate: crate::binary::ToAbi::to_abi(&self.estimated_data_rate, arena),
+            language_code: crate::binary::ToAbi::to_abi(&self.language_code, arena),
+            extended_language_tag: crate::binary::ToAbi::to_abi(&self.extended_language_tag, arena),
+            natural_size: crate::binary::ToAbi::to_abi(&self.natural_size, arena),
+            preferred_transform: crate::binary::ToAbi::to_abi(&self.preferred_transform, arena),
+            preferred_volume: crate::binary::ToAbi::to_abi(&self.preferred_volume, arena),
+            has_audio_sample_dependencies: crate::binary::ToAbi::to_abi(
+                &self.has_audio_sample_dependencies,
+                arena,
+            ),
+            nominal_frame_rate: crate::binary::ToAbi::to_abi(&self.nominal_frame_rate, arena),
+            min_frame_duration: crate::binary::ToAbi::to_abi(&self.min_frame_duration, arena),
+            requires_frame_reordering: crate::binary::ToAbi::to_abi(
+                &self.requires_frame_reordering,
+                arena,
+            ),
+            segment_count: crate::binary::ToAbi::to_abi(&self.segment_count, arena),
+            format_description_count: crate::binary::ToAbi::to_abi(
+                &self.format_description_count,
+                arena,
+            ),
+            format_description_replacement_count: crate::binary::ToAbi::to_abi(
+                &self.format_description_replacement_count,
+                arena,
+            ),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CompositionTrackInfoPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            track_id: crate::binary::FromAbi::from_abi(&raw.track_id)?,
+            media_type: crate::binary::FromAbi::from_abi(&raw.media_type)?,
+            is_playable: crate::binary::FromAbi::from_abi(&raw.is_playable)?,
+            is_decodable: crate::binary::FromAbi::from_abi(&raw.is_decodable)?,
+            is_enabled: crate::binary::FromAbi::from_abi(&raw.is_enabled)?,
+            is_self_contained: crate::binary::FromAbi::from_abi(&raw.is_self_contained)?,
+            total_sample_data_length: crate::binary::FromAbi::from_abi(
+                &raw.total_sample_data_length,
+            )?,
+            time_range: crate::binary::FromAbi::from_abi(&raw.time_range)?,
+            natural_time_scale: crate::binary::FromAbi::from_abi(&raw.natural_time_scale)?,
+            estimated_data_rate: crate::binary::FromAbi::from_abi(&raw.estimated_data_rate)?,
+            language_code: crate::binary::FromAbi::from_abi(&raw.language_code)?,
+            extended_language_tag: crate::binary::FromAbi::from_abi(&raw.extended_language_tag)?,
+            natural_size: crate::binary::FromAbi::from_abi(&raw.natural_size)?,
+            preferred_transform: crate::binary::FromAbi::from_abi(&raw.preferred_transform)?,
+            preferred_volume: crate::binary::FromAbi::from_abi(&raw.preferred_volume)?,
+            has_audio_sample_dependencies: crate::binary::FromAbi::from_abi(
+                &raw.has_audio_sample_dependencies,
+            )?,
+            nominal_frame_rate: crate::binary::FromAbi::from_abi(&raw.nominal_frame_rate)?,
+            min_frame_duration: crate::binary::FromAbi::from_abi(&raw.min_frame_duration)?,
+            requires_frame_reordering: crate::binary::FromAbi::from_abi(
+                &raw.requires_frame_reordering,
+            )?,
+            segment_count: crate::binary::FromAbi::from_abi(&raw.segment_count)?,
+            format_description_count: crate::binary::FromAbi::from_abi(
+                &raw.format_description_count,
+            )?,
+            format_description_replacement_count: crate::binary::FromAbi::from_abi(
+                &raw.format_description_replacement_count,
+            )?,
+        })
     }
 }

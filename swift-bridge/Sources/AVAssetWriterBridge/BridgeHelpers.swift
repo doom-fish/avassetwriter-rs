@@ -1,44 +1,10 @@
+import AVAssetWriterObjCBridge
 import AVFoundation
 import CoreMedia
 import CoreVideo
 import Dispatch
 import Foundation
 import UniformTypeIdentifiers
-
-func encodeJson<T: Encodable>(_ value: T) throws -> String {
-    let data = try JSONEncoder().encode(value)
-    guard let string = String(data: data, encoding: .utf8) else {
-        throw BridgeError.message("failed to UTF-8 encode JSON payload")
-    }
-    return string
-}
-
-func decodeJson<T: Decodable>(_ ptr: UnsafePointer<CChar>?, as type: T.Type) throws -> T {
-    guard let ptr else {
-        throw BridgeError.message("missing JSON payload")
-    }
-    let string = String(cString: ptr)
-    guard let data = string.data(using: .utf8) else {
-        throw BridgeError.message("payload was not valid UTF-8")
-    }
-    return try JSONDecoder().decode(T.self, from: data)
-}
-
-func jsonObjectFromCString(_ ptr: UnsafePointer<CChar>?) throws -> Any? {
-    guard let ptr else { return nil }
-    let string = String(cString: ptr)
-    guard let data = string.data(using: .utf8) else {
-        throw BridgeError.message("payload was not valid UTF-8")
-    }
-    return try JSONSerialization.jsonObject(with: data)
-}
-
-func jsonString(fromJSONObject object: Any?) -> String? {
-    guard let object else { return nil }
-    guard JSONSerialization.isValidJSONObject(object) else { return nil }
-    guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
-    return String(data: data, encoding: .utf8)
-}
 
 func decodeFileType(_ raw: String) -> AVFileType? {
     switch raw {

@@ -6,17 +6,16 @@
     clippy::too_many_lines
 )]
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
 use core::ptr;
-use std::ffi::CString;
 use std::path::Path;
 
+use crate::PropertyValue;
 use apple_cf::cm::{CMFormatDescription, CMSampleBuffer};
 use apple_cf::cv::{CVPixelBuffer, CVPixelBufferPool};
-use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 
 use super::{FileType, InputId, Writer};
+use crate::binary::{payload_arg, string_arg, take_payload};
 use crate::bridge_support::{time_kind, time_scale, time_value};
 use crate::callbacks::{
     pass_description_callback_drop, pass_description_callback_trampoline, ready_callback_drop,
@@ -57,8 +56,7 @@ impl FileTypeProfile {
 }
 
 /// `AVMediaType`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum MediaType {
     Video,
@@ -108,6 +106,21 @@ impl MediaType {
             "auxiliary_picture" => Self::AuxiliaryPicture,
             other => Self::Other(other.to_string()),
         }
+    }
+}
+
+impl crate::binary::ToAbi for MediaType {
+    type Abi = ffi::AVWString;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        crate::binary::ToAbi::to_abi(self.as_str(), arena)
+    }
+}
+
+impl crate::binary::FromAbi for MediaType {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, AVWriterError> {
+        let value = <String as crate::binary::FromAbi>::from_abi(raw)?;
+        Ok(Self::from_raw(&value))
     }
 }
 
@@ -197,16 +210,13 @@ impl TrackAssociationType {
 }
 
 /// `AVAssetWriterInputPassDescription`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputPassDescription {
-    #[serde(with = "crate::time::ranges")]
     pub source_time_ranges: Vec<CMTimeRange>,
 }
 
 /// `AVAssetSegmentType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SegmentType {
     Initialization,
@@ -225,11 +235,31 @@ impl SegmentType {
     }
 }
 
+impl crate::binary::ToAbi for SegmentType {
+    type Abi = i32;
+
+    fn to_abi(&self, _: &mut crate::binary::Arena) -> Self::Abi {
+        match *self {
+            Self::Initialization => 1,
+            Self::Separable => 2,
+            Self::Other(value) => value,
+        }
+    }
+}
+
+impl crate::binary::FromAbi for SegmentType {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, AVWriterError> {
+        match *raw {
+            1 => Ok(Self::Initialization),
+            2 => Ok(Self::Separable),
+            value => Ok(Self::Other(value)),
+        }
+    }
+}
+
 /// `AVAssetSegmentReportSampleInformation`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SegmentReportSampleInfo {
-    #[serde(with = "crate::time")]
     pub presentation_time_stamp: CMTime,
     pub offset: i64,
     pub length: i64,
@@ -237,21 +267,17 @@ pub struct SegmentReportSampleInfo {
 }
 
 /// `AVAssetSegmentTrackReport`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SegmentTrackReport {
     pub track_id: i32,
     pub media_type: MediaType,
-    #[serde(with = "crate::time")]
     pub earliest_presentation_time_stamp: CMTime,
-    #[serde(with = "crate::time")]
     pub duration: CMTime,
     pub first_video_sample_information: Option<SegmentReportSampleInfo>,
 }
 
 /// `AVAssetSegmentReport`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SegmentReport {
     pub segment_type: SegmentType,
     pub track_reports: Vec<SegmentTrackReport>,
@@ -279,15 +305,13 @@ pub struct TaggedPixelBuffer<'a> {
     pub layer_id: i64,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct InputGroupPayload {
     inputs: Vec<i32>,
     default_input: Option<i32>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct WriterInfoPayload {
     output_path: Option<String>,
     output_file_type: Option<String>,
@@ -298,29 +322,24 @@ struct WriterInfoPayload {
     directory_for_temporary_files: Option<String>,
     inputs: Vec<i32>,
     input_groups: Vec<InputGroupPayload>,
-    #[serde(with = "crate::time")]
     movie_fragment_interval: CMTime,
-    #[serde(with = "crate::time")]
     initial_movie_fragment_interval: CMTime,
     initial_movie_fragment_sequence_number: i64,
     produces_combinable_fragments: bool,
-    #[serde(with = "crate::time")]
     overall_duration_hint: CMTime,
     movie_time_scale: i32,
-    #[serde(with = "crate::time")]
     preferred_output_segment_interval: CMTime,
-    #[serde(with = "crate::time")]
     initial_segment_start_time: CMTime,
     output_file_type_profile: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 struct SizePayload {
     width: f64,
     height: f64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 struct TransformPayload {
     a: f64,
     b: f64,
@@ -330,11 +349,10 @@ struct TransformPayload {
     ty: f64,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct InputInfoPayload {
     media_type: String,
-    output_settings_json: Option<String>,
+    output_settings: Option<PropertyValue>,
     ready_for_more_media_data: bool,
     expects_media_data_in_real_time: bool,
     language_code: Option<String>,
@@ -344,7 +362,6 @@ struct InputInfoPayload {
     preferred_volume: f32,
     marks_output_track_as_enabled: bool,
     media_time_scale: i32,
-    #[serde(with = "crate::time")]
     preferred_media_chunk_duration: CMTime,
     preferred_media_chunk_alignment: i64,
     sample_reference_base_url: Option<String>,
@@ -352,8 +369,8 @@ struct InputInfoPayload {
     performs_multi_pass_encoding_if_supported: bool,
     can_perform_multiple_passes: bool,
     current_pass_description: Option<InputPassDescription>,
-    pixel_buffer_source_attributes_json: Option<String>,
-    tagged_pixel_buffer_source_attributes_json: Option<String>,
+    pixel_buffer_source_attributes: Option<PropertyValue>,
+    tagged_pixel_buffer_source_attributes: Option<PropertyValue>,
     has_metadata_adaptor: bool,
     has_caption_adaptor: bool,
 }
@@ -371,12 +388,12 @@ impl Writer {
         profile: Option<FileTypeProfile>,
         on_segment: impl FnMut(SegmentOutput) + Send + 'static,
     ) -> Result<Self, AVWriterError> {
-        let file_type_c = cstring_arg(file_type.as_str(), "file type")?;
+        let file_type_c = string_arg(file_type.as_str(), "file type")?;
         let profile_string = profile
             .as_ref()
-            .map(|value| cstring_arg(value.as_str(), "file type profile"))
+            .map(|value| string_arg(value.as_str(), "file type profile"))
             .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let state = Box::new(SegmentCallbackState::new(on_segment));
         let userdata = Box::into_raw(state).cast::<c_void>();
         let ptr = unsafe {
@@ -384,7 +401,7 @@ impl Writer {
                 file_type_c.as_ptr(),
                 profile_string
                     .as_ref()
-                    .map_or(ptr::null(), |value| value.as_ptr()),
+                    .map_or(ptr::null(), super::super::binary::Argument::as_ptr),
                 Some(segment_callback_trampoline),
                 userdata,
                 Some(segment_callback_drop),
@@ -428,7 +445,7 @@ impl Writer {
     }
 
     pub fn metadata(&self) -> Result<Vec<MetadataItem>, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let array = unsafe { ffi::av_writer_metadata(self.ptr, &raw mut err_msg) };
         if array.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
@@ -438,7 +455,7 @@ impl Writer {
 
     pub fn set_metadata(&self, metadata: &[MetadataItem]) -> Result<(), AVWriterError> {
         let item_ptrs = MetadataItem::native_ptrs(metadata)?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_set_metadata_items(
                 self.ptr,
@@ -469,8 +486,8 @@ impl Writer {
             .as_ref()
             .to_str()
             .ok_or_else(|| AVWriterError::InvalidArgument("path is not valid UTF-8".into()))?;
-        let path_c = cstring_arg(path_str, "directory path")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let path_c = string_arg(path_str, "directory path")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_set_directory_for_temporary_files(
                 self.ptr,
@@ -508,22 +525,18 @@ impl Writer {
     pub fn can_apply_output_settings(
         &self,
         media_type: &MediaType,
-        output_settings: Option<&JsonValue>,
+        output_settings: Option<&PropertyValue>,
     ) -> Result<bool, AVWriterError> {
-        let media_type_c = cstring_arg(media_type.as_str(), "media type")?;
-        let settings_json = output_settings.map(serialize_json).transpose()?;
-        let settings_c = settings_json
-            .as_ref()
-            .map(|value| cstring_arg(value, "output settings json"))
-            .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let media_type_c = string_arg(media_type.as_str(), "media type")?;
+        let settings_c = output_settings.map(payload_arg);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let result = unsafe {
-            ffi::av_writer_can_apply_output_settings_json(
+            ffi::av_writer_can_apply_output_settings_payload(
                 self.ptr,
                 media_type_c.as_ptr(),
                 settings_c
                     .as_ref()
-                    .map_or(ptr::null(), |value| value.as_ptr()),
+                    .map_or(ptr::null(), super::super::binary::Argument::as_ptr),
                 &raw mut err_msg,
             )
         };
@@ -537,24 +550,20 @@ impl Writer {
     pub fn add_input(
         &self,
         media_type: &MediaType,
-        output_settings: Option<&JsonValue>,
+        output_settings: Option<&PropertyValue>,
         source_format_hint: Option<&CMFormatDescription>,
         expects_media_data_in_real_time: bool,
     ) -> Result<InputId, AVWriterError> {
-        let media_type_c = cstring_arg(media_type.as_str(), "media type")?;
-        let settings_json = output_settings.map(serialize_json).transpose()?;
-        let settings_c = settings_json
-            .as_ref()
-            .map(|value| cstring_arg(value, "output settings json"))
-            .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let media_type_c = string_arg(media_type.as_str(), "media type")?;
+        let settings_c = output_settings.map(payload_arg);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let result = unsafe {
-            ffi::av_writer_add_input_json(
+            ffi::av_writer_add_input_payload(
                 self.ptr,
                 media_type_c.as_ptr(),
                 settings_c
                     .as_ref()
-                    .map_or(ptr::null(), |value| value.as_ptr()),
+                    .map_or(ptr::null(), super::super::binary::Argument::as_ptr),
                 source_format_hint.map_or(ptr::null_mut(), CMFormatDescription::as_ptr),
                 expects_media_data_in_real_time,
                 &raw mut err_msg,
@@ -570,7 +579,7 @@ impl Writer {
         &self,
         sample_buffer: &CMSampleBuffer,
     ) -> Result<InputId, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let result = unsafe {
             ffi::av_writer_add_audio_input_from_sample(
                 self.ptr,
@@ -589,11 +598,10 @@ impl Writer {
         specifications: &[MetadataSpecification],
         expects_media_data_in_real_time: bool,
     ) -> Result<InputId, AVWriterError> {
-        let payload = serialize_json(specifications)?;
-        let payload_c = cstring_arg(&payload, "metadata specifications json")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let payload_c = payload_arg(specifications);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let result = unsafe {
-            ffi::av_writer_add_metadata_input_from_specifications_json(
+            ffi::av_writer_add_metadata_input_from_specifications_payload(
                 self.ptr,
                 payload_c.as_ptr(),
                 expects_media_data_in_real_time,
@@ -619,8 +627,8 @@ impl Writer {
                 ))
             }
         }
-        let media_type_c = cstring_arg(media_type.as_str(), "media type")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let media_type_c = string_arg(media_type.as_str(), "media type")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let result = unsafe {
             ffi::av_writer_add_caption_input(
                 self.ptr,
@@ -646,7 +654,7 @@ impl Writer {
                 "end_session requires a numeric time with a positive timescale".into(),
             ));
         }
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_end_session(
                 self.ptr,
@@ -663,7 +671,7 @@ impl Writer {
     }
 
     pub fn cancel(self) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe { ffi::av_writer_cancel(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -675,7 +683,7 @@ impl Writer {
     ///
     /// The writer remains usable, but subsequent segment data is discarded.
     pub fn remove_segment_callback(&self) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe { ffi::av_writer_remove_segment_callback(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -686,21 +694,17 @@ impl Writer {
     pub fn attach_pixel_buffer_adaptor(
         &self,
         input_id: InputId,
-        source_pixel_buffer_attributes: Option<&JsonValue>,
+        source_pixel_buffer_attributes: Option<&PropertyValue>,
     ) -> Result<(), AVWriterError> {
-        let attrs_json = source_pixel_buffer_attributes
-            .map(serialize_json)
-            .transpose()?;
-        let attrs_c = attrs_json
-            .as_ref()
-            .map(|value| cstring_arg(value, "pixel buffer attributes json"))
-            .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let attrs_c = source_pixel_buffer_attributes.map(payload_arg);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_attach_pixel_buffer_adaptor_json(
+            ffi::av_writer_attach_pixel_buffer_adaptor_payload(
                 self.ptr,
                 input_id.0,
-                attrs_c.as_ref().map_or(ptr::null(), |value| value.as_ptr()),
+                attrs_c
+                    .as_ref()
+                    .map_or(ptr::null(), super::super::binary::Argument::as_ptr),
                 &raw mut err_msg,
             )
         };
@@ -713,18 +717,15 @@ impl Writer {
     pub fn pixel_buffer_source_attributes(
         &self,
         input_id: InputId,
-    ) -> Result<Option<JsonValue>, AVWriterError> {
-        parse_optional_json_string(
-            self.input_info(input_id)?
-                .pixel_buffer_source_attributes_json,
-        )
+    ) -> Result<Option<PropertyValue>, AVWriterError> {
+        Ok(self.input_info(input_id)?.pixel_buffer_source_attributes)
     }
 
     pub fn pixel_buffer_pool(
         &self,
         input_id: InputId,
     ) -> Result<Option<CVPixelBufferPool>, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr =
             unsafe { ffi::av_writer_pixel_buffer_pool(self.ptr, input_id.0, &raw mut err_msg) };
         if !err_msg.is_null() {
@@ -737,21 +738,17 @@ impl Writer {
     pub fn attach_tagged_pixel_buffer_group_adaptor(
         &self,
         input_id: InputId,
-        source_pixel_buffer_attributes: Option<&JsonValue>,
+        source_pixel_buffer_attributes: Option<&PropertyValue>,
     ) -> Result<(), AVWriterError> {
-        let attrs_json = source_pixel_buffer_attributes
-            .map(serialize_json)
-            .transpose()?;
-        let attrs_c = attrs_json
-            .as_ref()
-            .map(|value| cstring_arg(value, "tagged pixel buffer attributes json"))
-            .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let attrs_c = source_pixel_buffer_attributes.map(payload_arg);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_attach_tagged_pixel_buffer_group_adaptor_json(
+            ffi::av_writer_attach_tagged_pixel_buffer_group_adaptor_payload(
                 self.ptr,
                 input_id.0,
-                attrs_c.as_ref().map_or(ptr::null(), |value| value.as_ptr()),
+                attrs_c
+                    .as_ref()
+                    .map_or(ptr::null(), super::super::binary::Argument::as_ptr),
                 &raw mut err_msg,
             )
         };
@@ -764,11 +761,10 @@ impl Writer {
     pub fn tagged_pixel_buffer_source_attributes(
         &self,
         input_id: InputId,
-    ) -> Result<Option<JsonValue>, AVWriterError> {
-        parse_optional_json_string(
-            self.input_info(input_id)?
-                .tagged_pixel_buffer_source_attributes_json,
-        )
+    ) -> Result<Option<PropertyValue>, AVWriterError> {
+        Ok(self
+            .input_info(input_id)?
+            .tagged_pixel_buffer_source_attributes)
     }
 
     pub fn tagged_pixel_buffer_pool(
@@ -791,7 +787,7 @@ impl Writer {
             .map(|entry| entry.pixel_buffer.as_ptr())
             .collect();
         let layer_ids: Vec<i64> = buffers.iter().map(|entry| entry.layer_id).collect();
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_append_tagged_pixel_buffer_group(
                 self.ptr,
@@ -813,7 +809,7 @@ impl Writer {
     }
 
     pub fn attach_metadata_adaptor(&self, input_id: InputId) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_attach_metadata_adaptor(self.ptr, input_id.0, &raw mut err_msg)
         };
@@ -832,7 +828,7 @@ impl Writer {
         input_id: InputId,
         group: &TimedMetadataGroup,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_append_timed_metadata_group(
                 self.ptr,
@@ -849,7 +845,7 @@ impl Writer {
     }
 
     pub fn attach_caption_adaptor(&self, input_id: InputId) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_attach_caption_adaptor(self.ptr, input_id.0, &raw mut err_msg)
         };
@@ -868,11 +864,10 @@ impl Writer {
         input_id: InputId,
         caption: &Caption,
     ) -> Result<(), AVWriterError> {
-        let payload = serialize_json(caption)?;
-        let payload_c = cstring_arg(&payload, "caption json")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let payload_c = payload_arg(caption);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_append_caption_json(
+            ffi::av_writer_append_caption_payload(
                 self.ptr,
                 input_id.0,
                 payload_c.as_ptr(),
@@ -891,11 +886,10 @@ impl Writer {
         input_id: InputId,
         caption_group: &CaptionGroup,
     ) -> Result<(), AVWriterError> {
-        let payload = serialize_json(caption_group)?;
-        let payload_c = cstring_arg(&payload, "caption group json")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let payload_c = payload_arg(caption_group);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
-            ffi::av_writer_append_caption_group_json(
+            ffi::av_writer_append_caption_group_payload(
                 self.ptr,
                 input_id.0,
                 payload_c.as_ptr(),
@@ -916,8 +910,8 @@ impl Writer {
     pub fn input_output_settings(
         &self,
         input_id: InputId,
-    ) -> Result<Option<JsonValue>, AVWriterError> {
-        parse_optional_json_string(self.input_info(input_id)?.output_settings_json)
+    ) -> Result<Option<PropertyValue>, AVWriterError> {
+        Ok(self.input_info(input_id)?.output_settings)
     }
 
     pub fn input_source_format_hint(
@@ -930,7 +924,7 @@ impl Writer {
     }
 
     pub fn input_metadata(&self, input_id: InputId) -> Result<Vec<MetadataItem>, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let array =
             unsafe { ffi::av_writer_input_metadata(self.ptr, input_id.0, &raw mut err_msg) };
         if array.is_null() {
@@ -945,7 +939,7 @@ impl Writer {
         metadata: &[MetadataItem],
     ) -> Result<(), AVWriterError> {
         let item_ptrs = MetadataItem::native_ptrs(metadata)?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_set_input_metadata_items(
                 self.ptr,
@@ -980,7 +974,7 @@ impl Writer {
         input_id: InputId,
         expects_media_data_in_real_time: bool,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_set_expects_media_data_in_real_time(
                 self.ptr,
@@ -1003,7 +997,7 @@ impl Writer {
     ) -> Result<(), AVWriterError> {
         let state = Box::new(ReadyCallbackState::new(callback));
         let userdata = Box::into_raw(state).cast::<c_void>();
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_request_media_data_when_ready(
                 self.ptr,
@@ -1026,7 +1020,7 @@ impl Writer {
     /// Native removal while writing marks the input as finished because the
     /// framework does not expose independent cancellation for these blocks.
     pub fn remove_input_callbacks(&self, input_id: InputId) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_remove_callbacks(self.ptr, input_id.0, &raw mut err_msg)
         };
@@ -1037,7 +1031,7 @@ impl Writer {
     }
 
     pub fn mark_input_as_finished(&self, input_id: InputId) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_mark_as_finished(self.ptr, input_id.0, &raw mut err_msg)
         };
@@ -1095,7 +1089,7 @@ impl Writer {
         width: f64,
         height: f64,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_set_natural_size(
                 self.ptr,
@@ -1128,7 +1122,7 @@ impl Writer {
         input_id: InputId,
         transform: [f64; 6],
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_set_transform(
                 self.ptr,
@@ -1157,7 +1151,7 @@ impl Writer {
         input_id: InputId,
         preferred_volume: f32,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_set_preferred_volume(
                 self.ptr,
@@ -1184,7 +1178,7 @@ impl Writer {
         input_id: InputId,
         enabled: bool,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_set_marks_output_track_as_enabled(
                 self.ptr,
@@ -1208,7 +1202,7 @@ impl Writer {
         input_id: InputId,
         media_time_scale: i32,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_set_media_time_scale(
                 self.ptr,
@@ -1235,7 +1229,7 @@ impl Writer {
         input_id: InputId,
         duration: CMTime,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_set_preferred_media_chunk_duration(
                 self.ptr,
@@ -1264,7 +1258,7 @@ impl Writer {
         input_id: InputId,
         alignment: i64,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_set_preferred_media_chunk_alignment(
                 self.ptr,
@@ -1315,8 +1309,8 @@ impl Writer {
         input_id: InputId,
         location: InputMediaDataLocation,
     ) -> Result<(), AVWriterError> {
-        let location_c = cstring_arg(location.as_str(), "media data location")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let location_c = string_arg(location.as_str(), "media data location")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_set_media_data_location(
                 self.ptr,
@@ -1337,8 +1331,8 @@ impl Writer {
         other_input_id: InputId,
         association_type: &TrackAssociationType,
     ) -> Result<bool, AVWriterError> {
-        let association_type_c = cstring_arg(association_type.as_str(), "track association type")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let association_type_c = string_arg(association_type.as_str(), "track association type")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_can_add_track_association(
                 self.ptr,
@@ -1361,8 +1355,8 @@ impl Writer {
         other_input_id: InputId,
         association_type: &TrackAssociationType,
     ) -> Result<(), AVWriterError> {
-        let association_type_c = cstring_arg(association_type.as_str(), "track association type")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let association_type_c = string_arg(association_type.as_str(), "track association type")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_add_track_association(
                 self.ptr,
@@ -1392,7 +1386,7 @@ impl Writer {
         input_id: InputId,
         enabled: bool,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_set_performs_multi_pass_encoding_if_supported(
                 self.ptr,
@@ -1429,7 +1423,7 @@ impl Writer {
     ) -> Result<(), AVWriterError> {
         let state = Box::new(PassDescriptionCallbackState::new(callback));
         let userdata = Box::into_raw(state).cast::<c_void>();
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_respond_to_each_pass_description(
                 self.ptr,
@@ -1448,7 +1442,7 @@ impl Writer {
     }
 
     pub fn mark_current_pass_as_finished(&self, input_id: InputId) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_input_mark_current_pass_as_finished(
                 self.ptr,
@@ -1489,7 +1483,7 @@ impl Writer {
         &self,
         sequence_number: i64,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_set_initial_movie_fragment_sequence_number(
                 self.ptr,
@@ -1508,7 +1502,7 @@ impl Writer {
     }
 
     pub fn set_produces_combinable_fragments(&self, enabled: bool) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_set_produces_combinable_fragments(self.ptr, enabled, &raw mut err_msg)
         };
@@ -1531,7 +1525,7 @@ impl Writer {
     }
 
     pub fn set_movie_time_scale(&self, movie_time_scale: i32) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_set_movie_time_scale(self.ptr, movie_time_scale, &raw mut err_msg)
         };
@@ -1577,15 +1571,15 @@ impl Writer {
     ) -> Result<(), AVWriterError> {
         let profile_c = profile
             .as_ref()
-            .map(|value| cstring_arg(value.as_str(), "file type profile"))
+            .map(|value| string_arg(value.as_str(), "file type profile"))
             .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_set_output_file_type_profile(
                 self.ptr,
                 profile_c
                     .as_ref()
-                    .map_or(ptr::null(), |value| value.as_ptr()),
+                    .map_or(ptr::null(), super::super::binary::Argument::as_ptr),
                 &raw mut err_msg,
             )
         };
@@ -1610,7 +1604,7 @@ impl Writer {
                 "flush_segment requires an indefinite preferred output segment interval".into(),
             ));
         }
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe { ffi::av_writer_flush_segment(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -1619,21 +1613,27 @@ impl Writer {
     }
 
     fn writer_info(&self) -> Result<WriterInfoPayload, AVWriterError> {
-        let ptr = unsafe { ffi::av_writer_info_json(self.ptr) };
-        parse_json_ptr(ptr, "writer info")
+        let ptr = unsafe { ffi::av_writer_info_payload(self.ptr) };
+        take_payload(ptr, "writer info")
     }
 
     fn input_info(&self, input_id: InputId) -> Result<InputInfoPayload, AVWriterError> {
-        let ptr = unsafe { ffi::av_writer_input_info_json(self.ptr, input_id.0) };
-        parse_json_ptr(ptr, "input info")
+        let ptr = unsafe { ffi::av_writer_input_info_payload(self.ptr, input_id.0) };
+        take_payload(ptr, "input info")
     }
 
     fn set_writer_time(
         &self,
-        func: unsafe extern "C" fn(*mut c_void, i64, i32, i32, *mut *mut c_char) -> i32,
+        func: unsafe extern "C" fn(
+            *mut c_void,
+            i64,
+            i32,
+            i32,
+            *mut *mut ffi::AVWOwnedPayload,
+        ) -> i32,
         time: CMTime,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             func(
                 self.ptr,
@@ -1653,16 +1653,23 @@ impl Writer {
         &self,
         input_id: InputId,
         value: Option<&str>,
-        func: unsafe extern "C" fn(*mut c_void, i32, *const c_char, *mut *mut c_char) -> i32,
+        func: unsafe extern "C" fn(
+            *mut c_void,
+            i32,
+            *const ffi::AVWString,
+            *mut *mut ffi::AVWOwnedPayload,
+        ) -> i32,
         context: &str,
     ) -> Result<(), AVWriterError> {
-        let value_c = value.map(|raw| cstring_arg(raw, context)).transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let value_c = value.map(|raw| string_arg(raw, context)).transpose()?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             func(
                 self.ptr,
                 input_id.0,
-                value_c.as_ref().map_or(ptr::null(), |raw| raw.as_ptr()),
+                value_c
+                    .as_ref()
+                    .map_or(ptr::null(), super::super::binary::Argument::as_ptr),
                 &raw mut err_msg,
             )
         };
@@ -1673,47 +1680,385 @@ impl Writer {
     }
 }
 
-fn serialize_json<T: ?Sized + Serialize>(value: &T) -> Result<String, AVWriterError> {
-    serde_json::to_string(value).map_err(|e| {
-        AVWriterError::InvalidArgument(format!("failed to serialize json payload: {e}"))
-    })
-}
+impl crate::binary::ToAbi for SizePayload {
+    type Abi = crate::ffi::AVWSize;
 
-fn parse_json_ptr<T: for<'de> Deserialize<'de>>(
-    ptr: *mut c_char,
-    context: &str,
-) -> Result<T, AVWriterError> {
-    let raw = take_swift_string(ptr).ok_or_else(|| {
-        AVWriterError::InvalidState(format!("swift bridge returned no {context} payload"))
-    })?;
-    serde_json::from_str(&raw).map_err(|e| {
-        AVWriterError::InvalidState(format!(
-            "failed to decode {context} json from swift bridge: {e}"
-        ))
-    })
-}
-
-fn parse_optional_json_string(raw: Option<String>) -> Result<Option<JsonValue>, AVWriterError> {
-    raw.map(|value| {
-        serde_json::from_str(&value).map_err(|e| {
-            AVWriterError::InvalidState(format!("failed to decode nested json payload: {e}"))
-        })
-    })
-    .transpose()
-}
-
-fn cstring_arg(value: &str, context: &str) -> Result<CString, AVWriterError> {
-    CString::new(value)
-        .map_err(|e| AVWriterError::InvalidArgument(format!("{context} contained NUL byte: {e}")))
-}
-
-fn take_swift_string(ptr: *mut c_char) -> Option<String> {
-    if ptr.is_null() {
-        return None;
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            width: crate::binary::ToAbi::to_abi(&self.width, arena),
+            height: crate::binary::ToAbi::to_abi(&self.height, arena),
+        }
     }
-    unsafe {
-        let string = std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned();
-        ffi::avw_string_free(ptr);
-        Some(string)
+}
+
+impl crate::binary::FromAbi for SizePayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            width: crate::binary::FromAbi::from_abi(&raw.width)?,
+            height: crate::binary::FromAbi::from_abi(&raw.height)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for TransformPayload {
+    type Abi = crate::ffi::AVWTransform;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            a: crate::binary::ToAbi::to_abi(&self.a, arena),
+            b: crate::binary::ToAbi::to_abi(&self.b, arena),
+            c: crate::binary::ToAbi::to_abi(&self.c, arena),
+            d: crate::binary::ToAbi::to_abi(&self.d, arena),
+            tx: crate::binary::ToAbi::to_abi(&self.tx, arena),
+            ty: crate::binary::ToAbi::to_abi(&self.ty, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for TransformPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            a: crate::binary::FromAbi::from_abi(&raw.a)?,
+            b: crate::binary::FromAbi::from_abi(&raw.b)?,
+            c: crate::binary::FromAbi::from_abi(&raw.c)?,
+            d: crate::binary::FromAbi::from_abi(&raw.d)?,
+            tx: crate::binary::FromAbi::from_abi(&raw.tx)?,
+            ty: crate::binary::FromAbi::from_abi(&raw.ty)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for InputGroupPayload {
+    type Abi = crate::ffi::AVWInputGroup;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            inputs: crate::binary::ToAbi::to_abi(&self.inputs, arena),
+            default_input: crate::binary::ToAbi::to_abi(&self.default_input, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for InputGroupPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            inputs: crate::binary::FromAbi::from_abi(&raw.inputs)?,
+            default_input: crate::binary::FromAbi::from_abi(&raw.default_input)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for InputPassDescription {
+    type Abi = crate::ffi::AVWPassDescription;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            source_time_ranges: crate::binary::ToAbi::to_abi(&self.source_time_ranges, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for InputPassDescription {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            source_time_ranges: crate::binary::FromAbi::from_abi(&raw.source_time_ranges)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for SegmentReportSampleInfo {
+    type Abi = crate::ffi::AVWSegmentReportSample;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            presentation_time_stamp: crate::binary::ToAbi::to_abi(
+                &self.presentation_time_stamp,
+                arena,
+            ),
+            offset: crate::binary::ToAbi::to_abi(&self.offset, arena),
+            length: crate::binary::ToAbi::to_abi(&self.length, arena),
+            is_sync_sample: crate::binary::ToAbi::to_abi(&self.is_sync_sample, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for SegmentReportSampleInfo {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            presentation_time_stamp: crate::binary::FromAbi::from_abi(
+                &raw.presentation_time_stamp,
+            )?,
+            offset: crate::binary::FromAbi::from_abi(&raw.offset)?,
+            length: crate::binary::FromAbi::from_abi(&raw.length)?,
+            is_sync_sample: crate::binary::FromAbi::from_abi(&raw.is_sync_sample)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for SegmentTrackReport {
+    type Abi = crate::ffi::AVWSegmentTrackReport;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            track_id: crate::binary::ToAbi::to_abi(&self.track_id, arena),
+            media_type: crate::binary::ToAbi::to_abi(&self.media_type, arena),
+            earliest_presentation_time_stamp: crate::binary::ToAbi::to_abi(
+                &self.earliest_presentation_time_stamp,
+                arena,
+            ),
+            duration: crate::binary::ToAbi::to_abi(&self.duration, arena),
+            first_video_sample_information: crate::binary::ToAbi::to_abi(
+                &self.first_video_sample_information,
+                arena,
+            ),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for SegmentTrackReport {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            track_id: crate::binary::FromAbi::from_abi(&raw.track_id)?,
+            media_type: crate::binary::FromAbi::from_abi(&raw.media_type)?,
+            earliest_presentation_time_stamp: crate::binary::FromAbi::from_abi(
+                &raw.earliest_presentation_time_stamp,
+            )?,
+            duration: crate::binary::FromAbi::from_abi(&raw.duration)?,
+            first_video_sample_information: crate::binary::FromAbi::from_abi(
+                &raw.first_video_sample_information,
+            )?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for SegmentReport {
+    type Abi = crate::ffi::AVWSegmentReport;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            segment_type: crate::binary::ToAbi::to_abi(&self.segment_type, arena),
+            track_reports: crate::binary::ToAbi::to_abi(&self.track_reports, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for SegmentReport {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            segment_type: crate::binary::FromAbi::from_abi(&raw.segment_type)?,
+            track_reports: crate::binary::FromAbi::from_abi(&raw.track_reports)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for WriterInfoPayload {
+    type Abi = crate::ffi::AVWWriterInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            output_path: crate::binary::ToAbi::to_abi(&self.output_path, arena),
+            output_file_type: crate::binary::ToAbi::to_abi(&self.output_file_type, arena),
+            available_media_types: crate::binary::ToAbi::to_abi(&self.available_media_types, arena),
+            status: crate::binary::ToAbi::to_abi(&self.status, arena),
+            error_message: crate::binary::ToAbi::to_abi(&self.error_message, arena),
+            should_optimize_for_network_use: crate::binary::ToAbi::to_abi(
+                &self.should_optimize_for_network_use,
+                arena,
+            ),
+            directory_for_temporary_files: crate::binary::ToAbi::to_abi(
+                &self.directory_for_temporary_files,
+                arena,
+            ),
+            inputs: crate::binary::ToAbi::to_abi(&self.inputs, arena),
+            input_groups: crate::binary::ToAbi::to_abi(&self.input_groups, arena),
+            movie_fragment_interval: crate::binary::ToAbi::to_abi(
+                &self.movie_fragment_interval,
+                arena,
+            ),
+            initial_movie_fragment_interval: crate::binary::ToAbi::to_abi(
+                &self.initial_movie_fragment_interval,
+                arena,
+            ),
+            initial_movie_fragment_sequence_number: crate::binary::ToAbi::to_abi(
+                &self.initial_movie_fragment_sequence_number,
+                arena,
+            ),
+            produces_combinable_fragments: crate::binary::ToAbi::to_abi(
+                &self.produces_combinable_fragments,
+                arena,
+            ),
+            overall_duration_hint: crate::binary::ToAbi::to_abi(&self.overall_duration_hint, arena),
+            movie_time_scale: crate::binary::ToAbi::to_abi(&self.movie_time_scale, arena),
+            preferred_output_segment_interval: crate::binary::ToAbi::to_abi(
+                &self.preferred_output_segment_interval,
+                arena,
+            ),
+            initial_segment_start_time: crate::binary::ToAbi::to_abi(
+                &self.initial_segment_start_time,
+                arena,
+            ),
+            output_file_type_profile: crate::binary::ToAbi::to_abi(
+                &self.output_file_type_profile,
+                arena,
+            ),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for WriterInfoPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            output_path: crate::binary::FromAbi::from_abi(&raw.output_path)?,
+            output_file_type: crate::binary::FromAbi::from_abi(&raw.output_file_type)?,
+            available_media_types: crate::binary::FromAbi::from_abi(&raw.available_media_types)?,
+            status: crate::binary::FromAbi::from_abi(&raw.status)?,
+            error_message: crate::binary::FromAbi::from_abi(&raw.error_message)?,
+            should_optimize_for_network_use: crate::binary::FromAbi::from_abi(
+                &raw.should_optimize_for_network_use,
+            )?,
+            directory_for_temporary_files: crate::binary::FromAbi::from_abi(
+                &raw.directory_for_temporary_files,
+            )?,
+            inputs: crate::binary::FromAbi::from_abi(&raw.inputs)?,
+            input_groups: crate::binary::FromAbi::from_abi(&raw.input_groups)?,
+            movie_fragment_interval: crate::binary::FromAbi::from_abi(
+                &raw.movie_fragment_interval,
+            )?,
+            initial_movie_fragment_interval: crate::binary::FromAbi::from_abi(
+                &raw.initial_movie_fragment_interval,
+            )?,
+            initial_movie_fragment_sequence_number: crate::binary::FromAbi::from_abi(
+                &raw.initial_movie_fragment_sequence_number,
+            )?,
+            produces_combinable_fragments: crate::binary::FromAbi::from_abi(
+                &raw.produces_combinable_fragments,
+            )?,
+            overall_duration_hint: crate::binary::FromAbi::from_abi(&raw.overall_duration_hint)?,
+            movie_time_scale: crate::binary::FromAbi::from_abi(&raw.movie_time_scale)?,
+            preferred_output_segment_interval: crate::binary::FromAbi::from_abi(
+                &raw.preferred_output_segment_interval,
+            )?,
+            initial_segment_start_time: crate::binary::FromAbi::from_abi(
+                &raw.initial_segment_start_time,
+            )?,
+            output_file_type_profile: crate::binary::FromAbi::from_abi(
+                &raw.output_file_type_profile,
+            )?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for InputInfoPayload {
+    type Abi = crate::ffi::AVWInputInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            media_type: crate::binary::ToAbi::to_abi(&self.media_type, arena),
+            output_settings: crate::binary::ToAbi::to_abi(&self.output_settings, arena),
+            ready_for_more_media_data: crate::binary::ToAbi::to_abi(
+                &self.ready_for_more_media_data,
+                arena,
+            ),
+            expects_media_data_in_real_time: crate::binary::ToAbi::to_abi(
+                &self.expects_media_data_in_real_time,
+                arena,
+            ),
+            language_code: crate::binary::ToAbi::to_abi(&self.language_code, arena),
+            extended_language_tag: crate::binary::ToAbi::to_abi(&self.extended_language_tag, arena),
+            natural_size: crate::binary::ToAbi::to_abi(&self.natural_size, arena),
+            transform: crate::binary::ToAbi::to_abi(&self.transform, arena),
+            preferred_volume: crate::binary::ToAbi::to_abi(&self.preferred_volume, arena),
+            marks_output_track_as_enabled: crate::binary::ToAbi::to_abi(
+                &self.marks_output_track_as_enabled,
+                arena,
+            ),
+            media_time_scale: crate::binary::ToAbi::to_abi(&self.media_time_scale, arena),
+            preferred_media_chunk_duration: crate::binary::ToAbi::to_abi(
+                &self.preferred_media_chunk_duration,
+                arena,
+            ),
+            preferred_media_chunk_alignment: crate::binary::ToAbi::to_abi(
+                &self.preferred_media_chunk_alignment,
+                arena,
+            ),
+            sample_reference_base_url: crate::binary::ToAbi::to_abi(
+                &self.sample_reference_base_url,
+                arena,
+            ),
+            media_data_location: crate::binary::ToAbi::to_abi(&self.media_data_location, arena),
+            performs_multi_pass_encoding_if_supported: crate::binary::ToAbi::to_abi(
+                &self.performs_multi_pass_encoding_if_supported,
+                arena,
+            ),
+            can_perform_multiple_passes: crate::binary::ToAbi::to_abi(
+                &self.can_perform_multiple_passes,
+                arena,
+            ),
+            current_pass_description: crate::binary::ToAbi::to_abi(
+                &self.current_pass_description,
+                arena,
+            ),
+            pixel_buffer_source_attributes: crate::binary::ToAbi::to_abi(
+                &self.pixel_buffer_source_attributes,
+                arena,
+            ),
+            tagged_pixel_buffer_source_attributes: crate::binary::ToAbi::to_abi(
+                &self.tagged_pixel_buffer_source_attributes,
+                arena,
+            ),
+            has_metadata_adaptor: crate::binary::ToAbi::to_abi(&self.has_metadata_adaptor, arena),
+            has_caption_adaptor: crate::binary::ToAbi::to_abi(&self.has_caption_adaptor, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for InputInfoPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            media_type: crate::binary::FromAbi::from_abi(&raw.media_type)?,
+            output_settings: crate::binary::FromAbi::from_abi(&raw.output_settings)?,
+            ready_for_more_media_data: crate::binary::FromAbi::from_abi(
+                &raw.ready_for_more_media_data,
+            )?,
+            expects_media_data_in_real_time: crate::binary::FromAbi::from_abi(
+                &raw.expects_media_data_in_real_time,
+            )?,
+            language_code: crate::binary::FromAbi::from_abi(&raw.language_code)?,
+            extended_language_tag: crate::binary::FromAbi::from_abi(&raw.extended_language_tag)?,
+            natural_size: crate::binary::FromAbi::from_abi(&raw.natural_size)?,
+            transform: crate::binary::FromAbi::from_abi(&raw.transform)?,
+            preferred_volume: crate::binary::FromAbi::from_abi(&raw.preferred_volume)?,
+            marks_output_track_as_enabled: crate::binary::FromAbi::from_abi(
+                &raw.marks_output_track_as_enabled,
+            )?,
+            media_time_scale: crate::binary::FromAbi::from_abi(&raw.media_time_scale)?,
+            preferred_media_chunk_duration: crate::binary::FromAbi::from_abi(
+                &raw.preferred_media_chunk_duration,
+            )?,
+            preferred_media_chunk_alignment: crate::binary::FromAbi::from_abi(
+                &raw.preferred_media_chunk_alignment,
+            )?,
+            sample_reference_base_url: crate::binary::FromAbi::from_abi(
+                &raw.sample_reference_base_url,
+            )?,
+            media_data_location: crate::binary::FromAbi::from_abi(&raw.media_data_location)?,
+            performs_multi_pass_encoding_if_supported: crate::binary::FromAbi::from_abi(
+                &raw.performs_multi_pass_encoding_if_supported,
+            )?,
+            can_perform_multiple_passes: crate::binary::FromAbi::from_abi(
+                &raw.can_perform_multiple_passes,
+            )?,
+            current_pass_description: crate::binary::FromAbi::from_abi(
+                &raw.current_pass_description,
+            )?,
+            pixel_buffer_source_attributes: crate::binary::FromAbi::from_abi(
+                &raw.pixel_buffer_source_attributes,
+            )?,
+            tagged_pixel_buffer_source_attributes: crate::binary::FromAbi::from_abi(
+                &raw.tagged_pixel_buffer_source_attributes,
+            )?,
+            has_metadata_adaptor: crate::binary::FromAbi::from_abi(&raw.has_metadata_adaptor)?,
+            has_caption_adaptor: crate::binary::FromAbi::from_abi(&raw.has_caption_adaptor)?,
+        })
     }
 }

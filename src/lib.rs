@@ -44,7 +44,10 @@
 pub mod async_api;
 
 mod asset;
+mod binary;
 mod bridge_support;
+mod property;
+pub use property::PropertyValue;
 mod callbacks;
 pub mod caption;
 mod composition;

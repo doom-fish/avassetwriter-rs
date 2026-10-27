@@ -5,44 +5,44 @@ import CoreMedia
 import Dispatch
 import Foundation
 
-enum CaptionUnitsTypeRaw: String, Codable {
+enum CaptionUnitsTypeRaw: String {
     case unspecified
     case cells
     case percent
 }
 
-struct CaptionDimensionPayload: Codable {
+struct CaptionDimensionPayload {
     let value: Double
     let units: CaptionUnitsTypeRaw
 }
 
-struct CaptionPointPayload: Codable {
+struct CaptionPointPayload {
     let x: CaptionDimensionPayload
     let y: CaptionDimensionPayload
 }
 
-struct CaptionSizePayload: Codable {
+struct CaptionSizePayload {
     let width: CaptionDimensionPayload
     let height: CaptionDimensionPayload
 }
 
-enum CaptionRegionDisplayAlignmentRaw: String, Codable {
+enum CaptionRegionDisplayAlignmentRaw: String {
     case before
     case center
     case after
 }
 
-enum CaptionRegionWritingModeRaw: String, Codable {
+enum CaptionRegionWritingModeRaw: String {
     case left_to_right_and_top_to_bottom
     case top_to_bottom_and_right_to_left
 }
 
-enum CaptionRegionScrollRaw: String, Codable {
+enum CaptionRegionScrollRaw: String {
     case none
     case roll_up
 }
 
-struct CaptionRegionPayload: Codable {
+struct CaptionRegionPayload {
     let identifier: String?
     let origin: CaptionPointPayload
     let size: CaptionSizePayload
@@ -51,7 +51,7 @@ struct CaptionRegionPayload: Codable {
     let writingMode: CaptionRegionWritingModeRaw
 }
 
-enum CaptionTextAlignmentRaw: String, Codable {
+enum CaptionTextAlignmentRaw: String {
     case start
     case end
     case center
@@ -59,73 +59,73 @@ enum CaptionTextAlignmentRaw: String, Codable {
     case right
 }
 
-enum CaptionAnimationRaw: String, Codable {
+enum CaptionAnimationRaw: String {
     case none
     case character_reveal
 }
 
-enum CaptionRubyPositionRaw: String, Codable {
+enum CaptionRubyPositionRaw: String {
     case before
     case after
 }
 
-enum CaptionRubyAlignmentRaw: String, Codable {
+enum CaptionRubyAlignmentRaw: String {
     case start
     case center
     case distribute_space_between
     case distribute_space_around
 }
 
-struct CaptionRubyPayload: Codable {
+struct CaptionRubyPayload {
     let text: String
     let position: CaptionRubyPositionRaw
     let alignment: CaptionRubyAlignmentRaw
 }
 
-struct CaptionRubySpanPayload: Codable {
+struct CaptionRubySpanPayload {
     let start: Int
     let length: Int
     let ruby: CaptionRubyPayload
 }
 
-struct CaptionBoundsPayload: Codable {
+struct CaptionBoundsPayload {
     let x: Double
     let y: Double
     let width: Double
     let height: Double
 }
 
-struct CaptionRendererInfoPayload: Codable {
+struct CaptionRendererInfoPayload {
     let captions: [CaptionPayload]
     let bounds: CaptionBoundsPayload
 }
 
-struct CaptionRendererScenePayload: Codable {
+struct CaptionRendererScenePayload {
     let timeRange: TimeRangePayload
     let hasActiveCaptions: Bool
     let needsPeriodicRefresh: Bool
 }
 
-struct CaptionConversionSettingsPayload: Codable {
+struct CaptionConversionSettingsPayload {
     let mediaSubtype: String
     let timeCodeFrameDuration: TimePayload?
     let useDropFrameTimeCode: Bool
 }
 
-struct CaptionConversionAdjustmentPayload: Codable {
+struct CaptionConversionAdjustmentPayload {
     let adjustmentType: String
     let startTimeOffset: TimePayload?
     let durationOffset: TimePayload?
 }
 
-struct CaptionConversionWarningPayload: Codable {
+struct CaptionConversionWarningPayload {
     let warningType: String
     let rangeOfCaptionsStart: Int
     let rangeOfCaptionsLength: Int
     let adjustment: CaptionConversionAdjustmentPayload?
 }
 
-struct CaptionConversionValidatorInfoPayload: Codable {
+struct CaptionConversionValidatorInfoPayload {
     let status: Int
     let captions: [CaptionPayload]
     let timeRange: TimeRangePayload
@@ -470,7 +470,7 @@ func caption(from payload: CaptionPayload) throws -> AVCaption {
         caption.animation = avCaptionAnimation(from: animation)
     }
     let textLength = (payload.text as NSString).length
-    for rubySpan in payload.rubySpans ?? [] {
+    for rubySpan in payload.rubySpans {
         guard rubySpan.start >= 0, rubySpan.length >= 0, rubySpan.start <= textLength - rubySpan.length else {
             throw BridgeError.message(
                 "ruby span \(rubySpan.start)+\(rubySpan.length) is outside the caption text (\(textLength) UTF-16 units)"
@@ -488,7 +488,7 @@ func encodeCaption(_ caption: AVCaption) -> CaptionPayload {
         region: caption.region.map(encodeCaptionRegion),
         textAlignment: encodeCaptionTextAlignment(caption.textAlignment),
         animation: encodeCaptionAnimation(caption.animation),
-        rubySpans: nil
+        rubySpans: []
     )
 }
 
@@ -525,19 +525,19 @@ private func predefinedCaptionRegion(named kind: String) -> AVCaptionRegion? {
     }
 }
 
-@_cdecl("av_caption_region_predefined_json")
-public func av_caption_region_predefined_json(
-    _ kindPtr: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
-    guard let region = predefinedCaptionRegion(named: String(cString: kindPtr)) else {
-        outErrorMessage?.pointee = ffiString("unknown predefined caption region")
+@_cdecl("av_caption_region_predefined_payload")
+public func av_caption_region_predefined_payload(
+    _ kindPtr: UnsafePointer<AVWString>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
+    guard let region = predefinedCaptionRegion(named: String(abi: kindPtr)) else {
+        outErrorMessage?.pointee = makePayload("unknown predefined caption region")
         return nil
     }
     do {
-        return ffiString(try encodeJson(encodeCaptionRegion(region)))
+        return makePayload(encodeCaptionRegion(region))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -547,37 +547,37 @@ public func av_caption_grouper_create() -> UnsafeMutableRawPointer? {
     Unmanaged.passRetained(AVCaptionGrouper()).toOpaque()
 }
 
-@_cdecl("av_caption_grouper_add_caption_json")
-public func av_caption_grouper_add_caption_json(
+@_cdecl("av_caption_grouper_add_caption_payload")
+public func av_caption_grouper_add_caption_payload(
     _ grouperPtr: UnsafeMutableRawPointer,
-    _ captionJson: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ captionPayload: UnsafePointer<AVWCaption>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let grouper = Unmanaged<AVCaptionGrouper>.fromOpaque(grouperPtr).takeUnretainedValue()
     do {
-        let payload = try decodeJson(captionJson, as: CaptionPayload.self)
+        let payload = try readPayload(captionPayload, as: CaptionPayload.self)
         try grouper.add(caption(from: payload))
         return AVW_OK
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return AVW_INVALID_ARGUMENT
     }
 }
 
-@_cdecl("av_caption_grouper_flush_groups_json")
-public func av_caption_grouper_flush_groups_json(
+@_cdecl("av_caption_grouper_flush_groups_payload")
+public func av_caption_grouper_flush_groups_payload(
     _ grouperPtr: UnsafeMutableRawPointer,
     _ upToTimeValue: Int64,
     _ upToTimeScale: Int32,
     _ upToTimeKind: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let grouper = Unmanaged<AVCaptionGrouper>.fromOpaque(grouperPtr).takeUnretainedValue()
     do {
         let groups = grouper.flushAddedCaptions(upTo: cmTime(value: upToTimeValue, timescale: upToTimeScale, kind: upToTimeKind))
-        return ffiString(try encodeJson(groups.map(encodeCaptionGroup)))
+        return makePayload(groups.map(encodeCaptionGroup))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -590,21 +590,21 @@ public func av_caption_grouper_release(_ grouperPtr: UnsafeMutableRawPointer?) {
 
 @_cdecl("av_caption_format_conformer_create")
 public func av_caption_format_conformer_create(
-    _ settingsJson: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ settingsPayload: UnsafePointer<AVWCaptionConversionSettings>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     do {
-        let settings = try decodeJson(settingsJson, as: CaptionConversionSettingsPayload.self)
+        let settings = try readPayload(settingsPayload, as: CaptionConversionSettingsPayload.self)
         var message: NSString?
         guard let conformer = AVWXMakeCaptionFormatConformer(captionConversionSettings(from: settings), &message) else {
-            outErrorMessage?.pointee = ffiString(
+            outErrorMessage?.pointee = makePayload(
                 (message as String?) ?? "caption format conformer rejected its conversion settings"
             )
             return nil
         }
         return Unmanaged.passRetained(conformer).toOpaque()
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -626,19 +626,19 @@ public func av_caption_format_conformer_set_conforms_captions_to_time_range(
     conformer.conformsCaptionsToTimeRange = conforms
 }
 
-@_cdecl("av_caption_format_conformer_conformed_caption_json")
-public func av_caption_format_conformer_conformed_caption_json(
+@_cdecl("av_caption_format_conformer_conformed_caption_payload")
+public func av_caption_format_conformer_conformed_caption_payload(
     _ conformerPtr: UnsafeMutableRawPointer,
-    _ captionJson: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ captionPayload: UnsafePointer<AVWCaption>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let conformer = Unmanaged<AVCaptionFormatConformer>.fromOpaque(conformerPtr).takeUnretainedValue()
     do {
-        let payload = try decodeJson(captionJson, as: CaptionPayload.self)
+        let payload = try readPayload(captionPayload, as: CaptionPayload.self)
         let conformed = try conformer.conformedCaption(for: caption(from: payload))
-        return ffiString(try encodeJson(encodeCaption(conformed)))
+        return makePayload(encodeCaption(conformed))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -654,31 +654,31 @@ public func av_caption_renderer_create() -> UnsafeMutableRawPointer? {
     Unmanaged.passRetained(AVCaptionRenderer()).toOpaque()
 }
 
-@_cdecl("av_caption_renderer_info_json")
-public func av_caption_renderer_info_json(
+@_cdecl("av_caption_renderer_info_payload")
+public func av_caption_renderer_info_payload(
     _ rendererPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let renderer = Unmanaged<AVCaptionRenderer>.fromOpaque(rendererPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(encodeCaptionRendererInfoPayload(from: renderer)))
+        return makePayload(encodeCaptionRendererInfoPayload(from: renderer))
     } catch {
         return nil
     }
 }
 
-@_cdecl("av_caption_renderer_set_captions_json")
-public func av_caption_renderer_set_captions_json(
+@_cdecl("av_caption_renderer_set_captions_payload")
+public func av_caption_renderer_set_captions_payload(
     _ rendererPtr: UnsafeMutableRawPointer,
-    _ captionsJson: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ captionsPayload: UnsafePointer<AVWArray>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let renderer = Unmanaged<AVCaptionRenderer>.fromOpaque(rendererPtr).takeUnretainedValue()
     do {
-        let captions = try decodeJson(captionsJson, as: [CaptionPayload].self).map(caption(from:))
+        let captions = try readPayload(captionsPayload, as: [CaptionPayload].self).map(caption(from:))
         renderer.captions = captions
         return AVW_OK
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return AVW_INVALID_ARGUMENT
     }
 }
@@ -695,8 +695,8 @@ public func av_caption_renderer_set_bounds(
     renderer.bounds = CGRect(x: x, y: y, width: width, height: height)
 }
 
-@_cdecl("av_caption_renderer_scene_changes_json")
-public func av_caption_renderer_scene_changes_json(
+@_cdecl("av_caption_renderer_scene_changes_payload")
+public func av_caption_renderer_scene_changes_payload(
     _ rendererPtr: UnsafeMutableRawPointer,
     _ startValue: Int64,
     _ startScale: Int32,
@@ -704,17 +704,17 @@ public func av_caption_renderer_scene_changes_json(
     _ durationValue: Int64,
     _ durationScale: Int32,
     _ durationKind: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> UnsafeMutablePointer<CChar>? {
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let renderer = Unmanaged<AVCaptionRenderer>.fromOpaque(rendererPtr).takeUnretainedValue()
     do {
         let scenes = renderer.captionSceneChanges(in: CMTimeRange(
             start: cmTime(value: startValue, timescale: startScale, kind: startKind),
             duration: cmTime(value: durationValue, timescale: durationScale, kind: durationKind)
         ))
-        return ffiString(try encodeJson(scenes.map(encodeCaptionRendererScene)))
+        return makePayload(scenes.map(encodeCaptionRendererScene))
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -727,19 +727,19 @@ public func av_caption_renderer_release(_ rendererPtr: UnsafeMutableRawPointer?)
 
 @_cdecl("av_caption_conversion_validator_create")
 public func av_caption_conversion_validator_create(
-    _ captionsJson: UnsafePointer<CChar>,
+    _ captionsPayload: UnsafePointer<AVWArray>,
     _ startValue: Int64,
     _ startScale: Int32,
     _ startKind: Int32,
     _ durationValue: Int64,
     _ durationScale: Int32,
     _ durationKind: Int32,
-    _ settingsJson: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ settingsPayload: UnsafePointer<AVWCaptionConversionSettings>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     do {
-        let captions = try decodeJson(captionsJson, as: [CaptionPayload].self).map(caption(from:))
-        let settings = try decodeJson(settingsJson, as: CaptionConversionSettingsPayload.self)
+        let captions = try readPayload(captionsPayload, as: [CaptionPayload].self).map(caption(from:))
+        let settings = try readPayload(settingsPayload, as: CaptionConversionSettingsPayload.self)
         var message: NSString?
         guard let validator = AVWXMakeCaptionConversionValidator(
             captions,
@@ -750,25 +750,25 @@ public func av_caption_conversion_validator_create(
             captionConversionSettings(from: settings),
             &message
         ) else {
-            outErrorMessage?.pointee = ffiString(
+            outErrorMessage?.pointee = makePayload(
                 (message as String?) ?? "caption conversion validator rejected its conversion settings"
             )
             return nil
         }
         return Unmanaged.passRetained(validator).toOpaque()
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
 
-@_cdecl("av_caption_conversion_validator_info_json")
-public func av_caption_conversion_validator_info_json(
+@_cdecl("av_caption_conversion_validator_info_payload")
+public func av_caption_conversion_validator_info_payload(
     _ validatorPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let validator = Unmanaged<AVCaptionConversionValidator>.fromOpaque(validatorPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(encodeCaptionConversionValidatorInfoPayload(from: validator)))
+        return makePayload(encodeCaptionConversionValidatorInfoPayload(from: validator))
     } catch {
         return nil
     }
@@ -777,11 +777,11 @@ public func av_caption_conversion_validator_info_json(
 @_cdecl("av_caption_conversion_validator_validate")
 public func av_caption_conversion_validator_validate(
     _ validatorPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let validator = Unmanaged<AVCaptionConversionValidator>.fromOpaque(validatorPtr).takeUnretainedValue()
     guard validator.status == .unknown else {
-        outErrorMessage?.pointee = ffiString("caption conversion validator has already been started")
+        outErrorMessage?.pointee = makePayload("caption conversion validator has already been started")
         return AVW_INVALID_STATE
     }
     let semaphore = DispatchSemaphore(value: 0)
@@ -806,4 +806,434 @@ public func av_caption_conversion_validator_stop_validating(
 public func av_caption_conversion_validator_release(_ validatorPtr: UnsafeMutableRawPointer?) {
     guard let validatorPtr else { return }
     Unmanaged<AVCaptionConversionValidator>.fromOpaque(validatorPtr).release()
+}
+
+extension CaptionDimensionPayload: BridgePayload {
+    typealias ABI = AVWCaptionDimension
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            value: value.toABI(arena),
+            units: units.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            value: try .fromABI(raw.value),
+            units: try .fromABI(raw.units)
+        )
+    }
+}
+
+extension CaptionPointPayload: BridgePayload {
+    typealias ABI = AVWCaptionPoint
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            x: x.toABI(arena),
+            y: y.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            x: try .fromABI(raw.x),
+            y: try .fromABI(raw.y)
+        )
+    }
+}
+
+extension CaptionSizePayload: BridgePayload {
+    typealias ABI = AVWCaptionSize
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            width: width.toABI(arena),
+            height: height.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            width: try .fromABI(raw.width),
+            height: try .fromABI(raw.height)
+        )
+    }
+}
+
+extension CaptionRegionPayload: BridgePayload {
+    typealias ABI = AVWCaptionRegion
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            identifier: identifier.toABI(arena),
+            origin: origin.toABI(arena),
+            size: size.toABI(arena),
+            scroll: scroll.toABI(arena),
+            display_alignment: displayAlignment.toABI(arena),
+            writing_mode: writingMode.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            identifier: try .fromABI(raw.identifier),
+            origin: try .fromABI(raw.origin),
+            size: try .fromABI(raw.size),
+            scroll: try .fromABI(raw.scroll),
+            displayAlignment: try .fromABI(raw.display_alignment),
+            writingMode: try .fromABI(raw.writing_mode)
+        )
+    }
+}
+
+extension CaptionRubyPayload: BridgePayload {
+    typealias ABI = AVWCaptionRuby
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            text: text.toABI(arena),
+            position: position.toABI(arena),
+            alignment: alignment.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            text: try .fromABI(raw.text),
+            position: try .fromABI(raw.position),
+            alignment: try .fromABI(raw.alignment)
+        )
+    }
+}
+
+extension CaptionRubySpanPayload: BridgePayload {
+    typealias ABI = AVWCaptionRubySpan
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            start: start.toABI(arena),
+            length: length.toABI(arena),
+            ruby: ruby.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            start: try .fromABI(raw.start),
+            length: try .fromABI(raw.length),
+            ruby: try .fromABI(raw.ruby)
+        )
+    }
+}
+
+extension CaptionBoundsPayload: BridgePayload {
+    typealias ABI = AVWCaptionBounds
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            x: x.toABI(arena),
+            y: y.toABI(arena),
+            width: width.toABI(arena),
+            height: height.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            x: try .fromABI(raw.x),
+            y: try .fromABI(raw.y),
+            width: try .fromABI(raw.width),
+            height: try .fromABI(raw.height)
+        )
+    }
+}
+
+extension CaptionRendererInfoPayload: BridgePayload {
+    typealias ABI = AVWCaptionRendererInfo
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            captions: captions.toABI(arena),
+            bounds: bounds.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            captions: try .fromABI(raw.captions),
+            bounds: try .fromABI(raw.bounds)
+        )
+    }
+}
+
+extension CaptionRendererScenePayload: BridgePayload {
+    typealias ABI = AVWCaptionRendererScene
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            time_range: timeRange.toABI(arena),
+            has_active_captions: hasActiveCaptions.toABI(arena),
+            needs_periodic_refresh: needsPeriodicRefresh.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            timeRange: try .fromABI(raw.time_range),
+            hasActiveCaptions: try .fromABI(raw.has_active_captions),
+            needsPeriodicRefresh: try .fromABI(raw.needs_periodic_refresh)
+        )
+    }
+}
+
+extension CaptionConversionSettingsPayload: BridgePayload {
+    typealias ABI = AVWCaptionConversionSettings
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            media_subtype: mediaSubtype.toABI(arena),
+            time_code_frame_duration: timeCodeFrameDuration.toABI(arena),
+            use_drop_frame_time_code: useDropFrameTimeCode.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            mediaSubtype: try .fromABI(raw.media_subtype),
+            timeCodeFrameDuration: try .fromABI(raw.time_code_frame_duration),
+            useDropFrameTimeCode: try .fromABI(raw.use_drop_frame_time_code)
+        )
+    }
+}
+
+extension CaptionConversionAdjustmentPayload: BridgePayload {
+    typealias ABI = AVWCaptionConversionAdjustment
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            adjustment_type: adjustmentType.toABI(arena),
+            start_time_offset: startTimeOffset.toABI(arena),
+            duration_offset: durationOffset.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            adjustmentType: try .fromABI(raw.adjustment_type),
+            startTimeOffset: try .fromABI(raw.start_time_offset),
+            durationOffset: try .fromABI(raw.duration_offset)
+        )
+    }
+}
+
+extension CaptionConversionWarningPayload: BridgePayload {
+    typealias ABI = AVWCaptionConversionWarning
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            warning_type: warningType.toABI(arena),
+            range_of_captions_start: rangeOfCaptionsStart.toABI(arena),
+            range_of_captions_length: rangeOfCaptionsLength.toABI(arena),
+            adjustment: adjustment.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            warningType: try .fromABI(raw.warning_type),
+            rangeOfCaptionsStart: try .fromABI(raw.range_of_captions_start),
+            rangeOfCaptionsLength: try .fromABI(raw.range_of_captions_length),
+            adjustment: try .fromABI(raw.adjustment)
+        )
+    }
+}
+
+extension CaptionConversionValidatorInfoPayload: BridgePayload {
+    typealias ABI = AVWCaptionConversionValidatorInfo
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            status: Int32(status),
+            captions: captions.toABI(arena),
+            time_range: timeRange.toABI(arena),
+            warnings: warnings.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            status: Int(raw.status),
+            captions: try .fromABI(raw.captions),
+            timeRange: try .fromABI(raw.time_range),
+            warnings: try .fromABI(raw.warnings)
+        )
+    }
+}
+
+extension CaptionUnitsTypeRaw: BridgePayload {
+    typealias ABI = Int32
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        switch self {
+        case .unspecified: return 0
+        case .cells: return 1
+        case .percent: return 2
+        }
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        switch raw {
+        case 0: return .unspecified
+        case 1: return .cells
+        case 2: return .percent
+        default: throw BridgeError.message("invalid caption enum value")
+        }
+    }
+}
+
+extension CaptionRegionDisplayAlignmentRaw: BridgePayload {
+    typealias ABI = Int32
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        switch self {
+        case .before: return 0
+        case .center: return 1
+        case .after: return 2
+        }
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        switch raw {
+        case 0: return .before
+        case 1: return .center
+        case 2: return .after
+        default: throw BridgeError.message("invalid caption enum value")
+        }
+    }
+}
+
+extension CaptionRegionWritingModeRaw: BridgePayload {
+    typealias ABI = Int32
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        switch self {
+        case .left_to_right_and_top_to_bottom: return 0
+        case .top_to_bottom_and_right_to_left: return 1
+        }
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        switch raw {
+        case 0: return .left_to_right_and_top_to_bottom
+        case 1: return .top_to_bottom_and_right_to_left
+        default: throw BridgeError.message("invalid caption enum value")
+        }
+    }
+}
+
+extension CaptionRegionScrollRaw: BridgePayload {
+    typealias ABI = Int32
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        switch self {
+        case .none: return 0
+        case .roll_up: return 1
+        }
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        switch raw {
+        case 0: return .none
+        case 1: return .roll_up
+        default: throw BridgeError.message("invalid caption enum value")
+        }
+    }
+}
+
+extension CaptionTextAlignmentRaw: BridgePayload {
+    typealias ABI = Int32
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        switch self {
+        case .start: return 0
+        case .end: return 1
+        case .center: return 2
+        case .left: return 3
+        case .right: return 4
+        }
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        switch raw {
+        case 0: return .start
+        case 1: return .end
+        case 2: return .center
+        case 3: return .left
+        case 4: return .right
+        default: throw BridgeError.message("invalid caption enum value")
+        }
+    }
+}
+
+extension CaptionAnimationRaw: BridgePayload {
+    typealias ABI = Int32
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        switch self {
+        case .none: return 0
+        case .character_reveal: return 1
+        }
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        switch raw {
+        case 0: return .none
+        case 1: return .character_reveal
+        default: throw BridgeError.message("invalid caption enum value")
+        }
+    }
+}
+
+extension CaptionRubyPositionRaw: BridgePayload {
+    typealias ABI = Int32
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        switch self {
+        case .before: return 0
+        case .after: return 1
+        }
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        switch raw {
+        case 0: return .before
+        case 1: return .after
+        default: throw BridgeError.message("invalid caption enum value")
+        }
+    }
+}
+
+extension CaptionRubyAlignmentRaw: BridgePayload {
+    typealias ABI = Int32
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        switch self {
+        case .start: return 0
+        case .center: return 1
+        case .distribute_space_between: return 2
+        case .distribute_space_around: return 3
+        }
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        switch raw {
+        case 0: return .start
+        case 1: return .center
+        case 2: return .distribute_space_between
+        case 3: return .distribute_space_around
+        default: throw BridgeError.message("invalid caption enum value")
+        }
+    }
 }

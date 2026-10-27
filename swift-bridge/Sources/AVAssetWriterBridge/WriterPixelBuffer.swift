@@ -20,7 +20,7 @@ public func av_writer_add_video_input_pixel_buffer(
     _ width: Int32,
     _ height: Int32,
     _ pixelFormatType: UInt32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
@@ -29,7 +29,7 @@ public func av_writer_add_video_input_pixel_buffer(
         return status
     }
     guard width > 0, height > 0 else {
-        outErrorMessage?.pointee = ffiString("width and height must be positive (got \(width)x\(height))")
+        outErrorMessage?.pointee = makePayload("width and height must be positive (got \(width)x\(height))")
         return AVW_INVALID_ARGUMENT
     }
     let outputSettings: [String: Any] = [
@@ -57,7 +57,7 @@ public func av_writer_add_video_input_pixel_buffer(
         ],
         &message
     ) else {
-        outErrorMessage?.pointee = ffiString((message as String?) ?? "pixel buffer adaptor rejected the input")
+        outErrorMessage?.pointee = makePayload((message as String?) ?? "pixel buffer adaptor rejected the input")
         return AVW_INVALID_ARGUMENT
     }
 
@@ -79,19 +79,19 @@ public func av_writer_append_pixel_buffer(
     _ pixelBufferPtr: UnsafeMutableRawPointer,
     _ ptsValue: Int64,
     _ ptsTimescale: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
     guard let pba = wrapper.pixelBufferAdaptors[inputId] else {
-        outErrorMessage?.pointee = ffiString("input id \(inputId) has no pixel buffer adaptor")
+        outErrorMessage?.pointee = makePayload("input id \(inputId) has no pixel buffer adaptor")
         return AVW_INVALID_ARGUMENT
     }
     if let status = wrapper.appendStatus(inputId, outErrorMessage) {
         return status
     }
     guard ptsTimescale > 0 else {
-        outErrorMessage?.pointee = ffiString("presentation time must have a positive timescale")
+        outErrorMessage?.pointee = makePayload("presentation time must have a positive timescale")
         return AVW_INVALID_ARGUMENT
     }
     if !pba.assetWriterInput.isReadyForMoreMediaData {

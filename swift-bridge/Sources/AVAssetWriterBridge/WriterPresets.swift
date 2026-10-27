@@ -12,17 +12,17 @@ import UniformTypeIdentifiers
 @_cdecl("av_writer_add_video_input_from_preset")
 public func av_writer_add_video_input_from_preset(
     _ writerPtr: UnsafeMutableRawPointer,
-    _ presetPtr: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ presetPtr: UnsafePointer<AVWString>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
-    let presetRaw = String(cString: presetPtr)
+    let presetRaw = String(abi: presetPtr)
     guard let preset = decodeOutputSettingsPreset(presetRaw) else {
-        outErrorMessage?.pointee = ffiString("unknown output settings preset '\(presetRaw)'")
+        outErrorMessage?.pointee = makePayload("unknown output settings preset '\(presetRaw)'")
         return AVW_INVALID_ARGUMENT
     }
     guard let assistant = AVOutputSettingsAssistant(preset: preset),
           let videoSettings = assistant.videoSettings else {
-        outErrorMessage?.pointee = ffiString("AVOutputSettingsAssistant returned nil for preset")
+        outErrorMessage?.pointee = makePayload("AVOutputSettingsAssistant returned nil for preset")
         return AVW_INVALID_ARGUMENT
     }
     let wrapper = Writer.locked(writerPtr)
@@ -42,7 +42,7 @@ public func av_writer_add_video_input_from_preset(
 public func av_writer_set_should_optimize_for_network_use(
     _ writerPtr: UnsafeMutableRawPointer,
     _ shouldOptimize: Bool,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
@@ -57,7 +57,7 @@ public func av_writer_set_should_optimize_for_network_use(
 public func av_writer_set_movie_fragment_interval_seconds(
     _ writerPtr: UnsafeMutableRawPointer,
     _ seconds: Double,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
@@ -65,7 +65,7 @@ public func av_writer_set_movie_fragment_interval_seconds(
         return status
     }
     guard !seconds.isNaN else {
-        outErrorMessage?.pointee = ffiString("movie fragment interval must not be NaN")
+        outErrorMessage?.pointee = makePayload("movie fragment interval must not be NaN")
         return AVW_INVALID_ARGUMENT
     }
     guard seconds > 0 else {
@@ -74,7 +74,7 @@ public func av_writer_set_movie_fragment_interval_seconds(
     }
     let interval = CMTime(seconds: seconds, preferredTimescale: 600)
     guard interval.isNumeric else {
-        outErrorMessage?.pointee = ffiString("movie fragment interval \(seconds)s is out of range")
+        outErrorMessage?.pointee = makePayload("movie fragment interval \(seconds)s is out of range")
         return AVW_INVALID_ARGUMENT
     }
     wrapper.writer.movieFragmentInterval = interval
@@ -90,7 +90,7 @@ public func av_writer_add_input_group(
     _ ids: UnsafePointer<Int32>,
     _ count: Int,
     _ defaultId: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Bool {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
@@ -98,20 +98,20 @@ public func av_writer_add_input_group(
         return false
     }
     guard count > 0 else {
-        outErrorMessage?.pointee = ffiString("an input group needs at least one input")
+        outErrorMessage?.pointee = makePayload("an input group needs at least one input")
         return false
     }
     var inputs: [AVAssetWriterInput] = []
     for i in 0..<count {
         let id = ids[i]
         guard Int(id) >= 0, Int(id) < wrapper.inputs.count else {
-            outErrorMessage?.pointee = ffiString("input id \(id) out of range")
+            outErrorMessage?.pointee = makePayload("input id \(id) out of range")
             return false
         }
         inputs.append(wrapper.inputs[Int(id)])
     }
     guard Set(inputs.map(ObjectIdentifier.init)).count == inputs.count else {
-        outErrorMessage?.pointee = ffiString("an input group cannot list an input twice")
+        outErrorMessage?.pointee = makePayload("an input group cannot list an input twice")
         return false
     }
     let defaultInput: AVAssetWriterInput? =
@@ -119,13 +119,13 @@ public func av_writer_add_input_group(
         ? wrapper.inputs[Int(defaultId)]
         : nil
     if let defaultInput, !inputs.contains(where: { $0 === defaultInput }) {
-        outErrorMessage?.pointee = ffiString("default input \(defaultId) is not in the group")
+        outErrorMessage?.pointee = makePayload("default input \(defaultId) is not in the group")
         return false
     }
     let group = AVAssetWriterInputGroup(inputs: inputs, defaultInput: defaultInput)
     var message: NSString?
     guard AVWXAddInputGroup(wrapper.writer, group, &message) else {
-        outErrorMessage?.pointee = ffiString((message as String?) ?? "writer cannot add input group")
+        outErrorMessage?.pointee = makePayload((message as String?) ?? "writer cannot add input group")
         return false
     }
     wrapper.inputGroups.append(group)

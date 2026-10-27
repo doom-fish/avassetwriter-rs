@@ -1,11 +1,11 @@
 #![allow(clippy::missing_const_for_fn, clippy::redundant_pub_crate)]
 
-use core::ffi::{c_char, c_void};
-use std::ffi::CStr;
+use core::ffi::c_void;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Mutex, MutexGuard, TryLockError};
 
 use crate::writer::{InputPassDescription, SegmentOutput, SegmentReport, SegmentType};
+use crate::{binary::borrow_payload, ffi};
 
 pub(crate) struct ReadyCallbackState {
     callback: Mutex<Box<dyn FnMut() + Send + 'static>>,
@@ -97,19 +97,14 @@ pub(crate) unsafe extern "C" fn ready_callback_drop(userdata: *mut c_void) {
 }
 
 pub(crate) unsafe extern "C" fn pass_description_callback_trampoline(
-    payload_json: *const c_char,
+    payload: *const ffi::AVWOwnedPayload,
     userdata: *mut c_void,
 ) {
     if userdata.is_null() {
         return;
     }
     let state = unsafe { &*userdata.cast::<PassDescriptionCallbackState>() };
-    let payload = if payload_json.is_null() {
-        None
-    } else {
-        let json = unsafe { CStr::from_ptr(payload_json) }.to_string_lossy();
-        serde_json::from_str::<InputPassDescription>(&json).ok()
-    };
+    let payload = borrow_payload::<InputPassDescription>(payload, "pass description").ok();
     let Some(mut callback) =
         try_lock_callback("pass_description_callback_trampoline", &state.callback)
     else {
@@ -132,7 +127,7 @@ pub(crate) unsafe extern "C" fn segment_callback_trampoline(
     bytes: *const u8,
     byte_len: usize,
     segment_type: i32,
-    report_json: *const c_char,
+    report_payload: *const ffi::AVWOwnedPayload,
     userdata: *mut c_void,
 ) {
     if userdata.is_null() {
@@ -144,12 +139,7 @@ pub(crate) unsafe extern "C" fn segment_callback_trampoline(
     } else {
         unsafe { std::slice::from_raw_parts(bytes, byte_len) }.to_vec()
     };
-    let report = if report_json.is_null() {
-        None
-    } else {
-        let json = unsafe { CStr::from_ptr(report_json) }.to_string_lossy();
-        serde_json::from_str::<SegmentReport>(&json).ok()
-    };
+    let report = borrow_payload::<SegmentReport>(report_payload, "segment report").ok();
     let Some(mut callback) = try_lock_callback("segment_callback_trampoline", &state.callback)
     else {
         return;

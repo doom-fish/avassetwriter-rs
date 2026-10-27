@@ -1,20 +1,18 @@
 #![allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
 use core::ptr;
 use std::ops::Deref;
 use std::path::Path;
 use std::sync::Mutex;
 
+use crate::PropertyValue;
 use apple_cf::cm::CMSampleBuffer;
 use apple_cf::cv::CVPixelBuffer;
 use doom_fish_utils::panic_safe::catch_user_panic;
-use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 
 use crate::bridge_support::{
-    cstring_arg, parse_json_ptr, parse_optional_json_string, take_swift_string, time_kind,
-    time_scale, time_value,
+    string_arg, take_payload, take_swift_string, time_kind, time_scale, time_value,
 };
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
@@ -67,39 +65,32 @@ const REQUEST_SNAPSHOT_WIRE_FORMAT_VERSION: u32 = 1;
 static VIDEO_COMPOSITION_SNAPSHOT_TAKE_LOCK: Mutex<()> = Mutex::new(());
 static CI_IMAGE_FILTERING_SNAPSHOT_TAKE_LOCK: Mutex<()> = Mutex::new(());
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct AudioMixInfoPayload {
     input_parameter_count: usize,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct AudioMixInputParametersInfoPayload {
     track_id: i32,
     audio_time_pitch_algorithm: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct AudioVolumeRampPayload {
     start_volume: f32,
     end_volume: f32,
-    #[serde(with = "crate::time::range")]
     time_range: CMTimeRange,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 struct SizePayload {
     width: f64,
     height: f64,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct VideoCompositionInfoPayload {
-    #[serde(with = "crate::time")]
     frame_duration: CMTime,
     render_size: SizePayload,
     render_scale: f32,
@@ -107,19 +98,16 @@ struct VideoCompositionInfoPayload {
     custom_video_compositor_class_name: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct VideoCompositorInfoPayload {
     class_name: String,
-    source_pixel_buffer_attributes_json: Option<String>,
-    required_pixel_buffer_attributes_for_render_context_json: Option<String>,
+    source_pixel_buffer_attributes: Option<PropertyValue>,
+    required_pixel_buffer_attributes_for_render_context: Option<PropertyValue>,
     supports_wide_color_source_frames: bool,
-    #[serde(rename = "supportsHDRSourceFrames")]
     supports_hdr_source_frames: bool,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 struct RectPayload {
     x: f64,
     y: f64,
@@ -127,35 +115,22 @@ struct RectPayload {
     height: f64,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 struct AsynchronousVideoCompositionRequestPayload {
-    #[serde(default)]
     wire_format_version: u32,
-    #[serde(default)]
     generation: u64,
-    #[serde(with = "crate::time")]
     composition_time: CMTime,
-    #[serde(rename = "sourceTrackIDs", alias = "sourceTrackIds")]
     source_track_ids: Vec<i32>,
-    #[serde(
-        rename = "sourceSampleDataTrackIDs",
-        alias = "sourceSampleDataTrackIds"
-    )]
     source_sample_data_track_ids: Vec<i32>,
     render_size: SizePayload,
     render_scale: f32,
     video_composition_instruction_class_name: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 struct AsynchronousCIImageFilteringRequestPayload {
-    #[serde(default)]
     wire_format_version: u32,
-    #[serde(default)]
     generation: u64,
-    #[serde(with = "crate::time")]
     composition_time: CMTime,
     render_size: SizePayload,
     source_image_extent: RectPayload,
@@ -186,8 +161,7 @@ impl VersionedRequestSnapshot for AsynchronousCIImageFilteringRequestPayload {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ImageRect {
     pub x: f64,
     pub y: f64,
@@ -196,17 +170,10 @@ pub struct ImageRect {
 }
 
 /// Snapshot of an `AVAsynchronousVideoCompositionRequest`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AsynchronousVideoCompositionRequest {
-    #[serde(with = "crate::time")]
     pub composition_time: CMTime,
-    #[serde(rename = "sourceTrackIDs", alias = "sourceTrackIds")]
     pub source_track_ids: Vec<i32>,
-    #[serde(
-        rename = "sourceSampleDataTrackIDs",
-        alias = "sourceSampleDataTrackIds"
-    )]
     pub source_sample_data_track_ids: Vec<i32>,
     pub render_size: (f64, f64),
     pub render_scale: f32,
@@ -214,10 +181,8 @@ pub struct AsynchronousVideoCompositionRequest {
 }
 
 /// Snapshot of an `AVAsynchronousCIImageFilteringRequest`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AsynchronousCIImageFilteringRequest {
-    #[serde(with = "crate::time")]
     pub composition_time: CMTime,
     pub render_size: (f64, f64),
     pub source_image_extent: ImageRect,
@@ -389,7 +354,7 @@ impl VideoCompositionRequest {
 
     /// Copy a retained source pixel buffer for `track_id`.
     pub fn source_frame(&self, track_id: i32) -> Result<Option<CVPixelBuffer>, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let frame = unsafe {
             ffi::av_video_composition_request_copy_source_frame(
                 self.ptr,
@@ -415,7 +380,7 @@ impl VideoCompositionRequest {
         &self,
         track_id: i32,
     ) -> Result<Option<CMSampleBuffer>, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let sample = unsafe {
             ffi::av_video_composition_request_copy_source_sample_buffer(
                 self.ptr,
@@ -438,7 +403,7 @@ impl VideoCompositionRequest {
 
     /// Allocate a retained output pixel buffer from the native render context.
     pub fn new_output_pixel_buffer(&self) -> Result<CVPixelBuffer, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let frame = unsafe {
             ffi::av_video_composition_request_new_output_pixel_buffer(self.ptr, &raw mut err_msg)
         };
@@ -457,7 +422,7 @@ impl VideoCompositionRequest {
     /// Complete this request with a composed pixel buffer.
     pub fn finish_with_frame(mut self, frame: &CVPixelBuffer) -> Result<(), AVWriterError> {
         self.begin_terminal_action()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_video_composition_request_finish_with_frame(
                 self.ptr,
@@ -473,9 +438,9 @@ impl VideoCompositionRequest {
 
     /// Complete this request with an error reported to the export operation.
     pub fn finish_with_error(mut self, message: &str) -> Result<(), AVWriterError> {
-        let message_c = cstring_arg(message, "video composition request error")?;
+        let message_c = string_arg(message, "video composition request error")?;
         self.begin_terminal_action()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_video_composition_request_finish_with_error(
                 self.ptr,
@@ -492,7 +457,7 @@ impl VideoCompositionRequest {
     /// Cancel this request.
     pub fn cancel(mut self) -> Result<(), AVWriterError> {
         self.begin_terminal_action()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status =
             unsafe { ffi::av_video_composition_request_cancel(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
@@ -525,7 +490,7 @@ impl Drop for VideoCompositionRequest {
             return;
         }
         if self.completion_state.begin_drop_cancel() {
-            let mut err_msg: *mut c_char = ptr::null_mut();
+            let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
             unsafe {
                 ffi::av_video_composition_request_cancel(self.ptr, &raw mut err_msg);
             }
@@ -680,8 +645,8 @@ impl AudioMix {
     }
 
     fn info(&self) -> Result<AudioMixInfoPayload, AVWriterError> {
-        let ptr = unsafe { ffi::av_audio_mix_info_json(self.ptr) };
-        parse_json_ptr(ptr, "audio mix info")
+        let ptr = unsafe { ffi::av_audio_mix_info_payload(self.ptr) };
+        take_payload(ptr, "audio mix info")
     }
 }
 
@@ -720,9 +685,9 @@ impl AudioMixInputParameters {
         &self,
         time: CMTime,
     ) -> Result<Option<AudioVolumeRamp>, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
-            ffi::av_audio_mix_input_parameters_volume_ramp_json(
+            ffi::av_audio_mix_input_parameters_volume_ramp_payload(
                 self.ptr,
                 time_value(&time),
                 time_scale(&time),
@@ -737,7 +702,7 @@ impl AudioMixInputParameters {
                 Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) })
             };
         }
-        let payload: AudioVolumeRampPayload = parse_json_ptr(ptr, "audio volume ramp")?;
+        let payload: AudioVolumeRampPayload = take_payload(ptr, "audio volume ramp")?;
         Ok(Some(AudioVolumeRamp {
             start_volume: payload.start_volume,
             end_volume: payload.end_volume,
@@ -754,8 +719,8 @@ impl AudioMixInputParameters {
     }
 
     fn info(&self) -> Result<AudioMixInputParametersInfoPayload, AVWriterError> {
-        let ptr = unsafe { ffi::av_audio_mix_input_parameters_info_json(self.ptr) };
-        parse_json_ptr(ptr, "audio mix input parameters info")
+        let ptr = unsafe { ffi::av_audio_mix_input_parameters_info_payload(self.ptr) };
+        take_payload(ptr, "audio mix input parameters info")
     }
 }
 
@@ -805,7 +770,7 @@ impl MutableAudioMixInputParameters {
     }
 
     pub fn set_track_id(&self, track_id: i32) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_audio_mix_input_parameters_set_track_id(
                 self.parameters.ptr,
@@ -824,15 +789,15 @@ impl MutableAudioMixInputParameters {
         algorithm: Option<&str>,
     ) -> Result<(), AVWriterError> {
         let algorithm_c = algorithm
-            .map(|value| cstring_arg(value, "audio time-pitch algorithm"))
+            .map(|value| string_arg(value, "audio time-pitch algorithm"))
             .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_audio_mix_input_parameters_set_audio_time_pitch_algorithm(
                 self.parameters.ptr,
                 algorithm_c
                     .as_ref()
-                    .map_or(ptr::null(), |value| value.as_ptr()),
+                    .map_or(ptr::null(), super::binary::Argument::as_ptr),
                 &raw mut err_msg,
             )
         };
@@ -843,7 +808,7 @@ impl MutableAudioMixInputParameters {
     }
 
     pub fn set_volume(&self, volume: f32, time: CMTime) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_audio_mix_input_parameters_set_volume(
                 self.parameters.ptr,
@@ -866,7 +831,7 @@ impl MutableAudioMixInputParameters {
         end_volume: f32,
         time_range: CMTimeRange,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_audio_mix_input_parameters_set_volume_ramp(
                 self.parameters.ptr,
@@ -922,7 +887,7 @@ impl MutableAudioMix {
             .iter()
             .map(AudioMixInputParameters::as_ptr)
             .collect::<Vec<_>>();
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_audio_mix_set_input_parameters(
                 self.mix.ptr,
@@ -979,8 +944,8 @@ impl VideoComposition {
             &CI_IMAGE_FILTERING_SNAPSHOT_TAKE_LOCK,
             "ci image filtering request",
             || {
-                copy_snapshot_json("ci image filtering request", |generation| unsafe {
-                    ffi::av_copy_latest_ci_image_filtering_request_json(generation)
+                copy_snapshot_payload("ci image filtering request", |generation| unsafe {
+                    ffi::av_copy_latest_ci_image_filtering_request_payload(generation)
                 })
             },
             |generation| unsafe { ffi::av_ack_latest_ci_image_filtering_request(generation) },
@@ -1049,13 +1014,15 @@ impl VideoComposition {
             ));
         }
         let class_c = class
-            .map(|value| cstring_arg(value.as_str(), "video compositor class"))
+            .map(|value| string_arg(value.as_str(), "video compositor class"))
             .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_video_composition_set_custom_video_compositor_class(
                 self.ptr,
-                class_c.as_ref().map_or(ptr::null(), |value| value.as_ptr()),
+                class_c
+                    .as_ref()
+                    .map_or(ptr::null(), super::binary::Argument::as_ptr),
                 &raw mut err_msg,
             )
         };
@@ -1080,7 +1047,7 @@ impl VideoComposition {
             callback: Box::new(handler),
         });
         let userdata = Box::into_raw(state).cast::<c_void>();
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_video_composition_install_rust_compositor(
                 self.ptr,
@@ -1102,7 +1069,7 @@ impl VideoComposition {
     /// Requests already handed to Rust retain their handler until they finish,
     /// fail, or are cancelled.
     pub fn clear_rust_video_compositor(&self) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status =
             unsafe { ffi::av_video_composition_clear_rust_compositor(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
@@ -1126,8 +1093,8 @@ impl VideoComposition {
     }
 
     fn info(&self) -> Result<VideoCompositionInfoPayload, AVWriterError> {
-        let ptr = unsafe { ffi::av_video_composition_info_json(self.ptr) };
-        parse_json_ptr(ptr, "video composition info")
+        let ptr = unsafe { ffi::av_video_composition_info_payload(self.ptr) };
+        take_payload(ptr, "video composition info")
     }
 }
 
@@ -1170,8 +1137,8 @@ impl VideoCompositor {
             &VIDEO_COMPOSITION_SNAPSHOT_TAKE_LOCK,
             "video composition request",
             || {
-                copy_snapshot_json("video composition request", |generation| unsafe {
-                    ffi::av_copy_latest_video_composition_request_json(generation)
+                copy_snapshot_payload("video composition request", |generation| unsafe {
+                    ffi::av_copy_latest_video_composition_request_payload(generation)
                 })
             },
             |generation| unsafe { ffi::av_ack_latest_video_composition_request(generation) },
@@ -1204,18 +1171,17 @@ impl VideoCompositor {
     }
 
     /// Return the compositor's source pixel-buffer requirements, when present.
-    pub fn source_pixel_buffer_attributes(&self) -> Result<Option<JsonValue>, AVWriterError> {
-        parse_optional_json_string(self.info()?.source_pixel_buffer_attributes_json)
+    pub fn source_pixel_buffer_attributes(&self) -> Result<Option<PropertyValue>, AVWriterError> {
+        Ok(self.info()?.source_pixel_buffer_attributes)
     }
 
     /// Return the required render-context pixel-buffer attributes.
     pub fn required_pixel_buffer_attributes_for_render_context(
         &self,
-    ) -> Result<Option<JsonValue>, AVWriterError> {
-        parse_optional_json_string(
-            self.info()?
-                .required_pixel_buffer_attributes_for_render_context_json,
-        )
+    ) -> Result<Option<PropertyValue>, AVWriterError> {
+        Ok(self
+            .info()?
+            .required_pixel_buffer_attributes_for_render_context)
     }
 
     /// Report whether the compositor opts into wide-color source frames.
@@ -1233,8 +1199,8 @@ impl VideoCompositor {
     }
 
     fn info(&self) -> Result<VideoCompositorInfoPayload, AVWriterError> {
-        let ptr = unsafe { ffi::av_video_compositor_info_json(self.ptr) };
-        parse_json_ptr(ptr, "video compositor info")
+        let ptr = unsafe { ffi::av_video_compositor_info_payload(self.ptr) };
+        take_payload(ptr, "video compositor info")
     }
 }
 
@@ -1254,29 +1220,35 @@ impl core::fmt::Debug for VideoCompositor {
     }
 }
 
-fn path_arg(path: impl AsRef<Path>, context: &str) -> Result<std::ffi::CString, AVWriterError> {
+fn path_arg(
+    path: impl AsRef<Path>,
+    context: &str,
+) -> Result<crate::binary::Argument<ffi::AVWString>, AVWriterError> {
     let path_str = path
         .as_ref()
         .to_str()
         .ok_or_else(|| AVWriterError::InvalidArgument(format!("{context} is not valid UTF-8")))?;
-    cstring_arg(path_str, context)
+    string_arg(path_str, context)
 }
 
 fn missing_payload(context: &str) -> AVWriterError {
     AVWriterError::InvalidState(format!("swift bridge returned no {context} payload"))
 }
 
-fn take_required_string(ptr: *mut c_char, context: &str) -> Result<String, AVWriterError> {
+fn take_required_string(
+    ptr: *mut ffi::AVWOwnedPayload,
+    context: &str,
+) -> Result<String, AVWriterError> {
     take_swift_string(ptr).ok_or_else(|| missing_payload(context))
 }
 
-fn copy_snapshot_json(
+fn copy_snapshot_payload<T: crate::binary::FromAbi>(
     context: &str,
-    copy: impl FnOnce(&mut u64) -> *mut c_char,
-) -> Result<Option<(u64, String)>, AVWriterError> {
+    copy: impl FnOnce(&mut u64) -> *mut ffi::AVWOwnedPayload,
+) -> Result<Option<(u64, T)>, AVWriterError> {
     let mut generation = 0;
     let ptr = copy(&mut generation);
-    let Some(raw) = take_swift_string(ptr) else {
+    if ptr.is_null() {
         return if generation == 0 {
             Ok(None)
         } else {
@@ -1284,31 +1256,27 @@ fn copy_snapshot_json(
                 "swift bridge could not transfer {context} generation {generation}"
             )))
         };
-    };
+    }
+    let raw = take_payload(ptr, context)?;
     Ok(Some((generation, raw)))
 }
 
 fn take_latest_snapshot<T>(
     take_lock: &Mutex<()>,
     context: &str,
-    copy: impl FnOnce() -> Result<Option<(u64, String)>, AVWriterError>,
+    copy: impl FnOnce() -> Result<Option<(u64, T)>, AVWriterError>,
     acknowledge: impl FnOnce(u64) -> bool,
 ) -> Result<Option<T>, AVWriterError>
 where
-    T: for<'de> Deserialize<'de> + VersionedRequestSnapshot,
+    T: VersionedRequestSnapshot,
 {
     let _take_guard = match take_lock.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
-    let Some((generation, raw)) = copy()? else {
+    let Some((generation, payload)) = copy()? else {
         return Ok(None);
     };
-    let payload: T = serde_json::from_str(&raw).map_err(|e| {
-        AVWriterError::InvalidState(format!(
-            "failed to decode {context} json from swift bridge: {e}"
-        ))
-    })?;
     validate_snapshot_header(
         payload.wire_format_version(),
         payload.generation(),
@@ -1355,34 +1323,281 @@ fn time_from_ffi_parts(value: i64, scale: i32, kind: i32) -> Result<CMTime, AVWr
     }
 }
 
+impl crate::binary::ToAbi for SizePayload {
+    type Abi = crate::ffi::AVWSize;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            width: crate::binary::ToAbi::to_abi(&self.width, arena),
+            height: crate::binary::ToAbi::to_abi(&self.height, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for SizePayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            width: crate::binary::FromAbi::from_abi(&raw.width)?,
+            height: crate::binary::FromAbi::from_abi(&raw.height)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for AudioMixInfoPayload {
+    type Abi = crate::ffi::AVWAudioMixInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            input_parameter_count: crate::binary::ToAbi::to_abi(&self.input_parameter_count, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for AudioMixInfoPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            input_parameter_count: crate::binary::FromAbi::from_abi(&raw.input_parameter_count)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for AudioMixInputParametersInfoPayload {
+    type Abi = crate::ffi::AVWAudioMixInputParametersInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            track_id: crate::binary::ToAbi::to_abi(&self.track_id, arena),
+            audio_time_pitch_algorithm: crate::binary::ToAbi::to_abi(
+                &self.audio_time_pitch_algorithm,
+                arena,
+            ),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for AudioMixInputParametersInfoPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            track_id: crate::binary::FromAbi::from_abi(&raw.track_id)?,
+            audio_time_pitch_algorithm: crate::binary::FromAbi::from_abi(
+                &raw.audio_time_pitch_algorithm,
+            )?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for AudioVolumeRampPayload {
+    type Abi = crate::ffi::AVWAudioVolumeRamp;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            start_volume: crate::binary::ToAbi::to_abi(&self.start_volume, arena),
+            end_volume: crate::binary::ToAbi::to_abi(&self.end_volume, arena),
+            time_range: crate::binary::ToAbi::to_abi(&self.time_range, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for AudioVolumeRampPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            start_volume: crate::binary::FromAbi::from_abi(&raw.start_volume)?,
+            end_volume: crate::binary::FromAbi::from_abi(&raw.end_volume)?,
+            time_range: crate::binary::FromAbi::from_abi(&raw.time_range)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for VideoCompositionInfoPayload {
+    type Abi = crate::ffi::AVWVideoCompositionInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            frame_duration: crate::binary::ToAbi::to_abi(&self.frame_duration, arena),
+            render_size: crate::binary::ToAbi::to_abi(&self.render_size, arena),
+            render_scale: crate::binary::ToAbi::to_abi(&self.render_scale, arena),
+            instruction_count: crate::binary::ToAbi::to_abi(&self.instruction_count, arena),
+            custom_video_compositor_class_name: crate::binary::ToAbi::to_abi(
+                &self.custom_video_compositor_class_name,
+                arena,
+            ),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for VideoCompositionInfoPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            frame_duration: crate::binary::FromAbi::from_abi(&raw.frame_duration)?,
+            render_size: crate::binary::FromAbi::from_abi(&raw.render_size)?,
+            render_scale: crate::binary::FromAbi::from_abi(&raw.render_scale)?,
+            instruction_count: crate::binary::FromAbi::from_abi(&raw.instruction_count)?,
+            custom_video_compositor_class_name: crate::binary::FromAbi::from_abi(
+                &raw.custom_video_compositor_class_name,
+            )?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for VideoCompositorInfoPayload {
+    type Abi = crate::ffi::AVWVideoCompositorInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            class_name: crate::binary::ToAbi::to_abi(&self.class_name, arena),
+            source_pixel_buffer_attributes: crate::binary::ToAbi::to_abi(
+                &self.source_pixel_buffer_attributes,
+                arena,
+            ),
+            required_pixel_buffer_attributes_for_render_context: crate::binary::ToAbi::to_abi(
+                &self.required_pixel_buffer_attributes_for_render_context,
+                arena,
+            ),
+            supports_wide_color_source_frames: crate::binary::ToAbi::to_abi(
+                &self.supports_wide_color_source_frames,
+                arena,
+            ),
+            supports_hdr_source_frames: crate::binary::ToAbi::to_abi(
+                &self.supports_hdr_source_frames,
+                arena,
+            ),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for VideoCompositorInfoPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            class_name: crate::binary::FromAbi::from_abi(&raw.class_name)?,
+            source_pixel_buffer_attributes: crate::binary::FromAbi::from_abi(
+                &raw.source_pixel_buffer_attributes,
+            )?,
+            required_pixel_buffer_attributes_for_render_context: crate::binary::FromAbi::from_abi(
+                &raw.required_pixel_buffer_attributes_for_render_context,
+            )?,
+            supports_wide_color_source_frames: crate::binary::FromAbi::from_abi(
+                &raw.supports_wide_color_source_frames,
+            )?,
+            supports_hdr_source_frames: crate::binary::FromAbi::from_abi(
+                &raw.supports_hdr_source_frames,
+            )?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for RectPayload {
+    type Abi = crate::ffi::AVWRect;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            x: crate::binary::ToAbi::to_abi(&self.x, arena),
+            y: crate::binary::ToAbi::to_abi(&self.y, arena),
+            width: crate::binary::ToAbi::to_abi(&self.width, arena),
+            height: crate::binary::ToAbi::to_abi(&self.height, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for RectPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            x: crate::binary::FromAbi::from_abi(&raw.x)?,
+            y: crate::binary::FromAbi::from_abi(&raw.y)?,
+            width: crate::binary::FromAbi::from_abi(&raw.width)?,
+            height: crate::binary::FromAbi::from_abi(&raw.height)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for AsynchronousVideoCompositionRequestPayload {
+    type Abi = crate::ffi::AVWVideoCompositionRequest;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            wire_format_version: crate::binary::ToAbi::to_abi(&self.wire_format_version, arena),
+            generation: crate::binary::ToAbi::to_abi(&self.generation, arena),
+            composition_time: crate::binary::ToAbi::to_abi(&self.composition_time, arena),
+            source_track_ids: crate::binary::ToAbi::to_abi(&self.source_track_ids, arena),
+            source_sample_data_track_ids: crate::binary::ToAbi::to_abi(
+                &self.source_sample_data_track_ids,
+                arena,
+            ),
+            render_size: crate::binary::ToAbi::to_abi(&self.render_size, arena),
+            render_scale: crate::binary::ToAbi::to_abi(&self.render_scale, arena),
+            video_composition_instruction_class_name: crate::binary::ToAbi::to_abi(
+                &self.video_composition_instruction_class_name,
+                arena,
+            ),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for AsynchronousVideoCompositionRequestPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            wire_format_version: crate::binary::FromAbi::from_abi(&raw.wire_format_version)?,
+            generation: crate::binary::FromAbi::from_abi(&raw.generation)?,
+            composition_time: crate::binary::FromAbi::from_abi(&raw.composition_time)?,
+            source_track_ids: crate::binary::FromAbi::from_abi(&raw.source_track_ids)?,
+            source_sample_data_track_ids: crate::binary::FromAbi::from_abi(
+                &raw.source_sample_data_track_ids,
+            )?,
+            render_size: crate::binary::FromAbi::from_abi(&raw.render_size)?,
+            render_scale: crate::binary::FromAbi::from_abi(&raw.render_scale)?,
+            video_composition_instruction_class_name: crate::binary::FromAbi::from_abi(
+                &raw.video_composition_instruction_class_name,
+            )?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for AsynchronousCIImageFilteringRequestPayload {
+    type Abi = crate::ffi::AVWCIImageFilteringRequest;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            wire_format_version: crate::binary::ToAbi::to_abi(&self.wire_format_version, arena),
+            generation: crate::binary::ToAbi::to_abi(&self.generation, arena),
+            composition_time: crate::binary::ToAbi::to_abi(&self.composition_time, arena),
+            render_size: crate::binary::ToAbi::to_abi(&self.render_size, arena),
+            source_image_extent: crate::binary::ToAbi::to_abi(&self.source_image_extent, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for AsynchronousCIImageFilteringRequestPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            wire_format_version: crate::binary::FromAbi::from_abi(&raw.wire_format_version)?,
+            generation: crate::binary::FromAbi::from_abi(&raw.generation)?,
+            composition_time: crate::binary::FromAbi::from_abi(&raw.composition_time)?,
+            render_size: crate::binary::FromAbi::from_abi(&raw.render_size)?,
+            source_image_extent: crate::binary::FromAbi::from_abi(&raw.source_image_extent)?,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier};
 
-    const SNAPSHOT_BODY: &str = r#"
-        "compositionTime":{"kind":"numeric","value":3,"timescale":30},
-        "renderSize":{"width":1920.0,"height":1080.0},
-        "renderScale":1.0,
-        "videoCompositionInstructionClassName":"AVWRRustVideoCompositionInstruction"
-    "#;
-
     #[derive(Default)]
-    struct MockSnapshotStore {
-        entry: Mutex<Option<(u64, String)>>,
+    struct MockSnapshotStore<T> {
+        entry: Mutex<Option<(u64, T)>>,
         acknowledgments: AtomicUsize,
     }
 
-    impl MockSnapshotStore {
-        fn with_entry(generation: u64, json: String) -> Self {
+    impl<T: Clone> MockSnapshotStore<T> {
+        fn with_entry(generation: u64, payload: T) -> Self {
             Self {
-                entry: Mutex::new(Some((generation, json))),
+                entry: Mutex::new(Some((generation, payload))),
                 acknowledgments: AtomicUsize::new(0),
             }
         }
 
-        fn copy(&self) -> Option<(u64, String)> {
+        fn copy(&self) -> Option<(u64, T)> {
             self.entry
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -1404,25 +1619,48 @@ mod tests {
         }
     }
 
-    fn video_snapshot_json(generation: u64) -> String {
-        format!(
-            r#"{{"wireFormatVersion":1,"generation":{generation},"sourceTrackIDs":[2],"sourceSampleDataTrackIDs":[9],{SNAPSHOT_BODY}}}"#
-        )
+    fn video_snapshot_payload(generation: u64) -> AsynchronousVideoCompositionRequestPayload {
+        AsynchronousVideoCompositionRequestPayload {
+            wire_format_version: 1,
+            generation,
+            composition_time: CMTime::new(3, 30),
+            source_track_ids: vec![2],
+            source_sample_data_track_ids: vec![9],
+            render_size: SizePayload {
+                width: 1920.0,
+                height: 1080.0,
+            },
+            render_scale: 1.0,
+            video_composition_instruction_class_name: Some(
+                "AVWRRustVideoCompositionInstruction".into(),
+            ),
+        }
     }
 
-    fn ci_snapshot_json(generation: u64) -> String {
-        format!(
-            r#"{{"wireFormatVersion":1,"generation":{generation},"compositionTime":{{"kind":"numeric","value":3,"timescale":30}},"renderSize":{{"width":1920.0,"height":1080.0}},"sourceImageExtent":{{"x":0.0,"y":0.0,"width":1920.0,"height":1080.0}}}}"#
-        )
+    fn ci_snapshot_payload(generation: u64) -> AsynchronousCIImageFilteringRequestPayload {
+        AsynchronousCIImageFilteringRequestPayload {
+            wire_format_version: 1,
+            generation,
+            composition_time: CMTime::new(3, 30),
+            render_size: SizePayload {
+                width: 1920.0,
+                height: 1080.0,
+            },
+            source_image_extent: RectPayload {
+                x: 0.0,
+                y: 0.0,
+                width: 1920.0,
+                height: 1080.0,
+            },
+        }
     }
 
     #[test]
-    fn video_request_wire_uses_exact_id_keys_and_version() {
-        let json = format!(
-            r#"{{"wireFormatVersion":1,"generation":7,"sourceTrackIDs":[2],"sourceSampleDataTrackIDs":[9],{SNAPSHOT_BODY}}}"#
-        );
-        let payload: AsynchronousVideoCompositionRequestPayload =
-            serde_json::from_str(&json).unwrap();
+    fn video_request_wire_keeps_id_lists_and_version() {
+        use crate::binary::{FromAbi, ToAbi};
+        let mut arena = crate::binary::Arena::default();
+        let raw = video_snapshot_payload(7).to_abi(&mut arena);
+        let payload = AsynchronousVideoCompositionRequestPayload::from_abi(&raw).unwrap();
         validate_snapshot_header(
             payload.wire_format_version,
             payload.generation,
@@ -1435,18 +1673,21 @@ mod tests {
     }
 
     #[test]
-    fn video_request_wire_accepts_legacy_id_aliases() {
-        let json = format!(
-            r#"{{"wireFormatVersion":1,"generation":8,"sourceTrackIds":[4],"sourceSampleDataTrackIds":[6],{SNAPSHOT_BODY}}}"#
-        );
-        let payload: AsynchronousVideoCompositionRequestPayload =
-            serde_json::from_str(&json).unwrap();
+    fn video_request_wire_keeps_distinct_id_lists() {
+        use crate::binary::{FromAbi, ToAbi};
+        let mut arena = crate::binary::Arena::default();
+        let mut source = video_snapshot_payload(8);
+        source.source_track_ids = vec![4];
+        source.source_sample_data_track_ids = vec![6];
+        let payload =
+            AsynchronousVideoCompositionRequestPayload::from_abi(&source.to_abi(&mut arena))
+                .unwrap();
         assert_eq!(payload.source_track_ids, vec![4]);
         assert_eq!(payload.source_sample_data_track_ids, vec![6]);
     }
 
     #[test]
-    fn public_snapshot_serializes_exact_id_keys() {
+    fn public_snapshot_keeps_both_id_lists() {
         let snapshot = AsynchronousVideoCompositionRequest {
             composition_time: CMTime::new(0, 30),
             source_track_ids: vec![1],
@@ -1455,11 +1696,8 @@ mod tests {
             render_scale: 1.0,
             video_composition_instruction_class_name: None,
         };
-        let value = serde_json::to_value(snapshot).unwrap();
-        assert_eq!(value["sourceTrackIDs"], serde_json::json!([1]));
-        assert_eq!(value["sourceSampleDataTrackIDs"], serde_json::json!([2]));
-        assert!(value.get("sourceTrackIds").is_none());
-        assert!(value.get("sourceSampleDataTrackIds").is_none());
+        assert_eq!(snapshot.source_track_ids, vec![1]);
+        assert_eq!(snapshot.source_sample_data_track_ids, vec![2]);
     }
 
     #[test]
@@ -1476,17 +1714,23 @@ mod tests {
 
     #[test]
     fn snapshot_transfer_failure_keeps_generation_recoverable() {
-        let result = copy_snapshot_json("video composition request", |generation| {
-            *generation = 12;
-            ptr::null_mut()
-        });
+        let result = copy_snapshot_payload::<AsynchronousVideoCompositionRequestPayload>(
+            "video composition request",
+            |generation| {
+                *generation = 12;
+                ptr::null_mut()
+            },
+        );
         let error = result.unwrap_err();
         assert!(error.to_string().contains("generation 12"));
     }
 
     #[test]
     fn video_snapshot_take_is_single_consumer() {
-        let store = Arc::new(MockSnapshotStore::with_entry(21, video_snapshot_json(21)));
+        let store = Arc::new(MockSnapshotStore::with_entry(
+            21,
+            video_snapshot_payload(21),
+        ));
         let start = Arc::new(Barrier::new(3));
         let mut threads = Vec::new();
         for _ in 0..2 {
@@ -1514,7 +1758,7 @@ mod tests {
 
     #[test]
     fn ci_snapshot_take_is_single_consumer() {
-        let store = Arc::new(MockSnapshotStore::with_entry(22, ci_snapshot_json(22)));
+        let store = Arc::new(MockSnapshotStore::with_entry(22, ci_snapshot_payload(22)));
         let start = Arc::new(Barrier::new(3));
         let mut threads = Vec::new();
         for _ in 0..2 {
@@ -1543,14 +1787,14 @@ mod tests {
     #[test]
     fn snapshot_decode_failure_preserves_both_snapshot_types() {
         let video_lock = Mutex::new(());
-        let video_store = MockSnapshotStore::with_entry(31, video_snapshot_json(31));
+        let video_store = MockSnapshotStore::with_entry(31, video_snapshot_payload(31));
         let video_error = take_latest_snapshot::<AsynchronousVideoCompositionRequestPayload>(
             &video_lock,
             "video composition request",
             || {
-                Ok(video_store
-                    .copy()
-                    .map(|(generation, _)| (generation, "{".into())))
+                Err(AVWriterError::InvalidState(
+                    "failed to decode binary snapshot".into(),
+                ))
             },
             |generation| video_store.acknowledge(generation),
         )
@@ -1570,14 +1814,14 @@ mod tests {
         );
 
         let ci_lock = Mutex::new(());
-        let ci_store = MockSnapshotStore::with_entry(32, ci_snapshot_json(32));
+        let ci_store = MockSnapshotStore::with_entry(32, ci_snapshot_payload(32));
         let ci_error = take_latest_snapshot::<AsynchronousCIImageFilteringRequestPayload>(
             &ci_lock,
             "ci image filtering request",
             || {
-                Ok(ci_store
-                    .copy()
-                    .map(|(generation, _)| (generation, "[".into())))
+                Err(AVWriterError::InvalidState(
+                    "failed to decode binary snapshot".into(),
+                ))
             },
             |generation| ci_store.acknowledge(generation),
         )
@@ -1600,7 +1844,7 @@ mod tests {
     #[test]
     fn lost_snapshot_acknowledgment_is_not_returned() {
         let take_lock = Mutex::new(());
-        let store = MockSnapshotStore::with_entry(41, video_snapshot_json(41));
+        let store = MockSnapshotStore::with_entry(41, video_snapshot_payload(41));
         let error = take_latest_snapshot::<AsynchronousVideoCompositionRequestPayload>(
             &take_lock,
             "video composition request",

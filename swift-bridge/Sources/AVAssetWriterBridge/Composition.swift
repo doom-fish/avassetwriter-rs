@@ -1,49 +1,50 @@
+import AVAssetWriterObjCBridge
 import AVFoundation
 import CoreMedia
 import Foundation
 
-private struct CompositionInfoPayload: Codable {
+private struct CompositionInfoPayload {
     let duration: TimePayload
     let naturalSize: SizePayload
     let isPlayable: Bool
     let isExportable: Bool
     let isReadable: Bool
     let isComposable: Bool
-    let urlAssetInitializationOptionsJson: String?
+    let urlAssetInitializationOptions: PropertyValue?
     let trackIds: [Int32]
     let unusedTrackId: Int32
 }
 
-private struct CompositionTimeMappingPayload: Codable {
+private struct CompositionTimeMappingPayload {
     let source: TimeRangePayload
     let target: TimeRangePayload
 }
 
-private struct AssetTrackSegmentInfoPayload: Codable {
+private struct AssetTrackSegmentInfoPayload {
     let timeMapping: CompositionTimeMappingPayload
     let isEmpty: Bool
 }
 
-private struct CompositionTrackSegmentInfoPayload: Codable {
+private struct CompositionTrackSegmentInfoPayload {
     let timeMapping: CompositionTimeMappingPayload
     let isEmpty: Bool
     let sourceUrl: String?
     let sourceTrackId: Int32?
 }
 
-private struct FormatDescriptionSummaryPayload: Codable {
+private struct FormatDescriptionSummaryPayload {
     let mediaTypeRaw: UInt32
     let mediaType: String
     let mediaSubtypeRaw: UInt32
     let mediaSubtype: String
 }
 
-private struct CompositionTrackFormatDescriptionReplacementInfoPayload: Codable {
+private struct CompositionTrackFormatDescriptionReplacementInfoPayload {
     let originalFormatDescription: FormatDescriptionSummaryPayload
     let replacementFormatDescription: FormatDescriptionSummaryPayload
 }
 
-private struct CompositionTrackInfoPayload: Codable {
+private struct CompositionTrackInfoPayload {
     let trackId: Int32
     let mediaType: String
     let isPlayable: Bool
@@ -181,8 +182,8 @@ private func compositionInfoPayload(from composition: AVComposition) -> Composit
         isExportable: composition.isExportable,
         isReadable: composition.isReadable,
         isComposable: composition.isComposable,
-        urlAssetInitializationOptionsJson: jsonString(
-            fromJSONObject: composition.urlAssetInitializationOptions
+        urlAssetInitializationOptions: propertyValue(
+            from: composition.urlAssetInitializationOptions
         ),
         trackIds: composition.tracks.map(\.trackID),
         unusedTrackId: composition.unusedTrackID()
@@ -198,7 +199,7 @@ public func av_composition_create_empty() -> UnsafeMutableRawPointer? {
 @_cdecl("av_composition_create_from_asset")
 public func av_composition_create_from_asset(
     _ assetPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     let asset = Unmanaged<AVAsset>.fromOpaque(assetPtr).takeUnretainedValue()
     let composition = AVMutableComposition()
@@ -211,7 +212,7 @@ public func av_composition_create_from_asset(
         let snapshot = composition.copy() as! AVComposition
         return Unmanaged.passRetained(snapshot).toOpaque()
     } catch {
-        outErrorMessage?.pointee = ffiString(error.localizedDescription)
+        outErrorMessage?.pointee = makePayload(error.localizedDescription)
         return nil
     }
 }
@@ -222,13 +223,13 @@ public func av_composition_release(_ compositionPtr: UnsafeMutableRawPointer?) {
     Unmanaged<AVComposition>.fromOpaque(compositionPtr).release()
 }
 
-@_cdecl("av_composition_info_json")
-public func av_composition_info_json(
+@_cdecl("av_composition_info_payload")
+public func av_composition_info_payload(
     _ compositionPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let composition = Unmanaged<AVComposition>.fromOpaque(compositionPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(compositionInfoPayload(from: composition)))
+        return makePayload(compositionInfoPayload(from: composition))
     } catch {
         return nil
     }
@@ -256,13 +257,13 @@ public func av_composition_track_release(_ trackPtr: UnsafeMutableRawPointer?) {
     Unmanaged<AVCompositionTrack>.fromOpaque(trackPtr).release()
 }
 
-@_cdecl("av_composition_track_info_json")
-public func av_composition_track_info_json(
+@_cdecl("av_composition_track_info_payload")
+public func av_composition_track_info_payload(
     _ trackPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let track = Unmanaged<AVCompositionTrack>.fromOpaque(trackPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(compositionTrackInfoPayload(from: track)))
+        return makePayload(compositionTrackInfoPayload(from: track))
     } catch {
         return nil
     }
@@ -301,27 +302,27 @@ public func av_composition_track_segment_for_track_time(
 @_cdecl("av_composition_track_has_media_characteristic")
 public func av_composition_track_has_media_characteristic(
     _ trackPtr: UnsafeMutableRawPointer,
-    _ mediaCharacteristicPtr: UnsafePointer<CChar>
+    _ mediaCharacteristicPtr: UnsafePointer<AVWString>
 ) -> Bool {
     let track = Unmanaged<AVCompositionTrack>.fromOpaque(trackPtr).takeUnretainedValue()
-    let characteristic = decodeMediaCharacteristic(String(cString: mediaCharacteristicPtr))
+    let characteristic = decodeMediaCharacteristic(String(abi: mediaCharacteristicPtr))
     return track.hasMediaCharacteristic(characteristic)
 }
 
-@_cdecl("av_composition_track_sample_presentation_time_json")
-public func av_composition_track_sample_presentation_time_json(
+@_cdecl("av_composition_track_sample_presentation_time_payload")
+public func av_composition_track_sample_presentation_time_payload(
     _ trackPtr: UnsafeMutableRawPointer,
     _ timeValue: Int64,
     _ timeScale: Int32,
     _ timeKind: Int32
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let track = Unmanaged<AVCompositionTrack>.fromOpaque(trackPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(encodeTime(
+        return makePayload(encodeTime(
             track.samplePresentationTime(
                 forTrackTime: cmTime(value: timeValue, timescale: timeScale, kind: timeKind)
             )
-        )))
+        ))
     } catch {
         return nil
     }
@@ -368,7 +369,7 @@ public func av_composition_track_copy_format_description_replacement_at_index(
 
 @_cdecl("av_composition_track_segment_create_url")
 public func av_composition_track_segment_create_url(
-    _ urlPtr: UnsafePointer<CChar>,
+    _ urlPtr: UnsafePointer<AVWString>,
     _ isFileURL: Bool,
     _ trackId: Int32,
     _ sourceStartValue: Int64,
@@ -383,12 +384,12 @@ public func av_composition_track_segment_create_url(
     _ targetDurationValue: Int64,
     _ targetDurationScale: Int32,
     _ targetDurationKind: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
-    let urlString = String(cString: urlPtr)
+    let urlString = String(abi: urlPtr)
     let url = isFileURL ? URL(fileURLWithPath: urlString) : URL(string: urlString)
     guard let url else {
-        outErrorMessage?.pointee = ffiString("invalid URL: \(urlString)")
+        outErrorMessage?.pointee = makePayload("invalid URL: \(urlString)")
         return nil
     }
     let sourceRange = CMTimeRange(
@@ -438,13 +439,13 @@ public func av_composition_track_segment_release(_ segmentPtr: UnsafeMutableRawP
     Unmanaged<AVCompositionTrackSegment>.fromOpaque(segmentPtr).release()
 }
 
-@_cdecl("av_composition_track_segment_info_json")
-public func av_composition_track_segment_info_json(
+@_cdecl("av_composition_track_segment_info_payload")
+public func av_composition_track_segment_info_payload(
     _ segmentPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let segment = Unmanaged<AVCompositionTrackSegment>.fromOpaque(segmentPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(compositionTrackSegmentInfoPayload(from: segment)))
+        return makePayload(compositionTrackSegmentInfoPayload(from: segment))
     } catch {
         return nil
     }
@@ -464,13 +465,13 @@ public func av_asset_track_segment_release(_ segmentPtr: UnsafeMutableRawPointer
     Unmanaged<AVAssetTrackSegment>.fromOpaque(segmentPtr).release()
 }
 
-@_cdecl("av_asset_track_segment_info_json")
-public func av_asset_track_segment_info_json(
+@_cdecl("av_asset_track_segment_info_payload")
+public func av_asset_track_segment_info_payload(
     _ segmentPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let segment = Unmanaged<AVAssetTrackSegment>.fromOpaque(segmentPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(assetTrackSegmentInfoPayload(from: segment)))
+        return makePayload(assetTrackSegmentInfoPayload(from: segment))
     } catch {
         return nil
     }
@@ -484,19 +485,17 @@ public func av_composition_track_format_description_replacement_release(
     Unmanaged<AVCompositionTrackFormatDescriptionReplacement>.fromOpaque(replacementPtr).release()
 }
 
-@_cdecl("av_composition_track_format_description_replacement_info_json")
-public func av_composition_track_format_description_replacement_info_json(
+@_cdecl("av_composition_track_format_description_replacement_info_payload")
+public func av_composition_track_format_description_replacement_info_payload(
     _ replacementPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let replacement = Unmanaged<AVCompositionTrackFormatDescriptionReplacement>
         .fromOpaque(replacementPtr)
         .takeUnretainedValue()
     do {
-        return ffiString(
-            try encodeJson(
+        return makePayload(
                 compositionTrackFormatDescriptionReplacementInfoPayload(from: replacement)
             )
-        )
     } catch {
         return nil
     }
@@ -520,4 +519,192 @@ public func av_composition_track_format_description_replacement_replacement_form
         .fromOpaque(replacementPtr)
         .takeUnretainedValue()
     return Unmanaged.passRetained(replacement.replacementFormatDescription).toOpaque()
+}
+
+extension CompositionInfoPayload: BridgePayload {
+    typealias ABI = AVWCompositionInfo
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            duration: duration.toABI(arena),
+            natural_size: naturalSize.toABI(arena),
+            is_playable: isPlayable.toABI(arena),
+            is_exportable: isExportable.toABI(arena),
+            is_readable: isReadable.toABI(arena),
+            is_composable: isComposable.toABI(arena),
+            url_asset_initialization_options: urlAssetInitializationOptions.toABI(arena),
+            track_ids: trackIds.toABI(arena),
+            unused_track_id: unusedTrackId.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            duration: try .fromABI(raw.duration),
+            naturalSize: try .fromABI(raw.natural_size),
+            isPlayable: try .fromABI(raw.is_playable),
+            isExportable: try .fromABI(raw.is_exportable),
+            isReadable: try .fromABI(raw.is_readable),
+            isComposable: try .fromABI(raw.is_composable),
+            urlAssetInitializationOptions: try .fromABI(raw.url_asset_initialization_options),
+            trackIds: try .fromABI(raw.track_ids),
+            unusedTrackId: try .fromABI(raw.unused_track_id)
+        )
+    }
+}
+
+extension CompositionTimeMappingPayload: BridgePayload {
+    typealias ABI = AVWCompositionTimeMapping
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            source: source.toABI(arena),
+            target: target.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            source: try .fromABI(raw.source),
+            target: try .fromABI(raw.target)
+        )
+    }
+}
+
+extension AssetTrackSegmentInfoPayload: BridgePayload {
+    typealias ABI = AVWAssetTrackSegmentInfo
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            time_mapping: timeMapping.toABI(arena),
+            is_empty: isEmpty.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            timeMapping: try .fromABI(raw.time_mapping),
+            isEmpty: try .fromABI(raw.is_empty)
+        )
+    }
+}
+
+extension CompositionTrackSegmentInfoPayload: BridgePayload {
+    typealias ABI = AVWCompositionTrackSegmentInfo
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            time_mapping: timeMapping.toABI(arena),
+            is_empty: isEmpty.toABI(arena),
+            source_url: sourceUrl.toABI(arena),
+            source_track_id: sourceTrackId.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            timeMapping: try .fromABI(raw.time_mapping),
+            isEmpty: try .fromABI(raw.is_empty),
+            sourceUrl: try .fromABI(raw.source_url),
+            sourceTrackId: try .fromABI(raw.source_track_id)
+        )
+    }
+}
+
+extension FormatDescriptionSummaryPayload: BridgePayload {
+    typealias ABI = AVWFormatDescriptionSummary
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            media_type_raw: mediaTypeRaw.toABI(arena),
+            media_type: mediaType.toABI(arena),
+            media_subtype_raw: mediaSubtypeRaw.toABI(arena),
+            media_subtype: mediaSubtype.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            mediaTypeRaw: try .fromABI(raw.media_type_raw),
+            mediaType: try .fromABI(raw.media_type),
+            mediaSubtypeRaw: try .fromABI(raw.media_subtype_raw),
+            mediaSubtype: try .fromABI(raw.media_subtype)
+        )
+    }
+}
+
+extension CompositionTrackFormatDescriptionReplacementInfoPayload: BridgePayload {
+    typealias ABI = AVWCompositionTrackFormatDescriptionReplacementInfo
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            original_format_description: originalFormatDescription.toABI(arena),
+            replacement_format_description: replacementFormatDescription.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            originalFormatDescription: try .fromABI(raw.original_format_description),
+            replacementFormatDescription: try .fromABI(raw.replacement_format_description)
+        )
+    }
+}
+
+extension CompositionTrackInfoPayload: BridgePayload {
+    typealias ABI = AVWCompositionTrackInfo
+
+    func toABI(_ arena: PayloadArena) -> ABI {
+        ABI(
+            track_id: trackId.toABI(arena),
+            media_type: mediaType.toABI(arena),
+            is_playable: isPlayable.toABI(arena),
+            is_decodable: isDecodable.toABI(arena),
+            is_enabled: isEnabled.toABI(arena),
+            is_self_contained: isSelfContained.toABI(arena),
+            total_sample_data_length: totalSampleDataLength.toABI(arena),
+            time_range: timeRange.toABI(arena),
+            natural_time_scale: naturalTimeScale.toABI(arena),
+            estimated_data_rate: estimatedDataRate.toABI(arena),
+            language_code: languageCode.toABI(arena),
+            extended_language_tag: extendedLanguageTag.toABI(arena),
+            natural_size: naturalSize.toABI(arena),
+            preferred_transform: preferredTransform.toABI(arena),
+            preferred_volume: preferredVolume.toABI(arena),
+            has_audio_sample_dependencies: hasAudioSampleDependencies.toABI(arena),
+            nominal_frame_rate: nominalFrameRate.toABI(arena),
+            min_frame_duration: minFrameDuration.toABI(arena),
+            requires_frame_reordering: requiresFrameReordering.toABI(arena),
+            segment_count: segmentCount.toABI(arena),
+            format_description_count: formatDescriptionCount.toABI(arena),
+            format_description_replacement_count: formatDescriptionReplacementCount.toABI(arena)
+        )
+    }
+
+    static func fromABI(_ raw: ABI) throws -> Self {
+        Self(
+            trackId: try .fromABI(raw.track_id),
+            mediaType: try .fromABI(raw.media_type),
+            isPlayable: try .fromABI(raw.is_playable),
+            isDecodable: try .fromABI(raw.is_decodable),
+            isEnabled: try .fromABI(raw.is_enabled),
+            isSelfContained: try .fromABI(raw.is_self_contained),
+            totalSampleDataLength: try .fromABI(raw.total_sample_data_length),
+            timeRange: try .fromABI(raw.time_range),
+            naturalTimeScale: try .fromABI(raw.natural_time_scale),
+            estimatedDataRate: try .fromABI(raw.estimated_data_rate),
+            languageCode: try .fromABI(raw.language_code),
+            extendedLanguageTag: try .fromABI(raw.extended_language_tag),
+            naturalSize: try .fromABI(raw.natural_size),
+            preferredTransform: try .fromABI(raw.preferred_transform),
+            preferredVolume: try .fromABI(raw.preferred_volume),
+            hasAudioSampleDependencies: try .fromABI(raw.has_audio_sample_dependencies),
+            nominalFrameRate: try .fromABI(raw.nominal_frame_rate),
+            minFrameDuration: try .fromABI(raw.min_frame_duration),
+            requiresFrameReordering: try .fromABI(raw.requires_frame_reordering),
+            segmentCount: try .fromABI(raw.segment_count),
+            formatDescriptionCount: try .fromABI(raw.format_description_count),
+            formatDescriptionReplacementCount: try .fromABI(raw.format_description_replacement_count)
+        )
+    }
 }

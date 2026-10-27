@@ -1,29 +1,23 @@
 #![allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
 use core::ptr;
 
+use crate::PropertyValue;
 use apple_cf::cm::CMFormatDescription;
-use serde::Deserialize;
-use serde_json::Value as JsonValue;
 
-use crate::bridge_support::{
-    cstring_arg, parse_json_ptr, parse_optional_json_string, time_kind, time_scale, time_value,
-};
+use crate::bridge_support::{string_arg, take_payload, time_kind, time_scale, time_value};
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
 use crate::writer::{FileType, VideoPreset};
 use apple_cf::cm::CMTime;
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct OutputSettingsAssistantInfoPayload {
-    audio_settings_json: Option<String>,
-    video_settings_json: Option<String>,
+    audio_settings: Option<PropertyValue>,
+    video_settings: Option<PropertyValue>,
     output_file_type: Option<String>,
-    #[serde(with = "crate::time")]
     source_video_average_frame_duration: CMTime,
-    #[serde(with = "crate::time")]
     source_video_min_frame_duration: CMTime,
 }
 
@@ -41,8 +35,8 @@ unsafe impl Send for OutputSettingsAssistant {}
 impl OutputSettingsAssistant {
     /// Return all output-settings presets available on the current macOS SDK/runtime.
     pub fn available_presets() -> Result<Vec<VideoPreset>, AVWriterError> {
-        let ptr = unsafe { ffi::av_output_settings_assistant_available_presets_json() };
-        let raw: Vec<String> = parse_json_ptr(ptr, "output settings assistant presets")?;
+        let ptr = unsafe { ffi::av_output_settings_assistant_available_presets_payload() };
+        let raw: Vec<String> = take_payload(ptr, "output settings assistant presets")?;
         raw.into_iter()
             .map(|value| {
                 VideoPreset::from_raw(&value).ok_or_else(|| {
@@ -56,8 +50,8 @@ impl OutputSettingsAssistant {
 
     /// Create a new assistant for one of Apple's named `AVOutputSettingsPreset` values.
     pub fn new(preset: VideoPreset) -> Result<Self, AVWriterError> {
-        let preset_c = cstring_arg(preset.as_str(), "output settings preset")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let preset_c = string_arg(preset.as_str(), "output settings preset")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
             ffi::av_output_settings_assistant_create(preset_c.as_ptr(), &raw mut err_msg)
         };
@@ -67,14 +61,12 @@ impl OutputSettingsAssistant {
         Ok(Self { ptr })
     }
 
-    /// Return the recommended `AVAudioSettings` dictionary as JSON.
-    pub fn audio_settings(&self) -> Result<Option<JsonValue>, AVWriterError> {
-        parse_optional_json_string(self.info()?.audio_settings_json)
+    pub fn audio_settings(&self) -> Result<Option<PropertyValue>, AVWriterError> {
+        Ok(self.info()?.audio_settings)
     }
 
-    /// Return the recommended `AVVideoSettings` dictionary as JSON.
-    pub fn video_settings(&self) -> Result<Option<JsonValue>, AVWriterError> {
-        parse_optional_json_string(self.info()?.video_settings_json)
+    pub fn video_settings(&self) -> Result<Option<PropertyValue>, AVWriterError> {
+        Ok(self.info()?.video_settings)
     }
 
     /// Return the output file type recommended by the assistant.
@@ -100,7 +92,7 @@ impl OutputSettingsAssistant {
         &self,
         format: Option<&CMFormatDescription>,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_output_settings_assistant_set_source_audio_format(
                 self.ptr,
@@ -126,7 +118,7 @@ impl OutputSettingsAssistant {
         &self,
         format: Option<&CMFormatDescription>,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_output_settings_assistant_set_source_video_format(
                 self.ptr,
@@ -150,7 +142,7 @@ impl OutputSettingsAssistant {
         &self,
         duration: CMTime,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_output_settings_assistant_set_source_video_average_frame_duration(
                 self.ptr,
@@ -176,7 +168,7 @@ impl OutputSettingsAssistant {
         &self,
         duration: CMTime,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_output_settings_assistant_set_source_video_min_frame_duration(
                 self.ptr,
@@ -193,8 +185,8 @@ impl OutputSettingsAssistant {
     }
 
     fn info(&self) -> Result<OutputSettingsAssistantInfoPayload, AVWriterError> {
-        let ptr = unsafe { ffi::av_output_settings_assistant_info_json(self.ptr) };
-        parse_json_ptr(ptr, "output settings assistant info")
+        let ptr = unsafe { ffi::av_output_settings_assistant_info_payload(self.ptr) };
+        take_payload(ptr, "output settings assistant info")
     }
 }
 
@@ -211,5 +203,41 @@ impl core::fmt::Debug for OutputSettingsAssistant {
         f.debug_struct("OutputSettingsAssistant")
             .field("ptr", &self.ptr)
             .finish()
+    }
+}
+
+impl crate::binary::ToAbi for OutputSettingsAssistantInfoPayload {
+    type Abi = crate::ffi::AVWOutputSettingsAssistantInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            audio_settings: crate::binary::ToAbi::to_abi(&self.audio_settings, arena),
+            video_settings: crate::binary::ToAbi::to_abi(&self.video_settings, arena),
+            output_file_type: crate::binary::ToAbi::to_abi(&self.output_file_type, arena),
+            source_video_average_frame_duration: crate::binary::ToAbi::to_abi(
+                &self.source_video_average_frame_duration,
+                arena,
+            ),
+            source_video_min_frame_duration: crate::binary::ToAbi::to_abi(
+                &self.source_video_min_frame_duration,
+                arena,
+            ),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for OutputSettingsAssistantInfoPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            audio_settings: crate::binary::FromAbi::from_abi(&raw.audio_settings)?,
+            video_settings: crate::binary::FromAbi::from_abi(&raw.video_settings)?,
+            output_file_type: crate::binary::FromAbi::from_abi(&raw.output_file_type)?,
+            source_video_average_frame_duration: crate::binary::FromAbi::from_abi(
+                &raw.source_video_average_frame_duration,
+            )?,
+            source_video_min_frame_duration: crate::binary::FromAbi::from_abi(
+                &raw.source_video_min_frame_duration,
+            )?,
+        })
     }
 }

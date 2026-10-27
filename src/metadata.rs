@@ -9,14 +9,13 @@
 )]
 
 use core::cell::Cell;
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
 use core::ptr;
 
 use doom_fish_utils::panic_safe::catch_user_panic;
-use serde::{Deserialize, Serialize};
 
 use crate::bridge_support::{
-    cstring_arg, parse_json_ptr, serialize_json, time_kind, time_scale, time_value,
+    payload_arg, string_arg, take_payload, time_kind, time_scale, time_value,
 };
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
@@ -24,8 +23,7 @@ use crate::media_processing::MetadataItemFilter;
 use apple_cf::cm::CMTimeRange;
 
 /// A metadata value supported by the AVFoundation bridge payloads.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum MetadataValue {
     String(String),
@@ -35,8 +33,65 @@ pub enum MetadataValue {
     Data(Vec<u8>),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+impl crate::binary::ToAbi for MetadataValue {
+    type Abi = ffi::AVWMetadataValue;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        let mut raw = Self::Abi {
+            kind: 0,
+            string_value: ffi::AVWString {
+                data: ptr::null(),
+                length: 0,
+            },
+            integer_value: 0,
+            float_value: 0.0,
+            boolean_value: 0,
+            data_value: ffi::AVWArray {
+                data: ptr::null(),
+                length: 0,
+            },
+        };
+        match self {
+            Self::String(value) => raw.string_value = crate::binary::ToAbi::to_abi(value, arena),
+            Self::Integer(value) => {
+                raw.kind = 1;
+                raw.integer_value = *value;
+            }
+            Self::Float(value) => {
+                raw.kind = 2;
+                raw.float_value = *value;
+            }
+            Self::Boolean(value) => {
+                raw.kind = 3;
+                raw.boolean_value = u8::from(*value);
+            }
+            Self::Data(value) => {
+                raw.kind = 4;
+                raw.data_value = crate::binary::ToAbi::to_abi(value, arena);
+            }
+        }
+        raw
+    }
+}
+
+impl crate::binary::FromAbi for MetadataValue {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, AVWriterError> {
+        match raw.kind {
+            0 => Ok(Self::String(String::from_abi(&raw.string_value)?)),
+            1 => Ok(Self::Integer(raw.integer_value)),
+            2 => Ok(Self::Float(<f64 as crate::binary::FromAbi>::from_abi(
+                &raw.float_value,
+            )?)),
+            3 => Ok(Self::Boolean(bool::from_abi(&raw.boolean_value)?)),
+            4 => Ok(Self::Data(Vec::<u8>::from_abi(&raw.data_value)?)),
+            _ => Err(AVWriterError::InvalidState(
+                "invalid metadata value kind".into(),
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct MetadataItemPayload {
     identifier: String,
     value: MetadataValue,
@@ -45,8 +100,7 @@ struct MetadataItemPayload {
     locale_identifier: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct MetadataItemPropertiesPayload {
     identifier: String,
     data_type: Option<String>,
@@ -54,17 +108,14 @@ struct MetadataItemPropertiesPayload {
     locale_identifier: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 struct TimedMetadataGroupPropertiesPayload {
-    #[serde(with = "crate::time::range")]
     time_range: CMTimeRange,
     classifying_label: Option<String>,
     unique_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 struct DateRangeMetadataGroupPropertiesPayload {
     start_date: String,
     end_date: Option<String>,
@@ -73,16 +124,14 @@ struct DateRangeMetadataGroupPropertiesPayload {
 }
 
 /// A CoreMedia metadata specification used to build a metadata-track format hint.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataSpecification {
     pub identifier: String,
     pub data_type: String,
     pub extended_language_tag: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct KeyLoadStatusPayload {
     pub key: String,
     pub status: i32,
@@ -322,12 +371,12 @@ impl MetadataItem {
                 AVWriterError::InvalidState("detached metadata item has no value".into())
             });
         }
-        let mut err_msg: *mut c_char = ptr::null_mut();
-        let value_ptr = unsafe { ffi::av_metadata_item_value_json(current, &raw mut err_msg) };
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
+        let value_ptr = unsafe { ffi::av_metadata_item_value_payload(current, &raw mut err_msg) };
         if value_ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
-        parse_json_ptr(value_ptr, "metadata item value")
+        take_payload(value_ptr, "metadata item value")
     }
 
     #[must_use]
@@ -346,8 +395,8 @@ impl MetadataItem {
     }
 
     pub fn status_of_value(&self, key: &str) -> Result<KeyValueStatus, AVWriterError> {
-        let key_c = cstring_arg(key, "metadata item key")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let key_c = string_arg(key, "metadata item key")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let raw = unsafe {
             ffi::av_metadata_item_status_of_value(self.as_ptr()?, key_c.as_ptr(), &raw mut err_msg)
         };
@@ -369,11 +418,10 @@ impl MetadataItem {
             .into_iter()
             .map(|key| key.as_ref().to_owned())
             .collect::<Vec<_>>();
-        let payload = serialize_json(&keys)?;
-        let payload_c = cstring_arg(&payload, "metadata item keys json")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let payload_c = payload_arg(&keys);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let statuses_ptr = unsafe {
-            ffi::av_metadata_item_load_values_json(
+            ffi::av_metadata_item_load_values_payload(
                 self.as_ptr()?,
                 payload_c.as_ptr(),
                 30,
@@ -384,7 +432,7 @@ impl MetadataItem {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
         let raw_statuses: Vec<KeyLoadStatusPayload> =
-            parse_json_ptr(statuses_ptr, "metadata item key statuses")?;
+            take_payload(statuses_ptr, "metadata item key statuses")?;
         Ok(raw_statuses
             .into_iter()
             .map(|status| KeyLoadStatus {
@@ -406,7 +454,7 @@ impl MetadataItem {
             callback: Box::new(callback),
         });
         let userdata = Box::into_raw(state).cast::<c_void>();
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
             ffi::av_metadata_item_create_lazy(
                 base_ptr,
@@ -443,9 +491,8 @@ impl MetadataItem {
             .into_iter()
             .map(|value| value.as_ref().to_owned())
             .collect::<Vec<_>>();
-        let languages_json = serialize_json(&languages_payload)?;
-        let languages_c = cstring_arg(&languages_json, "preferred languages json")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let languages_c = payload_arg(&languages_payload);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let array = unsafe {
             ffi::av_metadata_item_filter_preferred_languages(
                 item_ptrs.as_ptr(),
@@ -465,8 +512,8 @@ impl MetadataItem {
         identifier: impl AsRef<str>,
     ) -> Result<Vec<Self>, AVWriterError> {
         let item_ptrs = Self::native_ptrs(items)?;
-        let identifier_c = cstring_arg(identifier.as_ref(), "metadata identifier")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let identifier_c = string_arg(identifier.as_ref(), "metadata identifier")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let array = unsafe {
             ffi::av_metadata_item_filter_identifier(
                 item_ptrs.as_ptr(),
@@ -486,7 +533,7 @@ impl MetadataItem {
         filter: &MetadataItemFilter,
     ) -> Result<Vec<Self>, AVWriterError> {
         let item_ptrs = Self::native_ptrs(items)?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let array = unsafe {
             ffi::av_metadata_item_filter_metadata_item_filter(
                 item_ptrs.as_ptr(),
@@ -516,11 +563,10 @@ impl MetadataItem {
         if !current.is_null() {
             return Ok(current);
         }
-        let payload = serialize_json(&self.payload()?)?;
-        let payload_c = cstring_arg(&payload, "metadata item json")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let payload_c = payload_arg(&self.payload()?);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr =
-            unsafe { ffi::av_metadata_item_create_json(payload_c.as_ptr(), &raw mut err_msg) };
+            unsafe { ffi::av_metadata_item_create_payload(payload_c.as_ptr(), &raw mut err_msg) };
         if ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_ARGUMENT, err_msg) });
         }
@@ -552,15 +598,15 @@ impl MetadataItem {
     }
 
     fn from_retained_ptr(item_ptr: *mut c_void) -> Result<Self, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let properties_ptr =
-            unsafe { ffi::av_metadata_item_properties_json(item_ptr, &raw mut err_msg) };
+            unsafe { ffi::av_metadata_item_properties_payload(item_ptr, &raw mut err_msg) };
         if properties_ptr.is_null() {
             unsafe { ffi::av_metadata_item_release(item_ptr) };
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
         let properties: MetadataItemPropertiesPayload =
-            match parse_json_ptr(properties_ptr, "metadata item properties") {
+            match take_payload(properties_ptr, "metadata item properties") {
                 Ok(properties) => properties,
                 Err(error) => {
                     unsafe { ffi::av_metadata_item_release(item_ptr) };
@@ -716,7 +762,7 @@ impl TimedMetadataGroup {
             return Ok(current);
         }
         let item_ptrs = MetadataItem::native_ptrs(&self.items)?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
             ffi::av_timed_metadata_group_create_items(
                 item_ptrs.as_ptr(),
@@ -739,7 +785,7 @@ impl TimedMetadataGroup {
 
     #[allow(dead_code)]
     pub(crate) fn from_retained_ptr(group_ptr: *mut c_void) -> Result<Self, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let items_ptr = unsafe { ffi::av_metadata_group_items(group_ptr, &raw mut err_msg) };
         if items_ptr.is_null() {
             unsafe { ffi::av_timed_metadata_group_release(group_ptr) };
@@ -754,13 +800,13 @@ impl TimedMetadataGroup {
             }
         };
         let properties_ptr =
-            unsafe { ffi::av_timed_metadata_group_properties_json(group_ptr, &raw mut err_msg) };
+            unsafe { ffi::av_timed_metadata_group_properties_payload(group_ptr, &raw mut err_msg) };
         if properties_ptr.is_null() {
             unsafe { ffi::av_timed_metadata_group_release(group_ptr) };
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
         let properties: TimedMetadataGroupPropertiesPayload =
-            match parse_json_ptr(properties_ptr, "timed metadata group properties") {
+            match take_payload(properties_ptr, "timed metadata group properties") {
                 Ok(properties) => properties,
                 Err(error) => {
                     unsafe { ffi::av_timed_metadata_group_release(group_ptr) };
@@ -886,13 +932,13 @@ impl DateRangeMetadataGroup {
             return Ok(current);
         }
         let item_ptrs = MetadataItem::native_ptrs(&self.items)?;
-        let start_date = cstring_arg(&self.start_date, "date-range metadata start date")?;
+        let start_date = string_arg(&self.start_date, "date-range metadata start date")?;
         let end_date = self
             .end_date
             .as_deref()
-            .map(|value| cstring_arg(value, "date-range metadata end date"))
+            .map(|value| string_arg(value, "date-range metadata end date"))
             .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
             ffi::av_date_range_metadata_group_create_items(
                 item_ptrs.as_ptr(),
@@ -900,7 +946,7 @@ impl DateRangeMetadataGroup {
                 start_date.as_ptr(),
                 end_date
                     .as_ref()
-                    .map_or(ptr::null(), |value| value.as_ptr()),
+                    .map_or(ptr::null(), super::binary::Argument::as_ptr),
                 false,
                 &raw mut err_msg,
             )
@@ -914,7 +960,7 @@ impl DateRangeMetadataGroup {
 
     #[allow(dead_code)]
     pub(crate) fn from_retained_ptr(group_ptr: *mut c_void) -> Result<Self, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let items_ptr = unsafe { ffi::av_metadata_group_items(group_ptr, &raw mut err_msg) };
         if items_ptr.is_null() {
             unsafe { ffi::av_date_range_metadata_group_release(group_ptr) };
@@ -929,14 +975,14 @@ impl DateRangeMetadataGroup {
                 }
             };
         let properties_ptr = unsafe {
-            ffi::av_date_range_metadata_group_properties_json(group_ptr, &raw mut err_msg)
+            ffi::av_date_range_metadata_group_properties_payload(group_ptr, &raw mut err_msg)
         };
         if properties_ptr.is_null() {
             unsafe { ffi::av_date_range_metadata_group_release(group_ptr) };
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
         let properties: DateRangeMetadataGroupPropertiesPayload =
-            match parse_json_ptr(properties_ptr, "date-range metadata group properties") {
+            match take_payload(properties_ptr, "date-range metadata group properties") {
                 Ok(properties) => properties,
                 Err(error) => {
                     unsafe { ffi::av_date_range_metadata_group_release(group_ptr) };
@@ -1098,13 +1144,13 @@ impl MutableDateRangeMetadataGroup {
             return Ok(current);
         }
         let item_ptrs = MetadataItem::native_ptrs(&self.items)?;
-        let start_date = cstring_arg(&self.start_date, "mutable date-range metadata start date")?;
+        let start_date = string_arg(&self.start_date, "mutable date-range metadata start date")?;
         let end_date = self
             .end_date
             .as_deref()
-            .map(|value| cstring_arg(value, "mutable date-range metadata end date"))
+            .map(|value| string_arg(value, "mutable date-range metadata end date"))
             .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
             ffi::av_date_range_metadata_group_create_items(
                 item_ptrs.as_ptr(),
@@ -1112,7 +1158,7 @@ impl MutableDateRangeMetadataGroup {
                 start_date.as_ptr(),
                 end_date
                     .as_ref()
-                    .map_or(ptr::null(), |value| value.as_ptr()),
+                    .map_or(ptr::null(), super::binary::Argument::as_ptr),
                 true,
                 &raw mut err_msg,
             )
@@ -1161,11 +1207,10 @@ impl MetadataItemValueRequest {
     }
 
     pub fn respond_with_value(&self, value: &MetadataValue) -> Result<(), AVWriterError> {
-        let payload = serialize_json(value)?;
-        let payload_c = cstring_arg(&payload, "metadata item value json")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let payload_c = payload_arg(value);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
-            ffi::av_metadata_item_value_request_respond_with_value_json(
+            ffi::av_metadata_item_value_request_respond_with_value_payload(
                 self.ptr,
                 payload_c.as_ptr(),
                 &raw mut err_msg,
@@ -1178,8 +1223,8 @@ impl MetadataItemValueRequest {
     }
 
     pub fn respond_with_error(&self, message: &str) -> Result<(), AVWriterError> {
-        let message_c = cstring_arg(message, "metadata item value request error")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let message_c = string_arg(message, "metadata item value request error")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_metadata_item_value_request_respond_with_error(
                 self.ptr,
@@ -1227,6 +1272,146 @@ unsafe extern "C" fn metadata_value_request_drop(userdata: *mut c_void) {
     catch_user_panic("metadata_value_request_drop", || unsafe {
         drop(Box::from_raw(userdata.cast::<MetadataValueLoaderState>()));
     });
+}
+
+impl crate::binary::ToAbi for MetadataItemPayload {
+    type Abi = crate::ffi::AVWMetadataItem;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            identifier: crate::binary::ToAbi::to_abi(&self.identifier, arena),
+            value: crate::binary::ToAbi::to_abi(&self.value, arena),
+            data_type: crate::binary::ToAbi::to_abi(&self.data_type, arena),
+            extended_language_tag: crate::binary::ToAbi::to_abi(&self.extended_language_tag, arena),
+            locale_identifier: crate::binary::ToAbi::to_abi(&self.locale_identifier, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for MetadataItemPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            identifier: crate::binary::FromAbi::from_abi(&raw.identifier)?,
+            value: crate::binary::FromAbi::from_abi(&raw.value)?,
+            data_type: crate::binary::FromAbi::from_abi(&raw.data_type)?,
+            extended_language_tag: crate::binary::FromAbi::from_abi(&raw.extended_language_tag)?,
+            locale_identifier: crate::binary::FromAbi::from_abi(&raw.locale_identifier)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for MetadataItemPropertiesPayload {
+    type Abi = crate::ffi::AVWMetadataItemProperties;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            identifier: crate::binary::ToAbi::to_abi(&self.identifier, arena),
+            data_type: crate::binary::ToAbi::to_abi(&self.data_type, arena),
+            extended_language_tag: crate::binary::ToAbi::to_abi(&self.extended_language_tag, arena),
+            locale_identifier: crate::binary::ToAbi::to_abi(&self.locale_identifier, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for MetadataItemPropertiesPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            identifier: crate::binary::FromAbi::from_abi(&raw.identifier)?,
+            data_type: crate::binary::FromAbi::from_abi(&raw.data_type)?,
+            extended_language_tag: crate::binary::FromAbi::from_abi(&raw.extended_language_tag)?,
+            locale_identifier: crate::binary::FromAbi::from_abi(&raw.locale_identifier)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for TimedMetadataGroupPropertiesPayload {
+    type Abi = crate::ffi::AVWTimedMetadataGroupProperties;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            time_range: crate::binary::ToAbi::to_abi(&self.time_range, arena),
+            classifying_label: crate::binary::ToAbi::to_abi(&self.classifying_label, arena),
+            unique_id: crate::binary::ToAbi::to_abi(&self.unique_id, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for TimedMetadataGroupPropertiesPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            time_range: crate::binary::FromAbi::from_abi(&raw.time_range)?,
+            classifying_label: crate::binary::FromAbi::from_abi(&raw.classifying_label)?,
+            unique_id: crate::binary::FromAbi::from_abi(&raw.unique_id)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for DateRangeMetadataGroupPropertiesPayload {
+    type Abi = crate::ffi::AVWDateRangeMetadataGroupProperties;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            start_date: crate::binary::ToAbi::to_abi(&self.start_date, arena),
+            end_date: crate::binary::ToAbi::to_abi(&self.end_date, arena),
+            classifying_label: crate::binary::ToAbi::to_abi(&self.classifying_label, arena),
+            unique_id: crate::binary::ToAbi::to_abi(&self.unique_id, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for DateRangeMetadataGroupPropertiesPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            start_date: crate::binary::FromAbi::from_abi(&raw.start_date)?,
+            end_date: crate::binary::FromAbi::from_abi(&raw.end_date)?,
+            classifying_label: crate::binary::FromAbi::from_abi(&raw.classifying_label)?,
+            unique_id: crate::binary::FromAbi::from_abi(&raw.unique_id)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for MetadataSpecification {
+    type Abi = crate::ffi::AVWMetadataSpecification;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            identifier: crate::binary::ToAbi::to_abi(&self.identifier, arena),
+            data_type: crate::binary::ToAbi::to_abi(&self.data_type, arena),
+            extended_language_tag: crate::binary::ToAbi::to_abi(&self.extended_language_tag, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for MetadataSpecification {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            identifier: crate::binary::FromAbi::from_abi(&raw.identifier)?,
+            data_type: crate::binary::FromAbi::from_abi(&raw.data_type)?,
+            extended_language_tag: crate::binary::FromAbi::from_abi(&raw.extended_language_tag)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for KeyLoadStatusPayload {
+    type Abi = crate::ffi::AVWKeyLoadStatus;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            key: crate::binary::ToAbi::to_abi(&self.key, arena),
+            status: crate::binary::ToAbi::to_abi(&self.status, arena),
+            error_message: crate::binary::ToAbi::to_abi(&self.error_message, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for KeyLoadStatusPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            key: crate::binary::FromAbi::from_abi(&raw.key)?,
+            status: crate::binary::FromAbi::from_abi(&raw.status)?,
+            error_message: crate::binary::FromAbi::from_abi(&raw.error_message)?,
+        })
+    }
 }
 
 #[cfg(test)]

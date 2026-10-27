@@ -12,7 +12,7 @@ Designed to compose with [`videotoolbox`](https://github.com/doom-fish/videotool
 
 ```toml
 [dependencies]
-avassetwriter = "0.13"
+avassetwriter = "0.14"
 ```
 
 ## Quick start — video + audio
@@ -93,7 +93,7 @@ Enable with the `async` Cargo feature:
 
 ```toml
 [dependencies]
-avassetwriter = { version = "0.13", features = ["async"] }
+avassetwriter = { version = "0.14", features = ["async"] }
 ```
 
 The `async_api` module wraps three completion-handler APIs as
@@ -157,13 +157,35 @@ succeeded.
 Cloning a native-backed `MetadataItem` retains the same native item, including
 its lazy value loader and loading state. Metadata filters, groups, writer/export
 setters, getters, and value requests transport retained native items rather than
-rebuilding them from JSON.
+copies of their values.
 
 The `with_data_type`, `with_extended_language_tag`, and
 `with_locale_identifier` builders use native copy-on-write. If the item is lazy,
 the native mutable-copy operation may synchronously invoke its loader; the
 resulting item keeps the authoritative loaded value and all earlier property
 changes.
+
+## Binary bridge
+
+The Rust and Swift bridge uses the C structures in
+`swift-bridge/Sources/AVAssetWriterObjCBridge/include/AVAssetWriterABI.h`.
+The Rust structures use `#[repr(C)]`.
+The bridge does not use a text format or serialization dependencies.
+
+Strings and arrays have a pointer and a length.
+Arguments remain valid until the native call returns.
+A returned `AVWOwnedPayload` owns its complete allocation tree.
+The Rust wrapper copies its values, then calls `avw_payload_free` once.
+
+Segment and pass callbacks borrow their payload until the callback returns.
+An async compatible-file-types result transfers its payload to the caller.
+Objects continue to use retained opaque handles.
+
+`PropertyValue` replaces the former general-purpose value type in settings APIs.
+It supports dictionaries, arrays, strings, signed integers, unsigned integers,
+floating-point numbers, booleans, data, and null.
+The other safe Rust APIs keep their names and parameter types.
+The raw FFI changes its payload functions and string arguments in this release.
 
 ## Rust video composition
 

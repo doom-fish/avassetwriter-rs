@@ -1,174 +1,100 @@
 use apple_cf::cm::{CMTime, CMTimeRange};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum TimePayload {
-    Numeric { value: i64, timescale: i32 },
-    Invalid,
-    Indefinite,
-    PositiveInfinity,
-    NegativeInfinity,
-}
+use crate::binary::{Arena, FromAbi, ToAbi};
+use crate::bridge_support::{time_kind, time_scale, time_value};
+use crate::error::AVWriterError;
+use crate::ffi::{AVWTime, AVWTimeRange};
 
-impl From<CMTime> for TimePayload {
-    fn from(time: CMTime) -> Self {
-        if time.is_indefinite() {
-            Self::Indefinite
-        } else if time.is_positive_infinity() {
-            Self::PositiveInfinity
-        } else if time.is_negative_infinity() {
-            Self::NegativeInfinity
-        } else if is_numeric(&time) {
-            Self::Numeric {
-                value: time.value,
-                timescale: time.timescale,
-            }
-        } else {
-            Self::Invalid
-        }
-    }
-}
-
-impl From<TimePayload> for CMTime {
-    fn from(payload: TimePayload) -> Self {
-        match payload {
-            TimePayload::Numeric { value, timescale } => Self::new(value, timescale),
-            TimePayload::Invalid => Self::INVALID,
-            TimePayload::Indefinite => Self::indefinite(),
-            TimePayload::PositiveInfinity => Self::positive_infinity(),
-            TimePayload::NegativeInfinity => Self::negative_infinity(),
-        }
-    }
-}
-
-#[derive(Deserialize)]
-pub struct TimeJson(#[serde(with = "self")] pub CMTime);
+pub struct TimeValue(pub CMTime);
 
 pub const fn is_numeric(time: &CMTime) -> bool {
     time.is_numeric() && time.timescale > 0
 }
 
-pub fn serialize<S: Serializer>(time: &CMTime, serializer: S) -> Result<S::Ok, S::Error> {
-    TimePayload::from(*time).serialize(serializer)
-}
+impl ToAbi for CMTime {
+    type Abi = AVWTime;
 
-pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<CMTime, D::Error> {
-    TimePayload::deserialize(deserializer).map(CMTime::from)
-}
-
-#[derive(Serialize, Deserialize)]
-struct RangePayload {
-    #[serde(with = "self")]
-    start: CMTime,
-    #[serde(with = "self")]
-    duration: CMTime,
-}
-
-impl From<CMTimeRange> for RangePayload {
-    fn from(range: CMTimeRange) -> Self {
-        Self {
-            start: range.start,
-            duration: range.duration,
+    fn to_abi(&self, _: &mut Arena) -> Self::Abi {
+        AVWTime {
+            kind: time_kind(self),
+            value: time_value(self),
+            timescale: time_scale(self),
         }
     }
 }
 
-impl From<RangePayload> for CMTimeRange {
-    fn from(payload: RangePayload) -> Self {
-        Self::new(payload.start, payload.duration)
+impl FromAbi for CMTime {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, AVWriterError> {
+        match raw.kind {
+            0 if raw.timescale > 0 => Ok(Self::new(raw.value, raw.timescale)),
+            0 | 1 => Ok(Self::INVALID),
+            2 => Ok(Self::indefinite()),
+            3 => Ok(Self::positive_infinity()),
+            4 => Ok(Self::negative_infinity()),
+            other => Err(AVWriterError::InvalidState(format!(
+                "unknown time kind {other}"
+            ))),
+        }
     }
 }
 
-pub mod range {
-    use apple_cf::cm::CMTimeRange;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+impl ToAbi for TimeValue {
+    type Abi = AVWTime;
 
-    use super::RangePayload;
-
-    pub fn serialize<S: Serializer>(range: &CMTimeRange, serializer: S) -> Result<S::Ok, S::Error> {
-        RangePayload::from(*range).serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<CMTimeRange, D::Error> {
-        RangePayload::deserialize(deserializer).map(CMTimeRange::from)
+    fn to_abi(&self, _: &mut Arena) -> Self::Abi {
+        AVWTime {
+            kind: time_kind(&self.0),
+            value: time_value(&self.0),
+            timescale: time_scale(&self.0),
+        }
     }
 }
 
-pub mod ranges {
-    use apple_cf::cm::CMTimeRange;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    use super::RangePayload;
-
-    pub fn serialize<S: Serializer>(
-        ranges: &[CMTimeRange],
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        serializer.collect_seq(ranges.iter().copied().map(RangePayload::from))
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<Vec<CMTimeRange>, D::Error> {
-        Vec::<RangePayload>::deserialize(deserializer)
-            .map(|ranges| ranges.into_iter().map(CMTimeRange::from).collect())
+impl FromAbi for TimeValue {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, AVWriterError> {
+        Ok(Self(CMTime::from_abi(raw)?))
     }
 }
 
-pub mod optional {
-    use apple_cf::cm::CMTime;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+impl ToAbi for CMTimeRange {
+    type Abi = AVWTimeRange;
 
-    use super::TimePayload;
-
-    #[allow(clippy::ref_option)]
-    pub fn serialize<S: Serializer>(
-        time: &Option<CMTime>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        time.map(TimePayload::from).serialize(serializer)
+    fn to_abi(&self, arena: &mut Arena) -> Self::Abi {
+        AVWTimeRange {
+            start: self.start.to_abi(arena),
+            duration: self.duration.to_abi(arena),
+        }
     }
+}
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<Option<CMTime>, D::Error> {
-        Option::<TimePayload>::deserialize(deserializer).map(|time| time.map(CMTime::from))
+impl FromAbi for CMTimeRange {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, AVWriterError> {
+        Ok(Self::new(
+            CMTime::from_abi(&raw.start)?,
+            CMTime::from_abi(&raw.duration)?,
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use apple_cf::cm::{CMTime, CMTimeRange};
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
-    struct Probe {
-        #[serde(with = "super")]
-        time: CMTime,
-        #[serde(with = "super::range")]
-        range: CMTimeRange,
-        #[serde(with = "super::ranges")]
-        ranges: Vec<CMTimeRange>,
-        #[serde(with = "super::optional", default)]
-        optional: Option<CMTime>,
-    }
+    use super::*;
 
     fn round_trip(time: CMTime) -> CMTime {
-        let probe = Probe {
-            time,
-            range: CMTimeRange::new(time, CMTime::new(1, 30)),
-            ranges: vec![CMTimeRange::new(CMTime::ZERO, time)],
-            optional: Some(time),
-        };
-        let json = serde_json::to_string(&probe).expect("serialize");
-        let back: Probe = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(back.range.start, back.time);
-        assert_eq!(back.ranges[0].duration, back.time);
-        assert_eq!(back.optional, Some(back.time));
-        back.time
+        let mut arena = Arena::default();
+        let range = CMTimeRange::new(time, CMTime::new(1, 30));
+        let back = CMTime::from_abi(&time.to_abi(&mut arena)).expect("decode time");
+        let range = CMTimeRange::from_abi(&range.to_abi(&mut arena)).expect("decode range");
+        let ranges = vec![CMTimeRange::new(CMTime::ZERO, time)];
+        let ranges =
+            Vec::<CMTimeRange>::from_abi(&ranges.to_abi(&mut arena)).expect("decode ranges");
+        let optional = Some(time);
+        let optional =
+            Option::<CMTime>::from_abi(&optional.to_abi(&mut arena)).expect("decode optional");
+        assert_eq!(range.start, back);
+        assert_eq!(ranges[0].duration, back);
+        assert_eq!(optional, Some(back));
+        back
     }
 
     #[test]
@@ -196,28 +122,20 @@ mod tests {
             flags: CMTime::new(1, 1).flags,
             epoch: 0,
         };
-        assert!(!super::is_numeric(&malformed));
+        assert!(!is_numeric(&malformed));
         assert_eq!(round_trip(malformed), CMTime::INVALID);
     }
 
     #[test]
     fn the_wire_format_matches_the_swift_payload() {
-        let json = serde_json::to_value(Probe {
-            time: CMTime::new(3, 30),
-            range: CMTimeRange::new(CMTime::ZERO, CMTime::indefinite()),
-            ranges: Vec::new(),
-            optional: None,
-        })
-        .expect("serialize");
-
-        assert_eq!(
-            json["time"],
-            serde_json::json!({"kind": "numeric", "value": 3, "timescale": 30})
-        );
-        assert_eq!(
-            json["range"]["duration"],
-            serde_json::json!({"kind": "indefinite"})
-        );
-        assert_eq!(json["optional"], serde_json::Value::Null);
+        let mut arena = Arena::default();
+        let time = CMTime::new(3, 30).to_abi(&mut arena);
+        let range = CMTimeRange::new(CMTime::ZERO, CMTime::indefinite()).to_abi(&mut arena);
+        let optional = None::<CMTime>.to_abi(&mut arena);
+        assert_eq!(time.kind, 0);
+        assert_eq!(time.value, 3);
+        assert_eq!(time.timescale, 30);
+        assert_eq!(range.duration.kind, 2);
+        assert!(optional.is_null());
     }
 }

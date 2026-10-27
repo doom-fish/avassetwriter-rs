@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use apple_cf::cm::{CMTime, CMTimeRange};
 use apple_cf::cv::CVPixelBuffer;
 use apple_cf::iosurface::IOSurface;
+use avassetwriter::PropertyValue;
 use avassetwriter::{
     AVWriterError, Caption, CaptionConversionSettings, CaptionConversionValidator,
     CaptionDimension, CaptionFormatConformer, CaptionGroup, CaptionPoint, CaptionRegion,
@@ -11,7 +12,6 @@ use avassetwriter::{
     MetadataItem, MutableAudioMix, MutableAudioMixInputParameters, TrackAssociationType,
     TrackGroupOutputHandling, Writer,
 };
-use serde_json::json;
 use videotoolbox::prelude::*;
 
 const BGRA: u32 = u32::from_be_bytes(*b"BGRA");
@@ -66,8 +66,18 @@ fn encoded_h264_frame() -> EncodedFrame {
         .expect("encode")
 }
 
-fn video_settings() -> serde_json::Value {
-    json!({ "AVVideoCodecKey": "avc1", "AVVideoWidthKey": 64, "AVVideoHeightKey": 64 })
+fn video_settings() -> PropertyValue {
+    PropertyValue::Dictionary(
+        [
+            (
+                "AVVideoCodecKey".into(),
+                PropertyValue::String("avc1".into()),
+            ),
+            ("AVVideoWidthKey".into(), PropertyValue::Integer(64)),
+            ("AVVideoHeightKey".into(), PropertyValue::Integer(64)),
+        ]
+        .into(),
+    )
 }
 
 #[test]
@@ -317,11 +327,17 @@ fn adaptors_attach_once_to_matching_inputs() {
     writer
         .attach_pixel_buffer_adaptor(
             video,
-            Some(&json!({
-                "PixelFormatType": BGRA,
-                "Width": 64,
-                "Height": 64,
-            })),
+            Some(&PropertyValue::Dictionary(
+                [
+                    (
+                        "PixelFormatType".into(),
+                        PropertyValue::Unsigned(u64::from(BGRA)),
+                    ),
+                    ("Width".into(), PropertyValue::Integer(64)),
+                    ("Height".into(), PropertyValue::Integer(64)),
+                ]
+                .into(),
+            )),
         )
         .expect("first adaptor");
     expect_invalid_state(writer.attach_pixel_buffer_adaptor(video, None));

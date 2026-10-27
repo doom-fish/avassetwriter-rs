@@ -7,14 +7,12 @@
     clippy::unsafe_derive_deserialize
 )]
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
 use core::ptr;
 use std::ops::Range;
 
-use serde::{Deserialize, Serialize};
-
 use crate::bridge_support::{
-    cstring_arg, parse_json_ptr, serialize_json, time_kind, time_scale, time_value,
+    payload_arg, string_arg, take_payload, time_kind, time_scale, time_value,
 };
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
@@ -25,8 +23,7 @@ fn missing_payload(what: &str) -> AVWriterError {
 }
 
 /// Geometry unit for caption dimensions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptionUnitsType {
     Unspecified,
     Cells,
@@ -40,11 +37,9 @@ impl Default for CaptionUnitsType {
 }
 
 /// A single caption dimension.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CaptionDimension {
     pub value: f64,
-    #[serde(default)]
     pub units: CaptionUnitsType,
 }
 
@@ -62,8 +57,7 @@ impl Default for CaptionDimension {
 }
 
 /// A caption point.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct CaptionPoint {
     pub x: CaptionDimension,
     pub y: CaptionDimension,
@@ -77,8 +71,7 @@ impl CaptionPoint {
 }
 
 /// A caption size.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct CaptionSize {
     pub width: CaptionDimension,
     pub height: CaptionDimension,
@@ -92,8 +85,7 @@ impl CaptionSize {
 }
 
 /// Region line stacking alignment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptionRegionDisplayAlignment {
     Before,
     Center,
@@ -107,8 +99,7 @@ impl Default for CaptionRegionDisplayAlignment {
 }
 
 /// Region writing mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptionRegionWritingMode {
     LeftToRightAndTopToBottom,
     TopToBottomAndRightToLeft,
@@ -121,8 +112,7 @@ impl Default for CaptionRegionWritingMode {
 }
 
 /// Region scroll behavior.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptionRegionScroll {
     None,
     RollUp,
@@ -135,20 +125,13 @@ impl Default for CaptionRegionScroll {
 }
 
 /// Safe Rust value model for `AVCaptionRegion`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CaptionRegion {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identifier: Option<String>,
-    #[serde(default)]
     pub origin: CaptionPoint,
-    #[serde(default)]
     pub size: CaptionSize,
-    #[serde(default)]
     pub scroll: CaptionRegionScroll,
-    #[serde(default)]
     pub display_alignment: CaptionRegionDisplayAlignment,
-    #[serde(default)]
     pub writing_mode: CaptionRegionWritingMode,
 }
 
@@ -193,10 +176,10 @@ impl CaptionRegion {
     }
 
     fn from_predefined(kind: &str) -> Result<Self, AVWriterError> {
-        let kind_c = cstring_arg(kind, "caption region kind")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let kind_c = string_arg(kind, "caption region kind")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr =
-            unsafe { ffi::av_caption_region_predefined_json(kind_c.as_ptr(), &raw mut err_msg) };
+            unsafe { ffi::av_caption_region_predefined_payload(kind_c.as_ptr(), &raw mut err_msg) };
         if ptr.is_null() {
             return if err_msg.is_null() {
                 Err(missing_payload("caption region"))
@@ -204,7 +187,7 @@ impl CaptionRegion {
                 Err(unsafe { from_swift(ffi::status::INVALID_ARGUMENT, err_msg) })
             };
         }
-        parse_json_ptr(ptr, "caption region")
+        take_payload(ptr, "caption region")
     }
 }
 
@@ -278,8 +261,7 @@ impl Default for MutableCaptionRegion {
 }
 
 /// Caption text alignment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptionTextAlignment {
     Start,
     End,
@@ -289,8 +271,7 @@ pub enum CaptionTextAlignment {
 }
 
 /// Caption animation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptionAnimation {
     None,
     CharacterReveal,
@@ -303,8 +284,7 @@ impl Default for CaptionAnimation {
 }
 
 /// Ruby text position.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptionRubyPosition {
     Before,
     After,
@@ -317,8 +297,7 @@ impl Default for CaptionRubyPosition {
 }
 
 /// Ruby text alignment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptionRubyAlignment {
     Start,
     Center,
@@ -333,13 +312,10 @@ impl Default for CaptionRubyAlignment {
 }
 
 /// Rust value model for `AVCaptionRuby`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptionRuby {
     pub text: String,
-    #[serde(default)]
     pub position: CaptionRubyPosition,
-    #[serde(default)]
     pub alignment: CaptionRubyAlignment,
 }
 
@@ -368,8 +344,7 @@ impl CaptionRuby {
 }
 
 /// A ruby annotation span expressed in UTF-16 offsets.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptionRubySpan {
     pub start: usize,
     pub length: usize,
@@ -393,19 +368,13 @@ impl CaptionRubySpan {
 }
 
 /// Rust value model for `AVCaption`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Caption {
     pub text: String,
-    #[serde(with = "crate::time::range")]
     pub time_range: CMTimeRange,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<CaptionRegion>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_alignment: Option<CaptionTextAlignment>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub animation: Option<CaptionAnimation>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ruby_spans: Vec<CaptionRubySpan>,
 }
 
@@ -503,11 +472,9 @@ impl MutableCaption {
 }
 
 /// A group of captions sharing one enclosing time range.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CaptionGroup {
     pub captions: Vec<Caption>,
-    #[serde(with = "crate::time::range")]
     pub time_range: CMTimeRange,
 }
 
@@ -530,8 +497,7 @@ impl CaptionGroup {
 }
 
 /// Bounds used by `CaptionRenderer`.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CaptionBounds {
     pub x: f64,
     pub y: f64,
@@ -552,24 +518,18 @@ impl CaptionBounds {
 }
 
 /// A scene boundary returned by `CaptionRenderer`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CaptionRendererScene {
-    #[serde(with = "crate::time::range")]
     pub time_range: CMTimeRange,
     pub has_active_captions: bool,
     pub needs_periodic_refresh: bool,
 }
 
 /// Conversion settings built from `AVCaptionSettings` keys.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptionConversionSettings {
     pub media_subtype: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(with = "crate::time::optional")]
     pub time_code_frame_duration: Option<CMTime>,
-    #[serde(default)]
     pub use_drop_frame_time_code: bool,
 }
 
@@ -610,15 +570,10 @@ impl CaptionConversionValidatorStatus {
 }
 
 /// A generic caption conversion adjustment.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptionConversionAdjustment {
     pub adjustment_type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(with = "crate::time::optional")]
     pub start_time_offset: Option<CMTime>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(with = "crate::time::optional")]
     pub duration_offset: Option<CMTime>,
 }
 
@@ -634,24 +589,19 @@ impl CaptionConversionAdjustment {
 }
 
 /// A time-range adjustment suggestion returned by the validator.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptionConversionTimeRangeAdjustment {
     pub adjustment_type: String,
-    #[serde(with = "crate::time")]
     pub start_time_offset: CMTime,
-    #[serde(with = "crate::time")]
     pub duration_offset: CMTime,
 }
 
 /// One validator warning.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptionConversionWarning {
     pub warning_type: String,
     pub range_of_captions_start: usize,
     pub range_of_captions_length: usize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adjustment: Option<CaptionConversionAdjustment>,
 }
 
@@ -665,19 +615,16 @@ impl CaptionConversionWarning {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct CaptionRendererInfoPayload {
     captions: Vec<Caption>,
     bounds: CaptionBounds,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct CaptionConversionValidatorInfoPayload {
     status: i32,
     captions: Vec<Caption>,
-    #[serde(with = "crate::time::range")]
     time_range: CMTimeRange,
     warnings: Vec<CaptionConversionWarning>,
 }
@@ -696,11 +643,14 @@ impl CaptionGrouper {
     }
 
     pub fn add_caption(&self, caption: &Caption) -> Result<(), AVWriterError> {
-        let payload = serialize_json(caption)?;
-        let payload_c = cstring_arg(&payload, "caption json")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let payload_c = payload_arg(caption);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
-            ffi::av_caption_grouper_add_caption_json(self.ptr, payload_c.as_ptr(), &raw mut err_msg)
+            ffi::av_caption_grouper_add_caption_payload(
+                self.ptr,
+                payload_c.as_ptr(),
+                &raw mut err_msg,
+            )
         };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -712,9 +662,9 @@ impl CaptionGrouper {
         &self,
         up_to_time: CMTime,
     ) -> Result<Vec<CaptionGroup>, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
-            ffi::av_caption_grouper_flush_groups_json(
+            ffi::av_caption_grouper_flush_groups_payload(
                 self.ptr,
                 time_value(&up_to_time),
                 time_scale(&up_to_time),
@@ -729,7 +679,7 @@ impl CaptionGrouper {
                 Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) })
             };
         }
-        parse_json_ptr(ptr, "caption groups")
+        take_payload(ptr, "caption groups")
     }
 
     fn from_raw(ptr: *mut c_void) -> Option<Self> {
@@ -762,9 +712,8 @@ unsafe impl Send for CaptionFormatConformer {}
 
 impl CaptionFormatConformer {
     pub fn new(settings: &CaptionConversionSettings) -> Result<Self, AVWriterError> {
-        let payload = serialize_json(settings)?;
-        let payload_c = cstring_arg(&payload, "caption conversion settings json")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let payload_c = payload_arg(settings);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
             ffi::av_caption_format_conformer_create(payload_c.as_ptr(), &raw mut err_msg)
         };
@@ -790,11 +739,10 @@ impl CaptionFormatConformer {
     }
 
     pub fn conformed_caption(&self, caption: &Caption) -> Result<Caption, AVWriterError> {
-        let payload = serialize_json(caption)?;
-        let payload_c = cstring_arg(&payload, "caption json")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let payload_c = payload_arg(caption);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
-            ffi::av_caption_format_conformer_conformed_caption_json(
+            ffi::av_caption_format_conformer_conformed_caption_payload(
                 self.ptr,
                 payload_c.as_ptr(),
                 &raw mut err_msg,
@@ -807,7 +755,7 @@ impl CaptionFormatConformer {
                 Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) })
             };
         }
-        parse_json_ptr(ptr, "conformed caption")
+        take_payload(ptr, "conformed caption")
     }
 }
 
@@ -847,11 +795,10 @@ impl CaptionRenderer {
     }
 
     pub fn set_captions(&self, captions: &[Caption]) -> Result<(), AVWriterError> {
-        let payload = serialize_json(captions)?;
-        let payload_c = cstring_arg(&payload, "captions json")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let payload_c = payload_arg(captions);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
-            ffi::av_caption_renderer_set_captions_json(
+            ffi::av_caption_renderer_set_captions_payload(
                 self.ptr,
                 payload_c.as_ptr(),
                 &raw mut err_msg,
@@ -883,9 +830,9 @@ impl CaptionRenderer {
         &self,
         considered_time_range: CMTimeRange,
     ) -> Result<Vec<CaptionRendererScene>, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
-            ffi::av_caption_renderer_scene_changes_json(
+            ffi::av_caption_renderer_scene_changes_payload(
                 self.ptr,
                 time_value(&considered_time_range.start),
                 time_scale(&considered_time_range.start),
@@ -903,12 +850,12 @@ impl CaptionRenderer {
                 Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) })
             };
         }
-        parse_json_ptr(ptr, "caption renderer scenes")
+        take_payload(ptr, "caption renderer scenes")
     }
 
     fn info(&self) -> Result<CaptionRendererInfoPayload, AVWriterError> {
-        let ptr = unsafe { ffi::av_caption_renderer_info_json(self.ptr) };
-        parse_json_ptr(ptr, "caption renderer info")
+        let ptr = unsafe { ffi::av_caption_renderer_info_payload(self.ptr) };
+        take_payload(ptr, "caption renderer info")
     }
 }
 
@@ -941,11 +888,9 @@ impl CaptionConversionValidator {
         time_range: CMTimeRange,
         settings: &CaptionConversionSettings,
     ) -> Result<Self, AVWriterError> {
-        let captions_json = serialize_json(captions)?;
-        let captions_c = cstring_arg(&captions_json, "captions json")?;
-        let settings_json = serialize_json(settings)?;
-        let settings_c = cstring_arg(&settings_json, "caption conversion settings json")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let captions_c = payload_arg(captions);
+        let settings_c = payload_arg(settings);
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
             ffi::av_caption_conversion_validator_create(
                 captions_c.as_ptr(),
@@ -987,7 +932,7 @@ impl CaptionConversionValidator {
     }
 
     pub fn validate(&self) -> Result<Vec<CaptionConversionWarning>, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status =
             unsafe { ffi::av_caption_conversion_validator_validate(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
@@ -1001,8 +946,8 @@ impl CaptionConversionValidator {
     }
 
     fn info(&self) -> Result<CaptionConversionValidatorInfoPayload, AVWriterError> {
-        let ptr = unsafe { ffi::av_caption_conversion_validator_info_json(self.ptr) };
-        parse_json_ptr(ptr, "caption conversion validator info")
+        let ptr = unsafe { ffi::av_caption_conversion_validator_info_payload(self.ptr) };
+        take_payload(ptr, "caption conversion validator info")
     }
 }
 
@@ -1019,5 +964,564 @@ impl core::fmt::Debug for CaptionConversionValidator {
         f.debug_struct("CaptionConversionValidator")
             .field("ptr", &self.ptr)
             .finish()
+    }
+}
+
+impl crate::binary::ToAbi for CaptionDimension {
+    type Abi = crate::ffi::AVWCaptionDimension;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            value: crate::binary::ToAbi::to_abi(&self.value, arena),
+            units: crate::binary::ToAbi::to_abi(&self.units, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionDimension {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            value: crate::binary::FromAbi::from_abi(&raw.value)?,
+            units: crate::binary::FromAbi::from_abi(&raw.units)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionPoint {
+    type Abi = crate::ffi::AVWCaptionPoint;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            x: crate::binary::ToAbi::to_abi(&self.x, arena),
+            y: crate::binary::ToAbi::to_abi(&self.y, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionPoint {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            x: crate::binary::FromAbi::from_abi(&raw.x)?,
+            y: crate::binary::FromAbi::from_abi(&raw.y)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionSize {
+    type Abi = crate::ffi::AVWCaptionSize;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            width: crate::binary::ToAbi::to_abi(&self.width, arena),
+            height: crate::binary::ToAbi::to_abi(&self.height, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionSize {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            width: crate::binary::FromAbi::from_abi(&raw.width)?,
+            height: crate::binary::FromAbi::from_abi(&raw.height)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionRegion {
+    type Abi = crate::ffi::AVWCaptionRegion;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            identifier: crate::binary::ToAbi::to_abi(&self.identifier, arena),
+            origin: crate::binary::ToAbi::to_abi(&self.origin, arena),
+            size: crate::binary::ToAbi::to_abi(&self.size, arena),
+            scroll: crate::binary::ToAbi::to_abi(&self.scroll, arena),
+            display_alignment: crate::binary::ToAbi::to_abi(&self.display_alignment, arena),
+            writing_mode: crate::binary::ToAbi::to_abi(&self.writing_mode, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionRegion {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            identifier: crate::binary::FromAbi::from_abi(&raw.identifier)?,
+            origin: crate::binary::FromAbi::from_abi(&raw.origin)?,
+            size: crate::binary::FromAbi::from_abi(&raw.size)?,
+            scroll: crate::binary::FromAbi::from_abi(&raw.scroll)?,
+            display_alignment: crate::binary::FromAbi::from_abi(&raw.display_alignment)?,
+            writing_mode: crate::binary::FromAbi::from_abi(&raw.writing_mode)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionRuby {
+    type Abi = crate::ffi::AVWCaptionRuby;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            text: crate::binary::ToAbi::to_abi(&self.text, arena),
+            position: crate::binary::ToAbi::to_abi(&self.position, arena),
+            alignment: crate::binary::ToAbi::to_abi(&self.alignment, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionRuby {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            text: crate::binary::FromAbi::from_abi(&raw.text)?,
+            position: crate::binary::FromAbi::from_abi(&raw.position)?,
+            alignment: crate::binary::FromAbi::from_abi(&raw.alignment)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionRubySpan {
+    type Abi = crate::ffi::AVWCaptionRubySpan;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            start: crate::binary::ToAbi::to_abi(&self.start, arena),
+            length: crate::binary::ToAbi::to_abi(&self.length, arena),
+            ruby: crate::binary::ToAbi::to_abi(&self.ruby, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionRubySpan {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            start: crate::binary::FromAbi::from_abi(&raw.start)?,
+            length: crate::binary::FromAbi::from_abi(&raw.length)?,
+            ruby: crate::binary::FromAbi::from_abi(&raw.ruby)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for Caption {
+    type Abi = crate::ffi::AVWCaption;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            text: crate::binary::ToAbi::to_abi(&self.text, arena),
+            time_range: crate::binary::ToAbi::to_abi(&self.time_range, arena),
+            region: crate::binary::ToAbi::to_abi(&self.region, arena),
+            text_alignment: crate::binary::ToAbi::to_abi(&self.text_alignment, arena),
+            animation: crate::binary::ToAbi::to_abi(&self.animation, arena),
+            ruby_spans: crate::binary::ToAbi::to_abi(&self.ruby_spans, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for Caption {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            text: crate::binary::FromAbi::from_abi(&raw.text)?,
+            time_range: crate::binary::FromAbi::from_abi(&raw.time_range)?,
+            region: crate::binary::FromAbi::from_abi(&raw.region)?,
+            text_alignment: crate::binary::FromAbi::from_abi(&raw.text_alignment)?,
+            animation: crate::binary::FromAbi::from_abi(&raw.animation)?,
+            ruby_spans: crate::binary::FromAbi::from_abi(&raw.ruby_spans)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionGroup {
+    type Abi = crate::ffi::AVWCaptionGroup;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            captions: crate::binary::ToAbi::to_abi(&self.captions, arena),
+            time_range: crate::binary::ToAbi::to_abi(&self.time_range, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionGroup {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            captions: crate::binary::FromAbi::from_abi(&raw.captions)?,
+            time_range: crate::binary::FromAbi::from_abi(&raw.time_range)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionBounds {
+    type Abi = crate::ffi::AVWCaptionBounds;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            x: crate::binary::ToAbi::to_abi(&self.x, arena),
+            y: crate::binary::ToAbi::to_abi(&self.y, arena),
+            width: crate::binary::ToAbi::to_abi(&self.width, arena),
+            height: crate::binary::ToAbi::to_abi(&self.height, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionBounds {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            x: crate::binary::FromAbi::from_abi(&raw.x)?,
+            y: crate::binary::FromAbi::from_abi(&raw.y)?,
+            width: crate::binary::FromAbi::from_abi(&raw.width)?,
+            height: crate::binary::FromAbi::from_abi(&raw.height)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionRendererInfoPayload {
+    type Abi = crate::ffi::AVWCaptionRendererInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            captions: crate::binary::ToAbi::to_abi(&self.captions, arena),
+            bounds: crate::binary::ToAbi::to_abi(&self.bounds, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionRendererInfoPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            captions: crate::binary::FromAbi::from_abi(&raw.captions)?,
+            bounds: crate::binary::FromAbi::from_abi(&raw.bounds)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionRendererScene {
+    type Abi = crate::ffi::AVWCaptionRendererScene;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            time_range: crate::binary::ToAbi::to_abi(&self.time_range, arena),
+            has_active_captions: crate::binary::ToAbi::to_abi(&self.has_active_captions, arena),
+            needs_periodic_refresh: crate::binary::ToAbi::to_abi(
+                &self.needs_periodic_refresh,
+                arena,
+            ),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionRendererScene {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            time_range: crate::binary::FromAbi::from_abi(&raw.time_range)?,
+            has_active_captions: crate::binary::FromAbi::from_abi(&raw.has_active_captions)?,
+            needs_periodic_refresh: crate::binary::FromAbi::from_abi(&raw.needs_periodic_refresh)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionConversionSettings {
+    type Abi = crate::ffi::AVWCaptionConversionSettings;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            media_subtype: crate::binary::ToAbi::to_abi(&self.media_subtype, arena),
+            time_code_frame_duration: crate::binary::ToAbi::to_abi(
+                &self.time_code_frame_duration,
+                arena,
+            ),
+            use_drop_frame_time_code: crate::binary::ToAbi::to_abi(
+                &self.use_drop_frame_time_code,
+                arena,
+            ),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionConversionSettings {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            media_subtype: crate::binary::FromAbi::from_abi(&raw.media_subtype)?,
+            time_code_frame_duration: crate::binary::FromAbi::from_abi(
+                &raw.time_code_frame_duration,
+            )?,
+            use_drop_frame_time_code: crate::binary::FromAbi::from_abi(
+                &raw.use_drop_frame_time_code,
+            )?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionConversionAdjustment {
+    type Abi = crate::ffi::AVWCaptionConversionAdjustment;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            adjustment_type: crate::binary::ToAbi::to_abi(&self.adjustment_type, arena),
+            start_time_offset: crate::binary::ToAbi::to_abi(&self.start_time_offset, arena),
+            duration_offset: crate::binary::ToAbi::to_abi(&self.duration_offset, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionConversionAdjustment {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            adjustment_type: crate::binary::FromAbi::from_abi(&raw.adjustment_type)?,
+            start_time_offset: crate::binary::FromAbi::from_abi(&raw.start_time_offset)?,
+            duration_offset: crate::binary::FromAbi::from_abi(&raw.duration_offset)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionConversionWarning {
+    type Abi = crate::ffi::AVWCaptionConversionWarning;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            warning_type: crate::binary::ToAbi::to_abi(&self.warning_type, arena),
+            range_of_captions_start: crate::binary::ToAbi::to_abi(
+                &self.range_of_captions_start,
+                arena,
+            ),
+            range_of_captions_length: crate::binary::ToAbi::to_abi(
+                &self.range_of_captions_length,
+                arena,
+            ),
+            adjustment: crate::binary::ToAbi::to_abi(&self.adjustment, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionConversionWarning {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            warning_type: crate::binary::FromAbi::from_abi(&raw.warning_type)?,
+            range_of_captions_start: crate::binary::FromAbi::from_abi(
+                &raw.range_of_captions_start,
+            )?,
+            range_of_captions_length: crate::binary::FromAbi::from_abi(
+                &raw.range_of_captions_length,
+            )?,
+            adjustment: crate::binary::FromAbi::from_abi(&raw.adjustment)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionConversionValidatorInfoPayload {
+    type Abi = crate::ffi::AVWCaptionConversionValidatorInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            status: crate::binary::ToAbi::to_abi(&self.status, arena),
+            captions: crate::binary::ToAbi::to_abi(&self.captions, arena),
+            time_range: crate::binary::ToAbi::to_abi(&self.time_range, arena),
+            warnings: crate::binary::ToAbi::to_abi(&self.warnings, arena),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionConversionValidatorInfoPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            status: crate::binary::FromAbi::from_abi(&raw.status)?,
+            captions: crate::binary::FromAbi::from_abi(&raw.captions)?,
+            time_range: crate::binary::FromAbi::from_abi(&raw.time_range)?,
+            warnings: crate::binary::FromAbi::from_abi(&raw.warnings)?,
+        })
+    }
+}
+
+impl crate::binary::ToAbi for CaptionUnitsType {
+    type Abi = i32;
+
+    fn to_abi(&self, _: &mut crate::binary::Arena) -> i32 {
+        match self {
+            Self::Unspecified => 0,
+            Self::Cells => 1,
+            Self::Percent => 2,
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionUnitsType {
+    fn from_abi(raw: &i32) -> Result<Self, crate::error::AVWriterError> {
+        match *raw {
+            0 => Ok(Self::Unspecified),
+            1 => Ok(Self::Cells),
+            2 => Ok(Self::Percent),
+            _ => Err(crate::error::AVWriterError::InvalidState(
+                "invalid caption enum value".into(),
+            )),
+        }
+    }
+}
+
+impl crate::binary::ToAbi for CaptionRegionDisplayAlignment {
+    type Abi = i32;
+
+    fn to_abi(&self, _: &mut crate::binary::Arena) -> i32 {
+        match self {
+            Self::Before => 0,
+            Self::Center => 1,
+            Self::After => 2,
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionRegionDisplayAlignment {
+    fn from_abi(raw: &i32) -> Result<Self, crate::error::AVWriterError> {
+        match *raw {
+            0 => Ok(Self::Before),
+            1 => Ok(Self::Center),
+            2 => Ok(Self::After),
+            _ => Err(crate::error::AVWriterError::InvalidState(
+                "invalid caption enum value".into(),
+            )),
+        }
+    }
+}
+
+impl crate::binary::ToAbi for CaptionRegionWritingMode {
+    type Abi = i32;
+
+    fn to_abi(&self, _: &mut crate::binary::Arena) -> i32 {
+        match self {
+            Self::LeftToRightAndTopToBottom => 0,
+            Self::TopToBottomAndRightToLeft => 1,
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionRegionWritingMode {
+    fn from_abi(raw: &i32) -> Result<Self, crate::error::AVWriterError> {
+        match *raw {
+            0 => Ok(Self::LeftToRightAndTopToBottom),
+            1 => Ok(Self::TopToBottomAndRightToLeft),
+            _ => Err(crate::error::AVWriterError::InvalidState(
+                "invalid caption enum value".into(),
+            )),
+        }
+    }
+}
+
+impl crate::binary::ToAbi for CaptionRegionScroll {
+    type Abi = i32;
+
+    fn to_abi(&self, _: &mut crate::binary::Arena) -> i32 {
+        match self {
+            Self::None => 0,
+            Self::RollUp => 1,
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionRegionScroll {
+    fn from_abi(raw: &i32) -> Result<Self, crate::error::AVWriterError> {
+        match *raw {
+            0 => Ok(Self::None),
+            1 => Ok(Self::RollUp),
+            _ => Err(crate::error::AVWriterError::InvalidState(
+                "invalid caption enum value".into(),
+            )),
+        }
+    }
+}
+
+impl crate::binary::ToAbi for CaptionTextAlignment {
+    type Abi = i32;
+
+    fn to_abi(&self, _: &mut crate::binary::Arena) -> i32 {
+        match self {
+            Self::Start => 0,
+            Self::End => 1,
+            Self::Center => 2,
+            Self::Left => 3,
+            Self::Right => 4,
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionTextAlignment {
+    fn from_abi(raw: &i32) -> Result<Self, crate::error::AVWriterError> {
+        match *raw {
+            0 => Ok(Self::Start),
+            1 => Ok(Self::End),
+            2 => Ok(Self::Center),
+            3 => Ok(Self::Left),
+            4 => Ok(Self::Right),
+            _ => Err(crate::error::AVWriterError::InvalidState(
+                "invalid caption enum value".into(),
+            )),
+        }
+    }
+}
+
+impl crate::binary::ToAbi for CaptionAnimation {
+    type Abi = i32;
+
+    fn to_abi(&self, _: &mut crate::binary::Arena) -> i32 {
+        match self {
+            Self::None => 0,
+            Self::CharacterReveal => 1,
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionAnimation {
+    fn from_abi(raw: &i32) -> Result<Self, crate::error::AVWriterError> {
+        match *raw {
+            0 => Ok(Self::None),
+            1 => Ok(Self::CharacterReveal),
+            _ => Err(crate::error::AVWriterError::InvalidState(
+                "invalid caption enum value".into(),
+            )),
+        }
+    }
+}
+
+impl crate::binary::ToAbi for CaptionRubyPosition {
+    type Abi = i32;
+
+    fn to_abi(&self, _: &mut crate::binary::Arena) -> i32 {
+        match self {
+            Self::Before => 0,
+            Self::After => 1,
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionRubyPosition {
+    fn from_abi(raw: &i32) -> Result<Self, crate::error::AVWriterError> {
+        match *raw {
+            0 => Ok(Self::Before),
+            1 => Ok(Self::After),
+            _ => Err(crate::error::AVWriterError::InvalidState(
+                "invalid caption enum value".into(),
+            )),
+        }
+    }
+}
+
+impl crate::binary::ToAbi for CaptionRubyAlignment {
+    type Abi = i32;
+
+    fn to_abi(&self, _: &mut crate::binary::Arena) -> i32 {
+        match self {
+            Self::Start => 0,
+            Self::Center => 1,
+            Self::DistributeSpaceBetween => 2,
+            Self::DistributeSpaceAround => 3,
+        }
+    }
+}
+
+impl crate::binary::FromAbi for CaptionRubyAlignment {
+    fn from_abi(raw: &i32) -> Result<Self, crate::error::AVWriterError> {
+        match *raw {
+            0 => Ok(Self::Start),
+            1 => Ok(Self::Center),
+            2 => Ok(Self::DistributeSpaceBetween),
+            3 => Ok(Self::DistributeSpaceAround),
+            _ => Err(crate::error::AVWriterError::InvalidState(
+                "invalid caption enum value".into(),
+            )),
+        }
     }
 }

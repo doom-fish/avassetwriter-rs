@@ -1,8 +1,8 @@
 //! [`Writer`] — safe wrapper around `AVAssetWriter`.
 
-use core::ffi::{c_char, c_void};
+use crate::binary::string_arg;
+use core::ffi::c_void;
 use core::ptr;
-use std::ffi::CString;
 use std::path::Path;
 
 use apple_cf::cm::{CMSampleBuffer, CMTime};
@@ -277,11 +277,6 @@ impl Writer {
     /// interior NUL byte, or [`AVWriterError::WriterCreateFailed`] if
     /// `AVAssetWriter` rejects the destination URL.
     ///
-    /// # Panics
-    ///
-    /// Panics if the `FileType` string representation contains an
-    /// interior NUL byte — this is structurally impossible for the
-    /// hand-built constants in [`FileType`].
     pub fn create(path: impl AsRef<Path>, file_type: FileType) -> Result<Self, AVWriterError> {
         Self::create_with_policy(path, file_type, OutputPolicy::FailIfExists)
     }
@@ -296,12 +291,11 @@ impl Writer {
             .as_ref()
             .to_str()
             .ok_or_else(|| AVWriterError::InvalidArgument("path is not valid UTF-8".into()))?;
-        let path_c = CString::new(path_str)
-            .map_err(|e| AVWriterError::InvalidArgument(format!("path NUL byte: {e}")))?;
-        let type_c = CString::new(file_type.as_str()).expect("file type strings are NUL-free");
+        let path_c = string_arg(path_str, "path")?;
+        let type_c = string_arg(file_type.as_str(), "file type")?;
         prepare_output(path.as_ref(), policy, None)?;
 
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr =
             unsafe { ffi::av_writer_create(path_c.as_ptr(), type_c.as_ptr(), &raw mut err_msg) };
         if ptr.is_null() {
@@ -327,7 +321,7 @@ impl Writer {
         &self,
         sample_buffer: &CMSampleBuffer,
     ) -> Result<InputId, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let result = unsafe {
             ffi::av_writer_add_video_input_from_sample(
                 self.ptr,
@@ -354,10 +348,8 @@ impl Writer {
         &self,
         preset: VideoPreset,
     ) -> Result<InputId, AVWriterError> {
-        let preset_c = CString::new(preset.as_str()).map_err(|e| {
-            AVWriterError::InvalidArgument(format!("preset string contained NUL byte: {e}"))
-        })?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let preset_c = string_arg(preset.as_str(), "preset")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let result = unsafe {
             ffi::av_writer_add_video_input_from_preset(
                 self.ptr,
@@ -392,7 +384,7 @@ impl Writer {
         channels: u32,
         bits_per_sample: u32,
     ) -> Result<InputId, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let result = unsafe {
             ffi::av_writer_add_audio_input_pcm(
                 self.ptr,
@@ -421,7 +413,7 @@ impl Writer {
     /// were added or one is misconfigured).
     pub fn start_session(&self, source_time: CMTime) -> Result<(), AVWriterError> {
         let source_time = require_numeric(source_time, "start_session source time")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_start_session(
                 self.ptr,
@@ -452,7 +444,7 @@ impl Writer {
         input_id: InputId,
         sample_buffer: &CMSampleBuffer,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_append_sample(
                 self.ptr,
@@ -493,7 +485,7 @@ impl Writer {
         pts: CMTime,
     ) -> Result<(), AVWriterError> {
         let pts = require_numeric(pts, "append_audio_pcm presentation time")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_append_audio_pcm(
                 self.ptr,
@@ -523,7 +515,7 @@ impl Writer {
     /// [`AVWriterError::InvalidState`] when called reentrantly from a writer
     /// callback because blocking there could prevent native completion.
     pub fn finish(self) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe { ffi::av_writer_finish(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -549,7 +541,7 @@ impl Writer {
         height: i32,
         pixel_format_type: u32,
     ) -> Result<InputId, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let id = unsafe {
             ffi::av_writer_add_video_input_pixel_buffer(
                 self.ptr,
@@ -582,7 +574,7 @@ impl Writer {
         pts: CMTime,
     ) -> Result<(), AVWriterError> {
         let pts = require_numeric(pts, "append_pixel_buffer presentation time")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_append_pixel_buffer(
                 self.ptr,
@@ -604,7 +596,7 @@ impl Writer {
     /// playback immediately.
     #[allow(clippy::missing_errors_doc)]
     pub fn set_optimize_for_network_use(&self, enabled: bool) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_set_should_optimize_for_network_use(self.ptr, enabled, &raw mut err_msg)
         };
@@ -620,7 +612,7 @@ impl Writer {
     /// playable up to the last fragment boundary.
     #[allow(clippy::missing_errors_doc)]
     pub fn set_movie_fragment_interval_seconds(&self, seconds: f64) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_writer_set_movie_fragment_interval_seconds(self.ptr, seconds, &raw mut err_msg)
         };
@@ -646,7 +638,7 @@ impl Writer {
     ) -> Result<(), AVWriterError> {
         let ids: Vec<i32> = inputs.iter().map(|i| i.0).collect();
         let default = default_id.map_or(-1, |i| i.0);
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ok = unsafe {
             ffi::av_writer_add_input_group(
                 self.ptr,

@@ -1,3 +1,4 @@
+import AVAssetWriterObjCBridge
 import AVFoundation
 import CoreMedia
 import CoreVideo
@@ -13,7 +14,7 @@ func writerInfoPayload(from wrapper: Writer) -> WriterInfoPayload {
         availableMediaTypes: wrapper.writer.availableMediaTypes.map(encodeMediaType),
         status: Int32(wrapper.writer.status.rawValue),
         errorMessage: wrapper.writer.error?.localizedDescription,
-        metadata: [],
+
         shouldOptimizeForNetworkUse: wrapper.writer.shouldOptimizeForNetworkUse,
         directoryForTemporaryFiles: wrapper.writer.directoryForTemporaryFiles?.path,
         inputs: wrapper.inputs.indices.map { Int32($0) },
@@ -49,17 +50,17 @@ func inputInfoPayload(from wrapper: Writer, inputId: Int32) throws -> InputInfoP
         throw BridgeError.message("input id \(inputId) out of range")
     }
     let input = wrapper.inputs[Int(inputId)]
-    let taggedSourceAttributesJson: String? = {
+    let taggedSourceAttributes: PropertyValue? = {
         if #available(macOS 14.0, *),
            let adaptor = wrapper.taggedPixelBufferGroupAdaptors[inputId] as? AVAssetWriterInputTaggedPixelBufferGroupAdaptor {
-            return jsonString(fromJSONObject: adaptor.sourcePixelBufferAttributes)
+            return propertyValue(from: adaptor.sourcePixelBufferAttributes)
         }
         return nil
     }()
     return InputInfoPayload(
         mediaType: encodeMediaType(input.mediaType),
-        outputSettingsJson: jsonString(fromJSONObject: input.outputSettings),
-        metadata: [],
+        outputSettings: propertyValue(from: input.outputSettings),
+
         readyForMoreMediaData: input.isReadyForMoreMediaData,
         expectsMediaDataInRealTime: input.expectsMediaDataInRealTime,
         languageCode: input.languageCode,
@@ -90,8 +91,8 @@ func inputInfoPayload(from wrapper: Writer, inputId: Int32) throws -> InputInfoP
                 }
             )
         },
-        pixelBufferSourceAttributesJson: jsonString(fromJSONObject: wrapper.pixelBufferAdaptors[inputId]?.sourcePixelBufferAttributes),
-        taggedPixelBufferSourceAttributesJson: taggedSourceAttributesJson,
+        pixelBufferSourceAttributes: propertyValue(from: wrapper.pixelBufferAdaptors[inputId]?.sourcePixelBufferAttributes),
+        taggedPixelBufferSourceAttributes: taggedSourceAttributes,
         hasMetadataAdaptor: wrapper.metadataAdaptors[inputId] != nil,
         hasCaptionAdaptor: wrapper.captionAdaptors[inputId] != nil
     )
@@ -99,8 +100,8 @@ func inputInfoPayload(from wrapper: Writer, inputId: Int32) throws -> InputInfoP
 
 func outputSettingsAssistantInfoPayload(from assistant: AVOutputSettingsAssistant) -> OutputSettingsAssistantInfoPayload {
     OutputSettingsAssistantInfoPayload(
-        audioSettingsJson: jsonString(fromJSONObject: assistant.audioSettings),
-        videoSettingsJson: jsonString(fromJSONObject: assistant.videoSettings),
+        audioSettings: propertyValue(from: assistant.audioSettings),
+        videoSettings: propertyValue(from: assistant.videoSettings),
         outputFileType: encodeFileType(assistant.outputFileType),
         sourceVideoAverageFrameDuration: encodeTime(assistant.sourceVideoAverageFrameDuration),
         sourceVideoMinFrameDuration: encodeTime(assistant.sourceVideoMinFrameDuration)
@@ -126,7 +127,7 @@ func exportSessionInfoPayload(from session: AVAssetExportSession) -> ExportSessi
         supportedFileTypes: session.supportedFileTypes.compactMap(encodeFileType),
         timeRange: encodeTimeRange(session.timeRange),
         fileLengthLimit: session.fileLengthLimit,
-        metadata: [],
+
         canPerformMultiplePassesOverSourceMediaData: session.canPerformMultiplePassesOverSourceMediaData,
         directoryForTemporaryFiles: session.directoryForTemporaryFiles?.path,
         audioTrackGroupHandling: {
@@ -140,7 +141,7 @@ func exportSessionInfoPayload(from session: AVAssetExportSession) -> ExportSessi
 
 func encodeSegmentReport(_ report: AVAssetSegmentReport) -> SegmentReportPayload {
     SegmentReportPayload(
-        segmentType: report.segmentType == .initialization ? "initialization" : "separable",
+        segmentType: report.segmentType == .initialization ? 1 : 2,
         trackReports: report.trackReports.map { trackReport in
             SegmentTrackReportPayload(
                 trackId: trackReport.trackID,

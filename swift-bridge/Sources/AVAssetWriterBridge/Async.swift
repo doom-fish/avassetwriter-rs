@@ -1,3 +1,4 @@
+import AVAssetWriterObjCBridge
 // Async.swift — callback-based FFI thunks wrapping AVAssetWriter and
 // AVAssetExportSession completion-handler APIs.
 //
@@ -44,7 +45,7 @@ private let kSuccessSentinel = UnsafeRawPointer(bitPattern: 1)!
 @_cdecl("av_writer_finish_async")
 public func av_writer_finish_async(
     _ writerPtr: UnsafeMutableRawPointer,
-    _ cb: @convention(c) (UnsafeRawPointer?, UnsafePointer<CChar>?, UnsafeMutableRawPointer) -> Void,
+    _ cb: @convention(c) (UnsafeRawPointer?, UnsafePointer<AVWString>?, UnsafeMutableRawPointer) -> Void,
     _ ctx: UnsafeMutableRawPointer
 ) {
     let wrapper = Writer.locked(writerPtr)
@@ -58,13 +59,13 @@ public func av_writer_finish_async(
         case .failed:
             wrapper.detachCallbacksAfterTerminalState()
             let msg = wrapper.writer.error?.localizedDescription ?? "writer status = failed"
-            msg.withCString { cb(nil, $0, ctx) }
+            msg.withABIString { cb(nil, $0, ctx) }
         case .cancelled:
             wrapper.detachCallbacksAfterTerminalState()
-            "writer cancelled".withCString { cb(nil, $0, ctx) }
+            "writer cancelled".withABIString { cb(nil, $0, ctx) }
         default:
             let raw = wrapper.writer.status.rawValue
-            "writer not in writing state (status=\(raw)); call start_session first".withCString {
+            "writer not in writing state (status=\(raw)); call start_session first".withABIString {
                 cb(nil, $0, ctx)
             }
         }
@@ -72,7 +73,7 @@ public func av_writer_finish_async(
     }
 
     guard wrapper.beginFinishing() else {
-        "finish is already in progress".withCString { cb(nil, $0, ctx) }
+        "finish is already in progress".withABIString { cb(nil, $0, ctx) }
         return
     }
     wrapper.writer.finishWriting { [wrapper] in
@@ -83,11 +84,11 @@ public func av_writer_finish_async(
                 cb(kSuccessSentinel, nil, ctx)
             case .failed:
                 let msg = wrapper.writer.error?.localizedDescription ?? "writer status = failed"
-                msg.withCString { cb(nil, $0, ctx) }
+                msg.withABIString { cb(nil, $0, ctx) }
             case .cancelled:
-                "writer cancelled".withCString { cb(nil, $0, ctx) }
+                "writer cancelled".withABIString { cb(nil, $0, ctx) }
             default:
-                "unexpected writer status \(wrapper.writer.status.rawValue)".withCString {
+                "unexpected writer status \(wrapper.writer.status.rawValue)".withABIString {
                     cb(nil, $0, ctx)
                 }
             }
@@ -108,26 +109,26 @@ final class ReadyStreamBridge: NSObject {
         cb: @escaping @convention(c) (UnsafeMutableRawPointer) -> Void,
         ctx: UnsafeMutableRawPointer,
         dropUserdata: AVWDropCallback?,
-        outError: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+        outError: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
     ) {
         let wrapper = Writer.locked(writerPtr)
         defer { wrapper.unlock() }
         guard inputId >= 0, Int(inputId) < wrapper.inputs.count else {
-            outError?.pointee = ffiString("invalid input id: \(inputId)")
+            outError?.pointee = makePayload("invalid input id: \(inputId)")
             return nil
         }
         guard wrapper.writer.status == .writing else {
-            outError?.pointee = ffiString(
+            outError?.pointee = makePayload(
                 "request_media_data_when_ready requires a writing session"
             )
             return nil
         }
         guard !wrapper.inputIsFinished(inputId) else {
-            outError?.pointee = ffiString("input \(inputId) is already finished")
+            outError?.pointee = makePayload("input \(inputId) is already finished")
             return nil
         }
         guard wrapper.readyCallbackBoxes[inputId] == nil else {
-            outError?.pointee = ffiString("requestMediaDataWhenReady already registered for input \(inputId)")
+            outError?.pointee = makePayload("requestMediaDataWhenReady already registered for input \(inputId)")
             return nil
         }
 
@@ -167,7 +168,7 @@ public func av_writer_input_ready_stream_subscribe(
     _ inputId: Int32,
     _ cb: @convention(c) (UnsafeMutableRawPointer) -> Void,
     _ ctx: UnsafeMutableRawPointer,
-    _ outError: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outError: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     guard let bridge = ReadyStreamBridge(
         writerPtr: writerPtr,
@@ -189,7 +190,7 @@ public func av_writer_input_ready_stream_subscribe_owned(
     _ cb: @convention(c) (UnsafeMutableRawPointer) -> Void,
     _ ctx: UnsafeMutableRawPointer,
     _ dropUserdata: AVWDropCallback?,
-    _ outError: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outError: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
     guard let bridge = ReadyStreamBridge(
         writerPtr: writerPtr,
@@ -224,7 +225,7 @@ public func av_writer_input_ready_stream_unsubscribe(_ handle: UnsafeMutableRawP
 @_cdecl("av_export_session_export_async")
 public func av_export_session_export_async(
     _ sessionPtr: UnsafeMutableRawPointer,
-    _ cb: @convention(c) (UnsafeRawPointer?, UnsafePointer<CChar>?, UnsafeMutableRawPointer) -> Void,
+    _ cb: @convention(c) (UnsafeRawPointer?, UnsafePointer<AVWString>?, UnsafeMutableRawPointer) -> Void,
     _ ctx: UnsafeMutableRawPointer
 ) {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
@@ -232,11 +233,11 @@ public func av_export_session_export_async(
     // Guard pre-conditions that would otherwise cause exportAsynchronously to
     // raise an NSInternalInconsistencyException that cannot cross the FFI.
     guard session.outputURL != nil else {
-        "export session outputURL must be set before export".withCString { cb(nil, $0, ctx) }
+        "export session outputURL must be set before export".withABIString { cb(nil, $0, ctx) }
         return
     }
     guard session.outputFileType != nil else {
-        "export session outputFileType must be set before export".withCString { cb(nil, $0, ctx) }
+        "export session outputFileType must be set before export".withABIString { cb(nil, $0, ctx) }
         return
     }
 
@@ -246,42 +247,27 @@ public func av_export_session_export_async(
             cb(kSuccessSentinel, nil, ctx)
         case .failed:
             let msg = session.error?.localizedDescription ?? "export failed"
-            msg.withCString { cb(nil, $0, ctx) }
+            msg.withABIString { cb(nil, $0, ctx) }
         case .cancelled:
-            "export cancelled".withCString { cb(nil, $0, ctx) }
+            "export cancelled".withABIString { cb(nil, $0, ctx) }
         default:
-            "export session ended in unexpected status \(session.status.rawValue)".withCString { cb(nil, $0, ctx) }
+            "export session ended in unexpected status \(session.status.rawValue)".withABIString { cb(nil, $0, ctx) }
         }
     }
 }
 
 // MARK: - AVAssetExportSession.determineCompatibleFileTypesWithCompletionHandler:
 
-/// Async version of `av_export_session_compatible_file_types_json`.
-///
-/// Calls `AVAssetExportSession.determineCompatibleFileTypesWithCompletionHandler:`
-/// and fires `cb(jsonCStrPtr, nil, ctx)` on success or
-/// `cb(nil, errorCStr, ctx)` on error.
-///
-/// On success the `result` pointer is a heap-allocated C string (produced by
-/// `ffiString`) that **must** be freed by the Rust side via `avw_string_free`.
 @_cdecl("av_export_session_compatible_file_types_async")
 public func av_export_session_compatible_file_types_async(
     _ sessionPtr: UnsafeMutableRawPointer,
-    _ cb: @convention(c) (UnsafeRawPointer?, UnsafePointer<CChar>?, UnsafeMutableRawPointer) -> Void,
+    _ cb: @convention(c) (UnsafeRawPointer?, UnsafePointer<AVWString>?, UnsafeMutableRawPointer) -> Void,
     _ ctx: UnsafeMutableRawPointer
 ) {
     let session = Unmanaged<AVAssetExportSession>.fromOpaque(sessionPtr).takeUnretainedValue()
     session.determineCompatibleFileTypes { fileTypes in
         let encoded = fileTypes.compactMap(encodeFileType)
-        do {
-            guard let jsonPtr = ffiString(try encodeJson(encoded)) else {
-                "failed to allocate JSON string".withCString { cb(nil, $0, ctx) }
-                return
-            }
-            cb(UnsafeRawPointer(jsonPtr), nil, ctx)
-        } catch {
-            error.localizedDescription.withCString { cb(nil, $0, ctx) }
-        }
+        let payload = makePayload(encoded)
+        cb(payload.map { UnsafeRawPointer($0) }, nil, ctx)
     }
 }

@@ -1,3 +1,4 @@
+#include "AVAssetWriterABI.h"
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>

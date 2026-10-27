@@ -2,6 +2,7 @@
 
 #![allow(missing_docs)]
 
+mod abi;
 mod asset;
 mod async_ffi;
 mod caption;
@@ -11,6 +12,7 @@ mod extended;
 mod media_processing;
 mod metadata;
 mod output_settings;
+pub use abi::*;
 pub use asset::*;
 pub use async_ffi::*;
 pub use caption::*;
@@ -21,15 +23,15 @@ pub use media_processing::*;
 pub use metadata::*;
 pub use output_settings::*;
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
 
 extern "C" {
-    pub fn avw_string_free(s: *mut c_char);
+    pub fn avw_payload_free(s: *mut AVWOwnedPayload);
 
     pub fn av_writer_create(
-        path: *const c_char,
-        file_type: *const c_char,
-        out_error_message: *mut *mut c_char,
+        path: *const AVWString,
+        file_type: *const AVWString,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> *mut c_void;
 
     pub fn av_writer_release(writer: *mut c_void);
@@ -37,25 +39,25 @@ extern "C" {
     pub fn av_writer_add_video_input_from_sample(
         writer: *mut c_void,
         sample_buffer: *mut c_void,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_writer_add_video_input_from_preset(
         writer: *mut c_void,
-        preset: *const c_char,
-        out_error_message: *mut *mut c_char,
+        preset: *const AVWString,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_writer_set_should_optimize_for_network_use(
         writer: *mut c_void,
         should_optimize: bool,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_writer_set_movie_fragment_interval_seconds(
         writer: *mut c_void,
         seconds: f64,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_writer_add_input_group(
@@ -63,7 +65,7 @@ extern "C" {
         ids: *const i32,
         count: usize,
         default_id: i32,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> bool;
 
     pub fn av_writer_add_audio_input_pcm(
@@ -71,7 +73,7 @@ extern "C" {
         sample_rate: f64,
         channels: u32,
         bits_per_sample: u32,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_writer_append_audio_pcm(
@@ -82,31 +84,34 @@ extern "C" {
         frame_count: usize,
         pts_value: i64,
         pts_timescale: i32,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_writer_start_session(
         writer: *mut c_void,
         source_time_value: i64,
         source_time_scale: i32,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_writer_append_sample(
         writer: *mut c_void,
         input_id: i32,
         sample_buffer: *mut c_void,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
-    pub fn av_writer_finish(writer: *mut c_void, out_error_message: *mut *mut c_char) -> i32;
+    pub fn av_writer_finish(
+        writer: *mut c_void,
+        out_error_message: *mut *mut AVWOwnedPayload,
+    ) -> i32;
 
     pub fn av_writer_add_video_input_pixel_buffer(
         writer: *mut c_void,
         width: i32,
         height: i32,
         pixel_format_type: u32,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 
     pub fn av_writer_append_pixel_buffer(
@@ -115,7 +120,7 @@ extern "C" {
         pixel_buffer: *mut c_void,
         pts_value: i64,
         pts_timescale: i32,
-        out_error_message: *mut *mut c_char,
+        out_error_message: *mut *mut AVWOwnedPayload,
     ) -> i32;
 }
 

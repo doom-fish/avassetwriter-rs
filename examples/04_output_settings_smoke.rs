@@ -30,7 +30,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "assistant output type={:?}, video settings keys={} average={:?} min={:?}",
         assistant.output_file_type()?,
-        settings.as_object().map_or(0, serde_json::Map::len),
+        settings
+            .as_dictionary()
+            .map_or(0, std::collections::BTreeMap::len),
         assistant.source_video_average_frame_duration()?,
         assistant.source_video_min_frame_duration()?,
     );

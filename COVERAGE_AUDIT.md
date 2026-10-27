@@ -101,6 +101,6 @@ None.
 - `Composition` support is inspection-focused: the crate can snapshot compositions from existing `Asset`s and build standalone `CompositionTrackSegment`s, but it does not yet expose the full `AVMutableComposition` / `AVMutableCompositionTrack` editing surface as first-class Rust types.
 - `AssetTrackSegment` is surfaced via composition-track inspection and `CompositionTrackSegment::asset_track_segment()` because `AVAssetTrack` itself is not yet wrapped.
 - `MetadataItemFilter` and `AudioMix` remain focused interop wrappers. The Rust video compositor processes live retained requests, but currently advertises only 32-bit BGRA SDR pixel/sample-buffer paths; tagged buffers, wide-color/HDR sources, and direct Rust `CIImage` processing remain unsupported.
-- `OutputSettingsAssistant` exposes `audioSettings` and `videoSettings` as `serde_json::Value` dictionaries rather than typed Rust key/value wrappers.
+- `OutputSettingsAssistant` exposes `audioSettings` and `videoSettings` as native `PropertyValue` dictionaries. The key constants do not have a dedicated enum.
 - The crate models `AVAssetWriterInput` through `InputId` plus `Writer` methods rather than exposing a standalone Rust object for the Objective-C input instance.
 - `AVAssetWriterInputPixelBufferAdaptor`, `AVAssetWriterInputTaggedPixelBufferGroupAdaptor`, `AVAssetWriterInputMetadataAdaptor`, and `AVAssetWriterInputCaptionAdaptor` are all wrapped, but excluded from coverage percentage because Apple marks those Swift-imported interfaces deprecated in favor of newer receiver APIs.

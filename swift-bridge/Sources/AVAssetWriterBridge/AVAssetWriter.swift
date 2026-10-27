@@ -31,15 +31,9 @@ let AVW_START_FAILED: Int32 = -7
 
 // MARK: - String helpers
 
-@_cdecl("avw_string_free")
-public func avw_string_free(_ str: UnsafeMutablePointer<CChar>?) {
-    guard let str = str else { return }
-    free(str)
-}
 
-func ffiString(_ s: String) -> UnsafeMutablePointer<CChar>? {
-    return s.withCString { strdup($0) }
-}
+
+
 
 struct AudioFormat {
     let sampleRate: Float64
@@ -308,22 +302,22 @@ final class Writer {
 ///   "m4v"  -> AVFileType.m4v
 @_cdecl("av_writer_create")
 public func av_writer_create(
-    _ path: UnsafePointer<CChar>,
-    _ fileType: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ path: UnsafePointer<AVWString>,
+    _ fileType: UnsafePointer<AVWString>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
-    let pathStr = String(cString: path)
-    let typeStr = String(cString: fileType)
+    let pathStr = String(abi: path)
+    let typeStr = String(abi: fileType)
 
     guard let avFileType = decodeFileType(typeStr) else {
-        outErrorMessage?.pointee = ffiString("unknown or unsupported file type: \(typeStr)")
+        outErrorMessage?.pointee = makePayload("unknown or unsupported file type: \(typeStr)")
         return nil
     }
 
     let url = URL(fileURLWithPath: pathStr)
     var message: NSString?
     guard let writer = AVWXMakeWriter(url, avFileType, &message) else {
-        outErrorMessage?.pointee = ffiString(
+        outErrorMessage?.pointee = makePayload(
             "AVAssetWriter init failed: \((message as String?) ?? "unknown error")"
         )
         return nil
@@ -353,14 +347,14 @@ public func av_writer_release(_ ptr: UnsafeMutableRawPointer?) {
 public func av_writer_add_video_input_from_sample(
     _ writerPtr: UnsafeMutableRawPointer,
     _ sampleBufferPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
     let sampleBuffer = Unmanaged<CMSampleBuffer>.fromOpaque(sampleBufferPtr).takeUnretainedValue()
 
     guard let format = CMSampleBufferGetFormatDescription(sampleBuffer) else {
-        outErrorMessage?.pointee = ffiString("sample buffer has no format description")
+        outErrorMessage?.pointee = makePayload("sample buffer has no format description")
         return AVW_INVALID_ARGUMENT
     }
     if let status = formatHintStatus(format, expected: .video, outErrorMessage) {
@@ -391,21 +385,21 @@ public func av_writer_add_audio_input_pcm(
     _ sampleRate: Float64,
     _ channels: UInt32,
     _ bitsPerSample: UInt32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
 
     guard channels >= 1, channels <= 8 else {
-        outErrorMessage?.pointee = ffiString("channels must be in 1...8 (got \(channels))")
+        outErrorMessage?.pointee = makePayload("channels must be in 1...8 (got \(channels))")
         return AVW_INVALID_ARGUMENT
     }
     guard bitsPerSample == 16 || bitsPerSample == 32 else {
-        outErrorMessage?.pointee = ffiString("bitsPerSample must be 16 or 32 (got \(bitsPerSample))")
+        outErrorMessage?.pointee = makePayload("bitsPerSample must be 16 or 32 (got \(bitsPerSample))")
         return AVW_INVALID_ARGUMENT
     }
     guard sampleRate.isFinite, sampleRate > 0 else {
-        outErrorMessage?.pointee = ffiString("sampleRate must be positive and finite (got \(sampleRate))")
+        outErrorMessage?.pointee = makePayload("sampleRate must be positive and finite (got \(sampleRate))")
         return AVW_INVALID_ARGUMENT
     }
 
@@ -456,7 +450,7 @@ public func av_writer_append_audio_pcm(
     _ frameCount: Int,
     _ ptsValue: Int64,
     _ ptsTimescale: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
@@ -464,13 +458,13 @@ public func av_writer_append_audio_pcm(
         return status
     }
     guard let fmt = wrapper.audioFormats[inputId] else {
-        outErrorMessage?.pointee = ffiString("input \(inputId) is not an audio input")
+        outErrorMessage?.pointee = makePayload("input \(inputId) is not an audio input")
         return AVW_INVALID_ARGUMENT
     }
     let bytesPerFrame = fmt.channels * fmt.bitsPerSample / 8
     let (expectedByteCount, overflow) = frameCount.multipliedReportingOverflow(by: bytesPerFrame)
     guard frameCount > 0, !overflow, expectedByteCount == pcmByteCount else {
-        outErrorMessage?.pointee = ffiString(
+        outErrorMessage?.pointee = makePayload(
             "pcm byte count \(pcmByteCount) does not match \(frameCount) frames of \(bytesPerFrame) bytes"
         )
         return AVW_INVALID_ARGUMENT
@@ -504,7 +498,7 @@ public func av_writer_append_audio_pcm(
         formatDescriptionOut: &formatDesc
     )
     guard status == noErr, let formatDesc = formatDesc else {
-        outErrorMessage?.pointee = ffiString("CMAudioFormatDescriptionCreate failed: \(status)")
+        outErrorMessage?.pointee = makePayload("CMAudioFormatDescriptionCreate failed: \(status)")
         return AVW_APPEND_FAILED
     }
 
@@ -522,7 +516,7 @@ public func av_writer_append_audio_pcm(
         blockBufferOut: &blockBuffer
     )
     guard status == noErr, let blockBuffer = blockBuffer else {
-        outErrorMessage?.pointee = ffiString("CMBlockBufferCreate failed: \(status)")
+        outErrorMessage?.pointee = makePayload("CMBlockBufferCreate failed: \(status)")
         return AVW_APPEND_FAILED
     }
     status = CMBlockBufferReplaceDataBytes(
@@ -532,7 +526,7 @@ public func av_writer_append_audio_pcm(
         dataLength: pcmByteCount
     )
     guard status == noErr else {
-        outErrorMessage?.pointee = ffiString("CMBlockBufferReplaceDataBytes failed: \(status)")
+        outErrorMessage?.pointee = makePayload("CMBlockBufferReplaceDataBytes failed: \(status)")
         return AVW_APPEND_FAILED
     }
 
@@ -549,7 +543,7 @@ public func av_writer_append_audio_pcm(
         sampleBufferOut: &sampleBuffer
     )
     guard status == noErr, let sampleBuffer = sampleBuffer else {
-        outErrorMessage?.pointee = ffiString(
+        outErrorMessage?.pointee = makePayload(
             "CMAudioSampleBufferCreateReadyWithPacketDescriptions failed: \(status)"
         )
         return AVW_APPEND_FAILED
@@ -569,23 +563,23 @@ public func av_writer_start_session(
     _ writerPtr: UnsafeMutableRawPointer,
     _ sourceTimeValue: Int64,
     _ sourceTimeScale: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
     guard wrapper.writer.status == .unknown, !wrapper.sessionStarted else {
-        outErrorMessage?.pointee = ffiString(
+        outErrorMessage?.pointee = makePayload(
             "start_session can only be called once, before writing starts (status=\(wrapper.writer.status.rawValue))"
         )
         return AVW_INVALID_STATE
     }
     guard sourceTimeScale > 0 else {
-        outErrorMessage?.pointee = ffiString("start_session requires a positive timescale")
+        outErrorMessage?.pointee = makePayload("start_session requires a positive timescale")
         return AVW_INVALID_ARGUMENT
     }
     if !wrapper.writer.startWriting() {
         let msg = wrapper.writer.error?.localizedDescription ?? "startWriting() returned false"
-        outErrorMessage?.pointee = ffiString(msg)
+        outErrorMessage?.pointee = makePayload(msg)
         return AVW_START_FAILED
     }
     let t = CMTime(value: sourceTimeValue, timescale: sourceTimeScale)
@@ -602,7 +596,7 @@ public func av_writer_append_sample(
     _ writerPtr: UnsafeMutableRawPointer,
     _ inputId: Int32,
     _ sampleBufferPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Writer.locked(writerPtr)
     defer { wrapper.unlock() }
@@ -610,7 +604,7 @@ public func av_writer_append_sample(
         return status
     }
     guard wrapper.captionAdaptors[inputId] == nil else {
-        outErrorMessage?.pointee = ffiString(
+        outErrorMessage?.pointee = makePayload(
             "input \(inputId) has a caption adaptor; append captions instead of sample buffers"
         )
         return AVW_INVALID_ARGUMENT
@@ -635,13 +629,13 @@ public func av_writer_append_sample(
 @_cdecl("av_writer_finish")
 public func av_writer_finish(
     _ writerPtr: UnsafeMutableRawPointer,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let wrapper = Unmanaged<Writer>.fromOpaque(writerPtr).takeUnretainedValue()
     let semaphore = DispatchSemaphore(value: 0)
     let immediateStatus: Int32? = wrapper.withGate {
         if wrapper.isInsideCallback() {
-            outErrorMessage?.pointee = ffiString(
+            outErrorMessage?.pointee = makePayload(
                 "blocking finish cannot be called from a writer callback"
             )
             return AVW_INVALID_STATE
@@ -649,7 +643,7 @@ public func av_writer_finish(
         switch wrapper.writer.status {
         case .writing:
             guard wrapper.beginFinishing() else {
-                outErrorMessage?.pointee = ffiString("finish is already in progress")
+                outErrorMessage?.pointee = makePayload("finish is already in progress")
                 return AVW_INVALID_STATE
             }
             wrapper.writer.finishWriting {
@@ -662,14 +656,14 @@ public func av_writer_finish(
         case .failed:
             wrapper.detachCallbacksAfterTerminalState()
             let msg = wrapper.writer.error?.localizedDescription ?? "writer status = failed"
-            outErrorMessage?.pointee = ffiString(msg)
+            outErrorMessage?.pointee = makePayload(msg)
             return AVW_FINISH_FAILED
         case .cancelled:
             wrapper.detachCallbacksAfterTerminalState()
-            outErrorMessage?.pointee = ffiString("writer cancelled")
+            outErrorMessage?.pointee = makePayload("writer cancelled")
             return AVW_FINISH_FAILED
         default:
-            outErrorMessage?.pointee = ffiString(
+            outErrorMessage?.pointee = makePayload(
                 "writer not in writing state (status=\(wrapper.writer.status.rawValue)); call start_session first"
             )
             return AVW_INVALID_STATE
@@ -688,13 +682,13 @@ public func av_writer_finish(
             return AVW_OK
         case .failed:
             let msg = wrapper.writer.error?.localizedDescription ?? "writer status = failed"
-            outErrorMessage?.pointee = ffiString(msg)
+            outErrorMessage?.pointee = makePayload(msg)
             return AVW_FINISH_FAILED
         case .cancelled:
-            outErrorMessage?.pointee = ffiString("writer cancelled")
+            outErrorMessage?.pointee = makePayload("writer cancelled")
             return AVW_FINISH_FAILED
         default:
-            outErrorMessage?.pointee = ffiString("writer status = \(wrapper.writer.status.rawValue)")
+            outErrorMessage?.pointee = makePayload("writer status = \(wrapper.writer.status.rawValue)")
             return AVW_INVALID_STATE
         }
     }

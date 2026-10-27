@@ -3,12 +3,12 @@ import AVFoundation
 import CoreMedia
 import Foundation
 
-typealias AVWErrorOut = UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+typealias AVWErrorOut = UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 
 extension Writer {
     func configurationStatus(_ property: String, _ outErrorMessage: AVWErrorOut) -> Int32? {
         guard writer.status != .unknown else { return nil }
-        outErrorMessage?.pointee = ffiString(
+        outErrorMessage?.pointee = makePayload(
             "\(property) cannot be changed after writing has started (status=\(writer.status.rawValue))"
         )
         return AVW_INVALID_STATE
@@ -16,7 +16,7 @@ extension Writer {
 
     func inputSetterStatus(_ inputId: Int32, _ property: String, _ outErrorMessage: AVWErrorOut) -> Int32? {
         guard inputId >= 0, Int(inputId) < inputs.count else {
-            outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
+            outErrorMessage?.pointee = makePayload("invalid input id: \(inputId)")
             return AVW_INVALID_ARGUMENT
         }
         return configurationStatus(property, outErrorMessage)
@@ -24,7 +24,7 @@ extension Writer {
 
     func appendStatus(_ inputId: Int32, _ outErrorMessage: AVWErrorOut) -> Int32? {
         guard inputId >= 0, Int(inputId) < inputs.count else {
-            outErrorMessage?.pointee = ffiString("invalid input id: \(inputId)")
+            outErrorMessage?.pointee = makePayload("invalid input id: \(inputId)")
             return AVW_INVALID_ARGUMENT
         }
         let reason: String?
@@ -40,7 +40,7 @@ extension Writer {
             reason = nil
         }
         guard let reason else { return nil }
-        outErrorMessage?.pointee = ffiString(reason)
+        outErrorMessage?.pointee = makePayload(reason)
         return AVW_INVALID_STATE
     }
 
@@ -54,13 +54,13 @@ extension Writer {
         case 1:
             return AVW_OK
         case 0:
-            outErrorMessage?.pointee = ffiString(
+            outErrorMessage?.pointee = makePayload(
                 writer.error?.localizedDescription
                     ?? "\(operation) returned false (status=\(writer.status.rawValue))"
             )
             return AVW_APPEND_FAILED
         default:
-            outErrorMessage?.pointee = ffiString((message as String?) ?? "\(operation) raised an exception")
+            outErrorMessage?.pointee = makePayload((message as String?) ?? "\(operation) raised an exception")
             return AVW_INVALID_STATE
         }
     }
@@ -70,7 +70,7 @@ extension Writer {
             return status
         }
         guard !adaptedInputIds.contains(inputId) else {
-            outErrorMessage?.pointee = ffiString("input \(inputId) already has an adaptor")
+            outErrorMessage?.pointee = makePayload("input \(inputId) already has an adaptor")
             return AVW_INVALID_STATE
         }
         return nil
@@ -84,7 +84,7 @@ extension Writer {
     ) -> AVAssetWriterInput? {
         var message: NSString?
         guard let input = AVWXMakeInput(mediaType, outputSettings, sourceFormatHint, &message) else {
-            outErrorMessage?.pointee = ffiString(
+            outErrorMessage?.pointee = makePayload(
                 (message as String?) ?? "AVAssetWriterInput rejected its settings"
             )
             return nil
@@ -98,7 +98,7 @@ extension Writer {
         }
         var message: NSString?
         guard AVWXAddInput(writer, input, &message) else {
-            outErrorMessage?.pointee = ffiString((message as String?) ?? "writer cannot add input")
+            outErrorMessage?.pointee = makePayload((message as String?) ?? "writer cannot add input")
             return AVW_INVALID_STATE
         }
         let id = Int32(inputs.count)
@@ -142,7 +142,7 @@ func formatHintStatus(
 ) -> Int32? {
     let formatType = mediaTypeString(of: format)
     guard formatType != mediaType.rawValue else { return nil }
-    outErrorMessage?.pointee = ffiString(
+    outErrorMessage?.pointee = makePayload(
         "format description media type '\(formatType)' is not '\(mediaType.rawValue)'"
     )
     return AVW_INVALID_ARGUMENT
@@ -156,7 +156,7 @@ func sampleMediaTypeStatus(
     guard let format = CMSampleBufferGetFormatDescription(sampleBuffer) else { return nil }
     let sampleType = mediaTypeString(of: format)
     guard sampleType != input.mediaType.rawValue else { return nil }
-    outErrorMessage?.pointee = ffiString(
+    outErrorMessage?.pointee = makePayload(
         "sample buffer media type '\(sampleType)' does not match the input's '\(input.mediaType.rawValue)'"
     )
     return AVW_INVALID_ARGUMENT

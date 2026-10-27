@@ -1,3 +1,4 @@
+import AVAssetWriterObjCBridge
 import AVFoundation
 import CoreMedia
 import CoreVideo
@@ -5,8 +6,8 @@ import Dispatch
 import Foundation
 import UniformTypeIdentifiers
 
-@_cdecl("av_output_settings_assistant_available_presets_json")
-public func av_output_settings_assistant_available_presets_json() -> UnsafeMutablePointer<CChar>? {
+@_cdecl("av_output_settings_assistant_available_presets_payload")
+public func av_output_settings_assistant_available_presets_payload() -> UnsafeMutablePointer<AVWOwnedPayload>? {
     do {
         let presets = try AVOutputSettingsAssistant.availableOutputSettingsPresets().map { preset in
             guard let encoded = encodeOutputSettingsPreset(preset) else {
@@ -14,7 +15,7 @@ public func av_output_settings_assistant_available_presets_json() -> UnsafeMutab
             }
             return encoded
         }
-        return ffiString(try encodeJson(presets))
+        return makePayload(presets)
     } catch {
         return nil
     }
@@ -22,16 +23,16 @@ public func av_output_settings_assistant_available_presets_json() -> UnsafeMutab
 
 @_cdecl("av_output_settings_assistant_create")
 public func av_output_settings_assistant_create(
-    _ presetPtr: UnsafePointer<CChar>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ presetPtr: UnsafePointer<AVWString>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> UnsafeMutableRawPointer? {
-    let presetRaw = String(cString: presetPtr)
+    let presetRaw = String(abi: presetPtr)
     guard let preset = decodeOutputSettingsPreset(presetRaw) else {
-        outErrorMessage?.pointee = ffiString("unknown output settings preset '\(presetRaw)'")
+        outErrorMessage?.pointee = makePayload("unknown output settings preset '\(presetRaw)'")
         return nil
     }
     guard let assistant = AVOutputSettingsAssistant(preset: preset) else {
-        outErrorMessage?.pointee = ffiString("failed to create AVOutputSettingsAssistant for preset '\(presetRaw)'")
+        outErrorMessage?.pointee = makePayload("failed to create AVOutputSettingsAssistant for preset '\(presetRaw)'")
         return nil
     }
     return Unmanaged.passRetained(assistant).toOpaque()
@@ -43,13 +44,13 @@ public func av_output_settings_assistant_release(_ assistantPtr: UnsafeMutableRa
     Unmanaged<AVOutputSettingsAssistant>.fromOpaque(assistantPtr).release()
 }
 
-@_cdecl("av_output_settings_assistant_info_json")
-public func av_output_settings_assistant_info_json(
+@_cdecl("av_output_settings_assistant_info_payload")
+public func av_output_settings_assistant_info_payload(
     _ assistantPtr: UnsafeMutableRawPointer
-) -> UnsafeMutablePointer<CChar>? {
+) -> UnsafeMutablePointer<AVWOwnedPayload>? {
     let assistant = Unmanaged<AVOutputSettingsAssistant>.fromOpaque(assistantPtr).takeUnretainedValue()
     do {
-        return ffiString(try encodeJson(outputSettingsAssistantInfoPayload(from: assistant)))
+        return makePayload(outputSettingsAssistantInfoPayload(from: assistant))
     } catch {
         return nil
     }
@@ -68,7 +69,7 @@ public func av_output_settings_assistant_source_audio_format(
 public func av_output_settings_assistant_set_source_audio_format(
     _ assistantPtr: UnsafeMutableRawPointer,
     _ formatPtr: UnsafeMutableRawPointer?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let assistant = Unmanaged<AVOutputSettingsAssistant>.fromOpaque(assistantPtr).takeUnretainedValue()
     assistant.sourceAudioFormat = formatPtr.map {
@@ -91,7 +92,7 @@ public func av_output_settings_assistant_source_video_format(
 public func av_output_settings_assistant_set_source_video_format(
     _ assistantPtr: UnsafeMutableRawPointer,
     _ formatPtr: UnsafeMutableRawPointer?,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let assistant = Unmanaged<AVOutputSettingsAssistant>.fromOpaque(assistantPtr).takeUnretainedValue()
     assistant.sourceVideoFormat = formatPtr.map {
@@ -107,7 +108,7 @@ public func av_output_settings_assistant_set_source_video_average_frame_duration
     _ value: Int64,
     _ timescale: Int32,
     _ kind: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let assistant = Unmanaged<AVOutputSettingsAssistant>.fromOpaque(assistantPtr).takeUnretainedValue()
     assistant.sourceVideoAverageFrameDuration = cmTime(value: value, timescale: timescale, kind: kind)
@@ -121,7 +122,7 @@ public func av_output_settings_assistant_set_source_video_min_frame_duration(
     _ value: Int64,
     _ timescale: Int32,
     _ kind: Int32,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<AVWOwnedPayload>?>?
 ) -> Int32 {
     let assistant = Unmanaged<AVOutputSettingsAssistant>.fromOpaque(assistantPtr).takeUnretainedValue()
     assistant.sourceVideoMinFrameDuration = cmTime(value: value, timescale: timescale, kind: kind)

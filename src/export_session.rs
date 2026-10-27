@@ -1,12 +1,10 @@
 #![allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
 use core::ptr;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-
-use crate::bridge_support::{cstring_arg, parse_json_ptr, time_kind, time_scale, time_value};
+use crate::bridge_support::{string_arg, take_payload, time_kind, time_scale, time_value};
 use crate::error::{from_swift, AVWriterError};
 use crate::ffi;
 use crate::media_processing::{AudioMix, MetadataItemFilter, VideoComposition, VideoCompositor};
@@ -182,8 +180,7 @@ impl TrackGroupOutputHandling {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct ExportSessionInfoPayload {
     preset_name: String,
     asset_path: Option<String>,
@@ -195,7 +192,6 @@ struct ExportSessionInfoPayload {
     error_message: Option<String>,
     progress: f32,
     supported_file_types: Vec<String>,
-    #[serde(with = "crate::time::range")]
     time_range: CMTimeRange,
     file_length_limit: i64,
     can_perform_multiple_passes_over_source_media_data: bool,
@@ -225,8 +221,8 @@ impl ExportSession {
 
     /// Return every export preset reported by the current runtime.
     pub fn available_presets() -> Result<Vec<ExportPreset>, AVWriterError> {
-        let ptr = unsafe { ffi::av_export_session_all_presets_json() };
-        let raw: Vec<String> = parse_json_ptr(ptr, "export presets")?;
+        let ptr = unsafe { ffi::av_export_session_all_presets_payload() };
+        let raw: Vec<String> = take_payload(ptr, "export presets")?;
         raw.into_iter()
             .map(|value| {
                 ExportPreset::from_raw(&value).ok_or_else(|| {
@@ -241,8 +237,8 @@ impl ExportSession {
     /// Return presets compatible with the asset at `path`.
     pub fn compatible_presets(path: impl AsRef<Path>) -> Result<Vec<ExportPreset>, AVWriterError> {
         let path_c = path_arg(path, "source asset path")?;
-        let ptr = unsafe { ffi::av_export_session_compatible_presets_json(path_c.as_ptr()) };
-        let raw: Vec<String> = parse_json_ptr(ptr, "compatible export presets")?;
+        let ptr = unsafe { ffi::av_export_session_compatible_presets_payload(path_c.as_ptr()) };
+        let raw: Vec<String> = take_payload(ptr, "compatible export presets")?;
         raw.into_iter()
             .map(|value| {
                 ExportPreset::from_raw(&value).ok_or_else(|| {
@@ -261,18 +257,18 @@ impl ExportSession {
         output_file_type: Option<FileType>,
     ) -> Result<bool, AVWriterError> {
         let path_c = path_arg(path, "source asset path")?;
-        let preset_c = cstring_arg(preset.as_str(), "export preset")?;
+        let preset_c = string_arg(preset.as_str(), "export preset")?;
         let file_type_c = output_file_type
-            .map(|value| cstring_arg(value.as_str(), "output file type"))
+            .map(|value| string_arg(value.as_str(), "output file type"))
             .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let result = unsafe {
             ffi::av_export_session_determine_compatibility(
                 path_c.as_ptr(),
                 preset_c.as_ptr(),
                 file_type_c
                     .as_ref()
-                    .map_or(ptr::null(), |value| value.as_ptr()),
+                    .map_or(ptr::null(), super::binary::Argument::as_ptr),
                 &raw mut err_msg,
             )
         };
@@ -286,8 +282,8 @@ impl ExportSession {
     /// Create an export session for the asset at `path` using `preset`.
     pub fn new(path: impl AsRef<Path>, preset: ExportPreset) -> Result<Self, AVWriterError> {
         let path_c = path_arg(path, "source asset path")?;
-        let preset_c = cstring_arg(preset.as_str(), "export preset")?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let preset_c = string_arg(preset.as_str(), "export preset")?;
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
             ffi::av_export_session_create(path_c.as_ptr(), preset_c.as_ptr(), &raw mut err_msg)
         };
@@ -342,15 +338,15 @@ impl ExportSession {
 
     pub fn set_output_file_type(&self, file_type: Option<FileType>) -> Result<(), AVWriterError> {
         let file_type_c = file_type
-            .map(|value| cstring_arg(value.as_str(), "output file type"))
+            .map(|value| string_arg(value.as_str(), "output file type"))
             .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_output_file_type(
                 self.ptr,
                 file_type_c
                     .as_ref()
-                    .map_or(ptr::null(), |value| value.as_ptr()),
+                    .map_or(ptr::null(), super::binary::Argument::as_ptr),
                 &raw mut err_msg,
             )
         };
@@ -368,11 +364,13 @@ impl ExportSession {
         let path_c = path
             .map(|value| path_arg(value, "output path"))
             .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_output_path(
                 self.ptr,
-                path_c.as_ref().map_or(ptr::null(), |value| value.as_ptr()),
+                path_c
+                    .as_ref()
+                    .map_or(ptr::null(), super::binary::Argument::as_ptr),
                 &raw mut err_msg,
             )
         };
@@ -387,7 +385,7 @@ impl ExportSession {
     }
 
     pub fn set_should_optimize_for_network_use(&self, enabled: bool) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_should_optimize_for_network_use(
                 self.ptr,
@@ -406,7 +404,7 @@ impl ExportSession {
     }
 
     pub fn set_allows_parallelized_export(&self, enabled: bool) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_allows_parallelized_export(
                 self.ptr,
@@ -439,7 +437,7 @@ impl ExportSession {
     /// [`AVWriterError::OutputExists`].
     pub fn export(&self) -> Result<(), AVWriterError> {
         self.prepare_output()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe { ffi::av_export_session_export(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -449,7 +447,7 @@ impl ExportSession {
 
     /// Cancel a running export.
     pub fn cancel(&self) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe { ffi::av_export_session_cancel(self.ptr, &raw mut err_msg) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err_msg) });
@@ -465,8 +463,8 @@ impl ExportSession {
     }
 
     pub fn compatible_file_types(&self) -> Result<Vec<FileType>, AVWriterError> {
-        let ptr = unsafe { ffi::av_export_session_compatible_file_types_json(self.ptr) };
-        let raw: Vec<String> = parse_json_ptr(ptr, "compatible export file types")?;
+        let ptr = unsafe { ffi::av_export_session_compatible_file_types_payload(self.ptr) };
+        let raw: Vec<String> = take_payload(ptr, "compatible export file types")?;
         decode_file_types(&raw, "compatible export file types")
     }
 
@@ -475,7 +473,7 @@ impl ExportSession {
     }
 
     pub fn set_time_range(&self, range: CMTimeRange) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_time_range(
                 self.ptr,
@@ -499,7 +497,7 @@ impl ExportSession {
     }
 
     pub fn set_file_length_limit(&self, limit: i64) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_file_length_limit(self.ptr, limit, &raw mut err_msg)
         };
@@ -510,19 +508,18 @@ impl ExportSession {
     }
 
     pub fn estimated_maximum_duration(&self) -> Result<CMTime, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let ptr = unsafe {
-            ffi::av_export_session_estimated_maximum_duration_json(self.ptr, &raw mut err_msg)
+            ffi::av_export_session_estimated_maximum_duration_payload(self.ptr, &raw mut err_msg)
         };
         if ptr.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
         }
-        parse_json_ptr::<crate::time::TimeJson>(ptr, "estimated maximum duration")
-            .map(|time| time.0)
+        take_payload::<crate::time::TimeValue>(ptr, "estimated maximum duration").map(|time| time.0)
     }
 
     pub fn estimated_output_file_length(&self) -> Result<i64, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let result = unsafe {
             ffi::av_export_session_estimated_output_file_length(self.ptr, &raw mut err_msg)
         };
@@ -533,7 +530,7 @@ impl ExportSession {
     }
 
     pub fn metadata(&self) -> Result<Vec<MetadataItem>, AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let array = unsafe { ffi::av_export_session_metadata(self.ptr, &raw mut err_msg) };
         if array.is_null() {
             return Err(unsafe { from_swift(ffi::status::INVALID_STATE, err_msg) });
@@ -543,7 +540,7 @@ impl ExportSession {
 
     pub fn set_metadata(&self, metadata: &[MetadataItem]) -> Result<(), AVWriterError> {
         let item_ptrs = MetadataItem::native_ptrs(metadata)?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_metadata_items(
                 self.ptr,
@@ -568,7 +565,7 @@ impl ExportSession {
         &self,
         filter: Option<&MetadataItemFilter>,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_metadata_item_filter(
                 self.ptr,
@@ -589,7 +586,7 @@ impl ExportSession {
     }
 
     pub fn set_audio_mix(&self, audio_mix: Option<&AudioMix>) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_audio_mix(
                 self.ptr,
@@ -613,7 +610,7 @@ impl ExportSession {
         &self,
         composition: Option<&VideoComposition>,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_video_composition(
                 self.ptr,
@@ -645,7 +642,7 @@ impl ExportSession {
         &self,
         enabled: bool,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_can_perform_multiple_passes_over_source_media_data(
                 self.ptr,
@@ -670,11 +667,13 @@ impl ExportSession {
         let path_c = path
             .map(|value| path_arg(value, "temporary directory path"))
             .transpose()?;
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_directory_for_temporary_files(
                 self.ptr,
-                path_c.as_ref().map_or(ptr::null(), |value| value.as_ptr()),
+                path_c
+                    .as_ref()
+                    .map_or(ptr::null(), super::binary::Argument::as_ptr),
                 &raw mut err_msg,
             )
         };
@@ -694,7 +693,7 @@ impl ExportSession {
         &self,
         handling: TrackGroupOutputHandling,
     ) -> Result<(), AVWriterError> {
-        let mut err_msg: *mut c_char = ptr::null_mut();
+        let mut err_msg: *mut ffi::AVWOwnedPayload = ptr::null_mut();
         let status = unsafe {
             ffi::av_export_session_set_audio_track_group_handling(
                 self.ptr,
@@ -709,8 +708,8 @@ impl ExportSession {
     }
 
     fn info(&self) -> Result<ExportSessionInfoPayload, AVWriterError> {
-        let ptr = unsafe { ffi::av_export_session_info_json(self.ptr) };
-        parse_json_ptr(ptr, "export session info")
+        let ptr = unsafe { ffi::av_export_session_info_payload(self.ptr) };
+        take_payload(ptr, "export session info")
     }
 }
 
@@ -731,12 +730,15 @@ impl core::fmt::Debug for ExportSession {
     }
 }
 
-fn path_arg(path: impl AsRef<Path>, context: &str) -> Result<std::ffi::CString, AVWriterError> {
+fn path_arg(
+    path: impl AsRef<Path>,
+    context: &str,
+) -> Result<crate::binary::Argument<ffi::AVWString>, AVWriterError> {
     let path_str = path
         .as_ref()
         .to_str()
         .ok_or_else(|| AVWriterError::InvalidArgument(format!("{context} is not valid UTF-8")))?;
-    cstring_arg(path_str, context)
+    string_arg(path_str, context)
 }
 
 fn decode_file_type(raw: &str, context: &str) -> Result<FileType, AVWriterError> {
@@ -749,4 +751,75 @@ fn decode_file_types(raw: &[String], context: &str) -> Result<Vec<FileType>, AVW
     raw.iter()
         .map(|value| decode_file_type(value, context))
         .collect()
+}
+
+impl crate::binary::ToAbi for ExportSessionInfoPayload {
+    type Abi = crate::ffi::AVWExportSessionInfo;
+
+    fn to_abi(&self, arena: &mut crate::binary::Arena) -> Self::Abi {
+        Self::Abi {
+            preset_name: crate::binary::ToAbi::to_abi(&self.preset_name, arena),
+            asset_path: crate::binary::ToAbi::to_abi(&self.asset_path, arena),
+            output_file_type: crate::binary::ToAbi::to_abi(&self.output_file_type, arena),
+            output_path: crate::binary::ToAbi::to_abi(&self.output_path, arena),
+            should_optimize_for_network_use: crate::binary::ToAbi::to_abi(
+                &self.should_optimize_for_network_use,
+                arena,
+            ),
+            allows_parallelized_export: crate::binary::ToAbi::to_abi(
+                &self.allows_parallelized_export,
+                arena,
+            ),
+            status: crate::binary::ToAbi::to_abi(&self.status, arena),
+            error_message: crate::binary::ToAbi::to_abi(&self.error_message, arena),
+            progress: crate::binary::ToAbi::to_abi(&self.progress, arena),
+            supported_file_types: crate::binary::ToAbi::to_abi(&self.supported_file_types, arena),
+            time_range: crate::binary::ToAbi::to_abi(&self.time_range, arena),
+            file_length_limit: crate::binary::ToAbi::to_abi(&self.file_length_limit, arena),
+            can_perform_multiple_passes_over_source_media_data: crate::binary::ToAbi::to_abi(
+                &self.can_perform_multiple_passes_over_source_media_data,
+                arena,
+            ),
+            directory_for_temporary_files: crate::binary::ToAbi::to_abi(
+                &self.directory_for_temporary_files,
+                arena,
+            ),
+            audio_track_group_handling: crate::binary::ToAbi::to_abi(
+                &self.audio_track_group_handling,
+                arena,
+            ),
+        }
+    }
+}
+
+impl crate::binary::FromAbi for ExportSessionInfoPayload {
+    fn from_abi(raw: &Self::Abi) -> Result<Self, crate::error::AVWriterError> {
+        Ok(Self {
+            preset_name: crate::binary::FromAbi::from_abi(&raw.preset_name)?,
+            asset_path: crate::binary::FromAbi::from_abi(&raw.asset_path)?,
+            output_file_type: crate::binary::FromAbi::from_abi(&raw.output_file_type)?,
+            output_path: crate::binary::FromAbi::from_abi(&raw.output_path)?,
+            should_optimize_for_network_use: crate::binary::FromAbi::from_abi(
+                &raw.should_optimize_for_network_use,
+            )?,
+            allows_parallelized_export: crate::binary::FromAbi::from_abi(
+                &raw.allows_parallelized_export,
+            )?,
+            status: crate::binary::FromAbi::from_abi(&raw.status)?,
+            error_message: crate::binary::FromAbi::from_abi(&raw.error_message)?,
+            progress: crate::binary::FromAbi::from_abi(&raw.progress)?,
+            supported_file_types: crate::binary::FromAbi::from_abi(&raw.supported_file_types)?,
+            time_range: crate::binary::FromAbi::from_abi(&raw.time_range)?,
+            file_length_limit: crate::binary::FromAbi::from_abi(&raw.file_length_limit)?,
+            can_perform_multiple_passes_over_source_media_data: crate::binary::FromAbi::from_abi(
+                &raw.can_perform_multiple_passes_over_source_media_data,
+            )?,
+            directory_for_temporary_files: crate::binary::FromAbi::from_abi(
+                &raw.directory_for_temporary_files,
+            )?,
+            audio_track_group_handling: crate::binary::FromAbi::from_abi(
+                &raw.audio_track_group_handling,
+            )?,
+        })
+    }
 }
